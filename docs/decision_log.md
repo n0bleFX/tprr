@@ -55,3 +55,13 @@ methodology choice must have an entry here.
 **Impact**: Phase 10 scenario and sensitivity coverage is five-of-six controls. Transaction cross-validation enters scope when Noble has enterprise API relationships in place and a dedicated investigation workflow.
 
 **Methodology section**: 4.2.3
+
+## 2026-04-23 — Closed-set string fields left as str in v0.1 schema
+
+**Decision**: index_code, ordering, source fields in pydantic schemas remain typed as str rather than Literal or StrEnum, pending Phase 7 implementation clarity.
+
+**Context**: Some schema fields have closed value sets (index_code: 8 values; ordering: 2 values; source: 4 values) that technically could be Literal-typed for tighter compile-time checks. Version remains str (open-ended); reason remains str (free-text by design).
+
+**Rationale**: Premature closure on these sets means schema changes every time we add an index code or ordering variant. Revisit in Phase 7 when stable sets are settled by the actual compute implementation.
+
+**Impact**: Lose compile-time catches on typos in those fields until Phase 7. Acceptable — tests will catch them instead.
