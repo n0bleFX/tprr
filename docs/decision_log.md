@@ -27,3 +27,31 @@ methodology choice must have an entry here.
 **Rationale**: Every implementation decision downstream references this document.
 
 **Impact**: This file is the source of truth for Phase 7.0 pipeline confirmation and all scenario/sensitivity interpretation.
+
+## 2026-04-23 — TWAP ordering resolved to TWAP-then-weight
+
+**Decision**: Daily fix computes each constituent's daily TWAP from 96 fifteen-minute slot observations first, then applies the dual-weighted cross-constituent aggregation once using those daily TWAPs as inputs.
+
+**Context**: Section 4.2.1 specifies TPRR Daily Fix = TWAP(Pᵢ(t)) over 96 intervals between 09:00–17:00 UTC; Section 3.3.1 specifies the dual-weighted instantaneous formula. The composition order is not explicit — TWAP(Pᵢ(t)) admits two readings: (i) TWAP each constituent's price first, then weight (TWAP-then-weight), or (ii) compute the weighted index at each slot, then TWAP the 96 slot-level indices (weight-then-TWAP).
+
+**Alternatives considered**:
+- TWAP-then-weight (chosen) — matches dominant commodity-benchmark convention (ICE Brent, Henry Hub, ASCI); tier median and exponential weight operate on one comparable daily price per constituent; dimensionally consistent.
+- Weight-then-TWAP — closer to a strict reading of "apply formula at each t then TWAP over t"; more computationally expensive; may behave differently on days when slot-level quality gate fires or constituent membership changes intraday.
+
+**Rationale**: Commodity-benchmark precedent, computational tractability, dimensional consistency of the median operating on comparable daily prices.
+
+**Impact**: Phase 10 includes `scripts/twap_ordering_comparison.py` running the full backtest under both orderings and producing `docs/findings/twap_ordering.md`. If empirical divergence is material, methodology v1.3 should resolve the ambiguity explicitly in Section 4.2.1.
+
+**Methodology section**: 3.3.1, 4.2.1
+
+## 2026-04-23 — Section 4.2.3 (transaction cross-validation) deferred from MVP
+
+**Decision**: The MVP does not implement Section 4.2.3 Independent Transaction Cross-Validation.
+
+**Context**: Section 4.2.3 specifies independent API probing to sample actual transaction prices for cross-validation against contributor-submitted prices, with >2% deviation triggering investigation. This requires live production infrastructure, enterprise API access across all tracked providers, and operational capacity to investigate flagged discrepancies.
+
+**Rationale**: Deferred to post-MVP production build per the "production only" carve-out in CLAUDE.md non-goals. The MVP validates the five manipulation controls that can be exercised against synthetic and observable reference data: 4.2.1 TWAP aggregation, 4.2.2 slot-level quality gate, 4.2.4 minimum-constituent requirement, 4.2.5 prohibition on provider self-reported volumes, 4.2.6 continuous exponential weighting.
+
+**Impact**: Phase 10 scenario and sensitivity coverage is five-of-six controls. Transaction cross-validation enters scope when Noble has enterprise API relationships in place and a dedicated investigation workflow.
+
+**Methodology section**: 4.2.3
