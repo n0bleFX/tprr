@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+data/raw/
+data/processed/
+data/indices/*.db
+*.db-journal
+.env
+.DS_Store
+.ipynb_checkpoints/
+/docs/findings/charts/
