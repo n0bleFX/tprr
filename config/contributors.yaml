@@ -1,0 +1,208 @@
+# TPRR mock contributor panel — 10 contributors representing realistic enterprise
+# AI inference consumption distribution. Each archetype carries a distinct
+# bias / noise / error profile to exercise the dual-weighted aggregation under
+# heterogeneous Tier A inputs. Panel-wide bias sums to -0.5%.
+#
+# Volume mix: 1 very_high / 3 high / 4 medium / 2 low.
+# Coverage: every contributor covers 4–16 models; every model covered by ≥5
+# contributors (Tier A "≥3 contributors" threshold exceedable on every model
+# with 2-contributor outage tolerance).
+#
+# Panel design rationale: docs/decision_log.md 2026-04-23 entry on
+# "Mock contributor panel design rationale".
+# Schema: src/tprr/config.py :: ContributorProfile
+
+contributors:
+
+  # Platform Reseller — covers all 16 models. Aggregator pricing on behalf of
+  # many downstream users; near-zero bias, very low noise, low error rate.
+  - contributor_id: contrib_atlas
+    profile_name: Platform Reseller
+    volume_scale: very_high
+    price_bias_pct: 0.0
+    daily_noise_sigma_pct: 0.3
+    error_rate: 0.005
+    covered_models:
+      - openai/gpt-5-pro
+      - openai/gpt-5
+      - openai/gpt-5-mini
+      - openai/gpt-5-nano
+      - anthropic/claude-opus-4-7
+      - anthropic/claude-opus-4-6
+      - anthropic/claude-sonnet-4-6
+      - anthropic/claude-haiku-4-5
+      - google/gemini-3-pro
+      - google/gemini-2-flash
+      - google/gemini-flash-lite
+      - mistral/mistral-large-3
+      - meta/llama-4-70b-hosted
+      - deepseek/deepseek-v3-2
+      - alibaba/qwen-3-6-plus
+      - xiaomi/mimo-v2-pro
+
+  # Premium Enterprise — Frontier-heavy; slight downward bias from negotiated
+  # discounts. Covers all F + top S + premium-grade E (deepseek, llama).
+  - contributor_id: contrib_helios
+    profile_name: Premium Enterprise
+    volume_scale: high
+    price_bias_pct: -1.5
+    daily_noise_sigma_pct: 0.5
+    error_rate: 0.005
+    covered_models:
+      - openai/gpt-5-pro
+      - openai/gpt-5
+      - anthropic/claude-opus-4-7
+      - anthropic/claude-opus-4-6
+      - anthropic/claude-sonnet-4-6
+      - google/gemini-3-pro
+      - openai/gpt-5-mini
+      - anthropic/claude-haiku-4-5
+      - mistral/mistral-large-3
+      - deepseek/deepseek-v3-2
+      - meta/llama-4-70b-hosted
+
+  # Broad API Aggregator — F + S + select E (mimo, llama). Medium noise and
+  # medium error rate consistent with broad ingestion across many endpoints.
+  - contributor_id: contrib_orion
+    profile_name: Broad API Aggregator
+    volume_scale: high
+    price_bias_pct: 0.0
+    daily_noise_sigma_pct: 0.8
+    error_rate: 0.020
+    covered_models:
+      - openai/gpt-5-pro
+      - openai/gpt-5
+      - anthropic/claude-opus-4-7
+      - anthropic/claude-opus-4-6
+      - anthropic/claude-sonnet-4-6
+      - google/gemini-3-pro
+      - openai/gpt-5-mini
+      - anthropic/claude-haiku-4-5
+      - google/gemini-2-flash
+      - mistral/mistral-large-3
+      - meta/llama-4-70b-hosted
+      - xiaomi/mimo-v2-pro
+
+  # Workflow Enterprise — F + S only, no E. Slight upward bias from list-price
+  # purchasing on enterprise-class workloads.
+  - contributor_id: contrib_vega
+    profile_name: Workflow Enterprise
+    volume_scale: high
+    price_bias_pct: 1.0
+    daily_noise_sigma_pct: 0.5
+    error_rate: 0.005
+    covered_models:
+      - openai/gpt-5-pro
+      - openai/gpt-5
+      - anthropic/claude-opus-4-7
+      - anthropic/claude-opus-4-6
+      - anthropic/claude-sonnet-4-6
+      - google/gemini-3-pro
+      - openai/gpt-5-mini
+      - anthropic/claude-haiku-4-5
+      - google/gemini-2-flash
+      - mistral/mistral-large-3
+
+  # Mid-Size SaaS — Anthropic-heavy F selection, all S, several E for batch.
+  # Slight downward bias.
+  - contributor_id: contrib_lyra
+    profile_name: Mid-Size SaaS
+    volume_scale: medium
+    price_bias_pct: -0.5
+    daily_noise_sigma_pct: 1.0
+    error_rate: 0.010
+    covered_models:
+      - openai/gpt-5
+      - anthropic/claude-opus-4-7
+      - anthropic/claude-opus-4-6
+      - openai/gpt-5-mini
+      - anthropic/claude-haiku-4-5
+      - google/gemini-2-flash
+      - mistral/mistral-large-3
+      - openai/gpt-5-nano
+      - deepseek/deepseek-v3-2
+      - google/gemini-flash-lite
+      - alibaba/qwen-3-6-plus
+
+  # Cost-Conscious Enterprise — Efficiency-tier specialist; one Standard model
+  # for fallback. Strong negative bias from active price negotiation.
+  - contributor_id: contrib_sirius
+    profile_name: Cost-Conscious Enterprise
+    volume_scale: medium
+    price_bias_pct: -2.0
+    daily_noise_sigma_pct: 0.5
+    error_rate: 0.005
+    covered_models:
+      - openai/gpt-5-mini
+      - google/gemini-flash-lite
+      - openai/gpt-5-nano
+      - deepseek/deepseek-v3-2
+      - alibaba/qwen-3-6-plus
+      - xiaomi/mimo-v2-pro
+      - meta/llama-4-70b-hosted
+
+  # Mid-Size Mixed-Tier — Standard + Efficiency mix. Medium noise & medium
+  # error rate from ad-hoc billing integrations.
+  - contributor_id: contrib_polaris
+    profile_name: Mid-Size Mixed-Tier
+    volume_scale: medium
+    price_bias_pct: 0.0
+    daily_noise_sigma_pct: 1.0
+    error_rate: 0.020
+    covered_models:
+      - openai/gpt-5-mini
+      - anthropic/claude-haiku-4-5
+      - google/gemini-2-flash
+      - mistral/mistral-large-3
+      - google/gemini-flash-lite
+      - openai/gpt-5-nano
+      - deepseek/deepseek-v3-2
+      - alibaba/qwen-3-6-plus
+      - xiaomi/mimo-v2-pro
+      - meta/llama-4-70b-hosted
+
+  # Premium-Use Mid-Size — F + S, no E. Upward bias consistent with smaller
+  # Frontier-tier user paying closer to list price.
+  - contributor_id: contrib_rigel
+    profile_name: Premium-Use Mid-Size
+    volume_scale: medium
+    price_bias_pct: 1.5
+    daily_noise_sigma_pct: 0.5
+    error_rate: 0.010
+    covered_models:
+      - openai/gpt-5-pro
+      - openai/gpt-5
+      - anthropic/claude-opus-4-7
+      - anthropic/claude-sonnet-4-6
+      - google/gemini-3-pro
+      - openai/gpt-5-mini
+      - anthropic/claude-haiku-4-5
+      - mistral/mistral-large-3
+
+  # Small Startup — minimum-viable Efficiency-tier coverage. Higher bias from
+  # low negotiating leverage; medium noise.
+  - contributor_id: contrib_nova
+    profile_name: Small Startup
+    volume_scale: low
+    price_bias_pct: 2.0
+    daily_noise_sigma_pct: 1.2
+    error_rate: 0.020
+    covered_models:
+      - openai/gpt-5-nano
+      - deepseek/deepseek-v3-2
+      - alibaba/qwen-3-6-plus
+      - xiaomi/mimo-v2-pro
+
+  # Small / Quality-Gate Stress — minimal coverage; slight negative bias;
+  # ELEVATED error_rate (6%) intended to exercise the slot-level quality gate.
+  - contributor_id: contrib_zeta
+    profile_name: Small / Quality-Gate Stress
+    volume_scale: low
+    price_bias_pct: -1.0
+    daily_noise_sigma_pct: 0.8
+    error_rate: 0.060
+    covered_models:
+      - openai/gpt-5-mini
+      - google/gemini-2-flash
+      - google/gemini-flash-lite
+      - openai/gpt-5-nano

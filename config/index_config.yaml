@@ -1,0 +1,23 @@
+# TPRR Index calculation parameters. All values match docs/tprr_methodology.md
+# v1.2 defaults; encoded explicitly here for self-documentation.
+#
+# Schema: src/tprr/config.py :: IndexConfig
+# Schema changes require an entry in docs/decision_log.md.
+
+lambda: 3.0                       # exponential median-distance decay (Section 3.3.3)
+base_date: 2026-01-01             # core / B indices rebased to 100 on this date
+backtest_start: 2025-01-01        # earliest panel date
+
+quality_gate_pct: 0.15            # slot-level deviation threshold vs 5-day trailing avg (Section 4.2.2)
+continuity_check_pct: 0.25        # day-over-day change → requires_verification flag (Section 4.1)
+min_constituents_per_tier: 3      # tier suspension floor (Section 4.2.4)
+staleness_max_days: 3             # MVP staleness rule (decision log gap, pending Index Committee)
+
+tier_haircuts:                    # volume-weight haircuts by attestation tier (Section 3.3.2)
+  A: 1.0
+  B: 0.9
+  C: 0.8
+
+twap_window_utc: [9, 17]          # daily TWAP window 09:00–17:00 UTC (Section 4.2.1)
+twap_slots: 96                    # 96 fifteen-minute observation slots
+default_ordering: twap_then_weight  # decision log 2026-04-23

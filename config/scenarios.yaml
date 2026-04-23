@@ -1,0 +1,11 @@
+# Outlier injection scenarios for stress-testing the aggregation.
+#
+# Phase 3 will populate this with the nine scenario types defined in
+# project_plan.md Phase 3 (fat_finger_high/low, stale_quote, contributor_blackout,
+# shock_price_cut, sustained_manipulation, tier_reshuffle, new_model_launch,
+# intraday_spike).
+#
+# Schema: src/tprr/config.py :: ScenariosConfig (currently a permissive
+# placeholder accepting arbitrary content; Phase 3 will tighten the schema).
+
+scenarios: []

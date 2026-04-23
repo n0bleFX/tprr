@@ -1,0 +1,27 @@
+# Tier B revenue-derived volume proxy — quarterly provider API revenue.
+#
+# Phase 4b will populate this with public revenue figures + analyst estimates.
+# For each provider with multiple registry models, add quarterly entries:
+#
+#   entries:
+#     - provider: openai
+#       period: 2025-Q1               # YYYY-Qn format (regex: ^\d{4}-Q[1-4]$)
+#       amount_usd: 2500000000        # numeric, USD
+#       source: analyst_triangulation # one of: reported / analyst_triangulation / synthetic_for_mvp
+#
+# Linear interpolation between consecutive quarterly entries; anchored to
+# end-of-quarter dates (decision log 2026-04-23).
+#
+# Providers requiring entries (per current model_registry):
+#   openai     — 4 models: gpt-5-pro, gpt-5, gpt-5-mini, gpt-5-nano
+#   anthropic  — 4 models: claude-opus-4-7, claude-opus-4-6, claude-sonnet-4-6, claude-haiku-4-5
+#   google     — 3 models: gemini-3-pro, gemini-2-flash, gemini-flash-lite
+#   mistral    — 1 model:  mistral-large-3
+#   meta       — 1 model:  llama-4-70b-hosted
+#   deepseek   — 1 model:  deepseek-v3-2
+#   alibaba    — 1 model:  qwen-3-6-plus
+#   xiaomi     — 1 model:  mimo-v2-pro
+#
+# Schema: src/tprr/config.py :: TierBRevenueEntry
+
+entries: []
