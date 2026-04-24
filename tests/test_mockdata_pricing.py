@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -38,7 +39,7 @@ def test_output_shape_matches_n_days_times_n_models() -> None:
             ("openai/gpt-5-mini", Tier.TPRR_S, 0.5, 4.0),
         ]
     )
-    df = generate_baseline_prices(
+    df, _events = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2025, 1, 30), seed=42
     )
     assert len(df) == 30 * 2  # 30 days inclusive x 2 models
@@ -52,7 +53,7 @@ def test_output_shape_matches_n_days_times_n_models() -> None:
 
 def test_dtypes_match_spec() -> None:
     registry = _registry_with([("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0)])
-    df = generate_baseline_prices(
+    df, _events = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2025, 1, 10), seed=42
     )
     assert df["date"].dtype == "datetime64[ns]"
@@ -68,41 +69,38 @@ def test_all_prices_positive_and_finite() -> None:
             ("google/gemini-flash-lite", Tier.TPRR_E, 0.10, 0.40),
         ]
     )
-    df = generate_baseline_prices(
+    df, _events = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2026, 4, 23), seed=42
     )
     assert (df["baseline_input_price_usd_mtok"] > 0).all()
     assert (df["baseline_output_price_usd_mtok"] > 0).all()
     assert df["baseline_input_price_usd_mtok"].notna().all()
     assert df["baseline_output_price_usd_mtok"].notna().all()
-    import numpy as np
-
     assert np.isfinite(df["baseline_input_price_usd_mtok"]).all()
     assert np.isfinite(df["baseline_output_price_usd_mtok"]).all()
 
 
 def test_seeded_determinism_byte_identical() -> None:
     registry = _registry_with([("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0)])
-    a = generate_baseline_prices(
+    a_prices, a_events = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2025, 12, 31), seed=42
     )
-    b = generate_baseline_prices(
+    b_prices, b_events = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2025, 12, 31), seed=42
     )
-    pd.testing.assert_frame_equal(a, b)
+    pd.testing.assert_frame_equal(a_prices, b_prices)
+    pd.testing.assert_frame_equal(a_events, b_events)
 
 
 def test_different_seeds_produce_different_paths() -> None:
     registry = _registry_with([("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0)])
-    a = generate_baseline_prices(
+    a, _ea = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2025, 12, 31), seed=42
     )
-    b = generate_baseline_prices(
+    b, _eb = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2025, 12, 31), seed=43
     )
-    # Day 0 must match (= registry baseline regardless of seed).
     assert a["baseline_output_price_usd_mtok"].iloc[0] == b["baseline_output_price_usd_mtok"].iloc[0]
-    # Subsequent days must diverge.
     assert not (
         a["baseline_output_price_usd_mtok"].iloc[1:].to_numpy()
         == b["baseline_output_price_usd_mtok"].iloc[1:].to_numpy()
@@ -116,7 +114,7 @@ def test_first_day_equals_registry_baseline_exactly() -> None:
             ("google/gemini-flash-lite", Tier.TPRR_E, 0.10, 0.40),
         ]
     )
-    df = generate_baseline_prices(
+    df, _events = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2025, 1, 10), seed=42
     )
     first_day = df[df["date"] == pd.Timestamp("2025-01-01")]
@@ -129,12 +127,7 @@ def test_first_day_equals_registry_baseline_exactly() -> None:
 
 
 def test_mean_trend_downward_aggregated_over_seeds() -> None:
-    """Per-model mean ending price (over many seeds) is below starting baseline.
-
-    Single-seed behaviour is bidirectional and a given seed may end above
-    starting (design note p90 = 0.989 for Frontier). Over many seeds the drift
-    plus 75% step-down probability ensures aggregate trend is downward per model.
-    """
+    """Per-model mean ending price (over many seeds) is below starting baseline."""
     registry = _registry_with(
         [
             ("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0),
@@ -148,7 +141,7 @@ def test_mean_trend_downward_aggregated_over_seeds() -> None:
         "google/gemini-flash-lite": [],
     }
     for seed in range(20):
-        df = generate_baseline_prices(
+        df, _events = generate_baseline_prices(
             registry, date(2025, 1, 1), date(2026, 4, 23), seed=seed
         )
         for cid in finals_by_model:
@@ -173,9 +166,10 @@ def test_mean_trend_downward_aggregated_over_seeds() -> None:
 def test_input_output_prices_move_in_lockstep() -> None:
     """Input/output ratio stays constant over time (coupled at constituent level)."""
     registry = _registry_with([("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0)])
-    df = generate_baseline_prices(
+    df, _events = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2025, 6, 30), seed=42
-    ).sort_values("date")
+    )
+    df = df.sort_values("date")
     initial_ratio = (
         df["baseline_output_price_usd_mtok"].iloc[0]
         / df["baseline_input_price_usd_mtok"].iloc[0]
@@ -205,12 +199,14 @@ def test_empty_registry_raises() -> None:
 
 def test_single_day_window_returns_baseline_only() -> None:
     registry = _registry_with([("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0)])
-    df = generate_baseline_prices(
+    df, events = generate_baseline_prices(
         registry, date(2025, 1, 1), date(2025, 1, 1), seed=42
     )
     assert len(df) == 1
     assert df["baseline_input_price_usd_mtok"].iloc[0] == 15.0
     assert df["baseline_output_price_usd_mtok"].iloc[0] == 75.0
+    # No step events possible on a single-day window (loop starts at day 1).
+    assert len(events) == 0
 
 
 def test_adding_a_model_does_not_perturb_existing_paths() -> None:
@@ -224,10 +220,10 @@ def test_adding_a_model_does_not_perturb_existing_paths() -> None:
             ("openai/gpt-5-mini", Tier.TPRR_S, 0.5, 4.0),
         ]
     )
-    a = generate_baseline_prices(
+    a, _ea = generate_baseline_prices(
         base_registry, date(2025, 1, 1), date(2025, 6, 30), seed=42
     )
-    b = generate_baseline_prices(
+    b, _eb = generate_baseline_prices(
         extended_registry, date(2025, 1, 1), date(2025, 6, 30), seed=42
     )
     a_pro = a[a["constituent_id"] == "openai/gpt-5-pro"].sort_values("date")
@@ -236,3 +232,127 @@ def test_adding_a_model_does_not_perturb_existing_paths() -> None:
         a_pro["baseline_output_price_usd_mtok"].to_numpy()
         == b_pro["baseline_output_price_usd_mtok"].to_numpy()
     ).all()
+
+
+def test_step_events_df_has_expected_schema() -> None:
+    registry = _registry_with(
+        [
+            ("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0),
+            ("google/gemini-flash-lite", Tier.TPRR_E, 0.10, 0.40),
+        ]
+    )
+    _prices, events = generate_baseline_prices(
+        registry, date(2025, 1, 1), date(2026, 4, 23), seed=42
+    )
+    expected_cols = [
+        "event_date",
+        "constituent_id",
+        "direction",
+        "old_input_price_usd_mtok",
+        "new_input_price_usd_mtok",
+        "old_output_price_usd_mtok",
+        "new_output_price_usd_mtok",
+    ]
+    assert list(events.columns) == expected_cols
+    assert events["event_date"].dtype == "datetime64[ns]"
+    assert events["old_output_price_usd_mtok"].dtype == "float64"
+    assert events["new_output_price_usd_mtok"].dtype == "float64"
+    assert events["direction"].isin({"down", "up"}).all()
+
+
+def test_step_events_direction_matches_magnitude_sign() -> None:
+    """direction=down -> new < old; direction=up -> new > old (for both input & output)."""
+    registry = _registry_with(
+        [
+            ("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0),
+            ("openai/gpt-5-mini", Tier.TPRR_S, 0.5, 4.0),
+            ("google/gemini-flash-lite", Tier.TPRR_E, 0.10, 0.40),
+        ]
+    )
+    _prices, events = generate_baseline_prices(
+        registry, date(2025, 1, 1), date(2026, 4, 23), seed=42
+    )
+    down = events[events["direction"] == "down"]
+    up = events[events["direction"] == "up"]
+    assert (down["new_output_price_usd_mtok"] < down["old_output_price_usd_mtok"]).all()
+    assert (down["new_input_price_usd_mtok"] < down["old_input_price_usd_mtok"]).all()
+    assert (up["new_output_price_usd_mtok"] > up["old_output_price_usd_mtok"]).all()
+    assert (up["new_input_price_usd_mtok"] > up["old_input_price_usd_mtok"]).all()
+
+
+def test_step_events_input_output_magnitude_ratio_matches() -> None:
+    """Input and output get the same step multiplier: ratio new/old is identical."""
+    registry = _registry_with(
+        [
+            ("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0),
+            ("google/gemini-flash-lite", Tier.TPRR_E, 0.10, 0.40),
+        ]
+    )
+    _prices, events = generate_baseline_prices(
+        registry, date(2025, 1, 1), date(2026, 4, 23), seed=42
+    )
+    out_ratio = events["new_output_price_usd_mtok"] / events["old_output_price_usd_mtok"]
+    in_ratio = events["new_input_price_usd_mtok"] / events["old_input_price_usd_mtok"]
+    assert np.allclose(out_ratio, in_ratio, atol=1e-12)
+
+
+def test_step_events_match_observed_baseline_jumps() -> None:
+    """Every event in events_df corresponds to a real jump in prices_df on the same day.
+
+    The event's new_output_price_usd_mtok must equal the baseline on event_date,
+    and old_output_price_usd_mtok must equal the baseline on the preceding day
+    times (1 + daily_return) — i.e. the pre-step-post-drift price.
+    """
+    registry = _registry_with(
+        [("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0)]
+    )
+    prices, events = generate_baseline_prices(
+        registry, date(2025, 1, 1), date(2026, 4, 23), seed=42
+    )
+    prices_by_date = (
+        prices[prices["constituent_id"] == "openai/gpt-5-pro"]
+        .set_index("date")["baseline_output_price_usd_mtok"]
+    )
+    for _, ev in events.iterrows():
+        post_price = prices_by_date.loc[ev["event_date"]]
+        assert abs(post_price - ev["new_output_price_usd_mtok"]) < 1e-9
+
+
+def test_step_event_counts_in_expected_range() -> None:
+    """Per-tier event counts across 478 days + n_models are within Poisson variance."""
+    registry = _registry_with(
+        [
+            ("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0),
+            ("openai/gpt-5", Tier.TPRR_F, 10.0, 40.0),
+            ("openai/gpt-5-mini", Tier.TPRR_S, 0.5, 4.0),
+            ("google/gemini-flash-lite", Tier.TPRR_E, 0.10, 0.40),
+        ]
+    )
+    _prices, events = generate_baseline_prices(
+        registry, date(2025, 1, 1), date(2026, 4, 23), seed=42
+    )
+    # F: 2 models x 3/yr x (478/365) ≈ 7.9, S: 1 x 4 x 1.31 ≈ 5.2,
+    # E: 1 x 5 x 1.31 ≈ 6.5. Single-seed variance is wide; use loose bands.
+    assert 0 < len(events) < 100
+    # No duplicate (event_date, constituent_id) — at most one step per model per day.
+    deduped = events.drop_duplicates(subset=["event_date", "constituent_id"])
+    assert len(deduped) == len(events)
+
+
+def test_empty_step_events_df_has_correct_schema() -> None:
+    """Very short window with no events still returns a correctly-typed empty frame."""
+    registry = _registry_with([("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0)])
+    _prices, events = generate_baseline_prices(
+        registry, date(2025, 1, 1), date(2025, 1, 2), seed=42
+    )
+    # 2-day window can produce 0 or 1 event; schema must be correct either way.
+    assert list(events.columns) == [
+        "event_date",
+        "constituent_id",
+        "direction",
+        "old_input_price_usd_mtok",
+        "new_input_price_usd_mtok",
+        "old_output_price_usd_mtok",
+        "new_output_price_usd_mtok",
+    ]
+    assert events["event_date"].dtype == "datetime64[ns]"

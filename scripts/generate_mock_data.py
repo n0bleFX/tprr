@@ -63,9 +63,11 @@ def main(argv: list[str] | None = None) -> int:
         f"{len(cfg.contributors)} contributors"
     )
 
-    baseline = generate_baseline_prices(
+    baseline, _step_events = generate_baseline_prices(
         cfg.model_registry, args.start, args.end, args.seed
     )
+    # _step_events is consumed by Phase 2b change-event materialisation; Phase
+    # 2a's orchestration script only needs the baseline price frame.
     panel = generate_contributor_panel(
         baseline, cfg.contributors, cfg.model_registry, args.seed
     )

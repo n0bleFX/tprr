@@ -68,7 +68,7 @@ def _profile(
 
 def _build_panel(n_days: int, contribs: list[ContributorProfile]) -> pd.DataFrame:
     registry = _registry()
-    baseline = generate_baseline_prices(
+    baseline, _events = generate_baseline_prices(
         registry,
         date(2025, 1, 1),
         date(2025, 1, 1) + timedelta(days=n_days - 1),

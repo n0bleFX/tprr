@@ -77,12 +77,13 @@ def _two_contributor_panel() -> ContributorPanel:
 
 
 def _baseline(registry: ModelRegistry, n_days: int = 100) -> pd.DataFrame:
-    return generate_baseline_prices(
+    prices, _events = generate_baseline_prices(
         registry,
         date(2025, 1, 1),
         date(2025, 1, 1) + timedelta(days=n_days - 1),
         seed=42,
     )
+    return prices
 
 
 def test_panel_validates_against_panel_observation_df() -> None:
