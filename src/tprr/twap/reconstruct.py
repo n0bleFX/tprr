@@ -46,9 +46,20 @@ def reconstruct_slots(
     No change event on that date → all 32 slots equal the panel's posted
     price for ``price_field``.
 
-    Change event exists → slots ``[0, change_slot_idx)`` use the event's
-    ``old_{price_field}`` value; slots ``[change_slot_idx, 32)`` use
+    One change event → slots ``[0, change_slot_idx)`` use the event's
+    ``old_{price_field}``; slots ``[change_slot_idx, 32)`` use
     ``new_{price_field}``.
+
+    Multiple change events on the same ``(contributor, constituent, date)``
+    → events are sorted by ``change_slot_idx`` and the day is partitioned
+    into segments: ``[0, events[0].slot) = events[0].old`` (pre-first-event
+    price); ``[events[i].slot, events[i+1].slot) = events[i].new``
+    (between-events segment); ``[events[-1].slot, 32) = events[-1].new``
+    (post-last-event segment). Phase 3 outlier-injection scenarios (fat-finger
+    spike-and-revert, intraday_spike) emit two events on the same day; this
+    revision supports that shape. The Phase 2 generator still emits at most
+    one event per key, and this function's output on single-event inputs is
+    byte-identical to the prior single-event formula.
     """
     ts = pd.Timestamp(date)
     event_mask = (
@@ -73,14 +84,23 @@ def reconstruct_slots(
         posted = float(panel_match.iloc[0][price_field])
         return np.full(_TWAP_SLOTS, posted, dtype=np.float64)
 
-    event = matches.iloc[0]
-    slot_idx = int(event["change_slot_idx"])
-    old_price = float(event[f"old_{price_field}"])
-    new_price = float(event[f"new_{price_field}"])
-
+    records = matches.sort_values("change_slot_idx").to_dict("records")
     slots = np.empty(_TWAP_SLOTS, dtype=np.float64)
-    slots[:slot_idx] = old_price
-    slots[slot_idx:] = new_price
+
+    first = records[0]
+    first_slot = int(first["change_slot_idx"])
+    slots[:first_slot] = float(first[f"old_{price_field}"])
+
+    for i, ev in enumerate(records):
+        current_slot = int(ev["change_slot_idx"])
+        current_new = float(ev[f"new_{price_field}"])
+        end_slot = (
+            int(records[i + 1]["change_slot_idx"])
+            if i + 1 < len(records)
+            else _TWAP_SLOTS
+        )
+        slots[current_slot:end_slot] = current_new
+
     return slots
 
 
@@ -117,6 +137,13 @@ def compute_panel_twap(
     ``reconstruct_slots`` does). Honours ``excluded_slots_df`` when provided
     — the DataFrame must have columns ``(contributor_id, constituent_id,
     date, slot_idx)``, one row per excluded slot.
+
+    Single-event assumption: the internal event lookup stores at most one
+    event per (contributor, constituent, date). Valid for Phase 2 panels
+    (the Phase 2b generator dedupes by key). Phase 3 outlier-injection
+    scenarios that emit multiple events per day will require a revision here
+    (and in ``change_events.apply_twap_to_panel``) to compose segmented
+    reconstructions the same way ``reconstruct_slots`` does.
     """
     event_lookup = _build_event_lookup(change_events_df)
     exclusions = _build_exclusions_lookup(excluded_slots_df)

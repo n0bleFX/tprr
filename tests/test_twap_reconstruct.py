@@ -369,3 +369,232 @@ def test_compute_panel_twap_preserves_panel_columns() -> None:
         "twap_output_usd_mtok",
         "twap_input_usd_mtok",
     }
+
+
+# ---------------------------------------------------------------------------
+# Multi-event reconstruction (Phase 2c revision)
+# ---------------------------------------------------------------------------
+
+
+def _minimal_panel_row(
+    date_str: str = "2025-01-01",
+    cid: str = "c",
+    const_id: str = "m",
+    output_price: float = 50.0,
+    input_price: float = 10.0,
+) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {
+                "observation_date": pd.Timestamp(date_str),
+                "contributor_id": cid,
+                "constituent_id": const_id,
+                "output_price_usd_mtok": output_price,
+                "input_price_usd_mtok": input_price,
+            }
+        ]
+    )
+
+
+def _make_event(
+    slot: int,
+    old_out: float,
+    new_out: float,
+    *,
+    date_str: str = "2025-01-01",
+    cid: str = "c",
+    const_id: str = "m",
+    reason: str = "outlier_injection",
+) -> dict[str, object]:
+    return {
+        "event_date": pd.Timestamp(date_str),
+        "contributor_id": cid,
+        "constituent_id": const_id,
+        "change_slot_idx": slot,
+        "old_output_price_usd_mtok": old_out,
+        "new_output_price_usd_mtok": new_out,
+        "old_input_price_usd_mtok": old_out / 5.0,
+        "new_input_price_usd_mtok": new_out / 5.0,
+        "reason": reason,
+    }
+
+
+def test_two_events_same_day_produces_three_segment_array() -> None:
+    """intraday_spike shape: up at slot 10, revert at slot 13."""
+    panel = _minimal_panel_row()
+    events = pd.DataFrame(
+        [
+            _make_event(slot=10, old_out=100.0, new_out=125.0),
+            _make_event(slot=13, old_out=125.0, new_out=100.0),
+        ]
+    )
+    slots = reconstruct_slots(
+        "c", "m", pd.Timestamp("2025-01-01"), panel, events
+    )
+    assert np.all(slots[:10] == 100.0), "pre-first-event segment"
+    assert np.all(slots[10:13] == 125.0), "between-events segment (off-market)"
+    assert np.all(slots[13:] == 100.0), "post-last-event segment"
+
+
+def test_three_events_same_day_cascading_prices() -> None:
+    """Three events: price steps 10 → 20 → 30 → 40 at slots 5, 15, 25."""
+    panel = _minimal_panel_row()
+    events = pd.DataFrame(
+        [
+            _make_event(slot=5, old_out=10.0, new_out=20.0),
+            _make_event(slot=15, old_out=20.0, new_out=30.0),
+            _make_event(slot=25, old_out=30.0, new_out=40.0),
+        ]
+    )
+    slots = reconstruct_slots(
+        "c", "m", pd.Timestamp("2025-01-01"), panel, events
+    )
+    assert np.all(slots[:5] == 10.0)
+    assert np.all(slots[5:15] == 20.0)
+    assert np.all(slots[15:25] == 30.0)
+    assert np.all(slots[25:] == 40.0)
+
+
+def test_events_at_adjacent_slots() -> None:
+    """Events at slots 15 and 16 — one-slot mid-segment."""
+    panel = _minimal_panel_row()
+    events = pd.DataFrame(
+        [
+            _make_event(slot=15, old_out=1.0, new_out=2.0),
+            _make_event(slot=16, old_out=2.0, new_out=3.0),
+        ]
+    )
+    slots = reconstruct_slots(
+        "c", "m", pd.Timestamp("2025-01-01"), panel, events
+    )
+    assert np.all(slots[:15] == 1.0)
+    assert np.all(slots[15:16] == 2.0)  # single slot
+    assert np.all(slots[16:] == 3.0)
+
+
+def test_events_at_slot_0_and_slot_31_boundaries() -> None:
+    """Event at slot 0 sets the initial price; event at slot 31 sets the final slot only."""
+    panel = _minimal_panel_row()
+    events = pd.DataFrame(
+        [
+            _make_event(slot=0, old_out=1.0, new_out=2.0),
+            _make_event(slot=31, old_out=2.0, new_out=3.0),
+        ]
+    )
+    slots = reconstruct_slots(
+        "c", "m", pd.Timestamp("2025-01-01"), panel, events
+    )
+    assert np.all(slots[:31] == 2.0), "slot-0 event sets price for slots [0, 31)"
+    assert slots[31] == 3.0, "slot-31 event sets last slot only"
+
+
+def test_multi_event_input_field_symmetric() -> None:
+    """Multi-event reconstruction honours price_field for input symmetrically."""
+    panel = _minimal_panel_row()
+    events = pd.DataFrame(
+        [
+            _make_event(slot=10, old_out=100.0, new_out=125.0),
+            _make_event(slot=13, old_out=125.0, new_out=100.0),
+        ]
+    )
+    # Input prices in _make_event are 1/5 of output prices.
+    slots_in = reconstruct_slots(
+        "c", "m", pd.Timestamp("2025-01-01"), panel, events,
+        price_field="input_price_usd_mtok",
+    )
+    assert np.all(slots_in[:10] == 20.0)
+    assert np.all(slots_in[10:13] == 25.0)
+    assert np.all(slots_in[13:] == 20.0)
+
+
+def test_multi_event_sorting_is_by_slot_idx_not_row_order() -> None:
+    """Events provided in descending slot order still reconstruct correctly."""
+    panel = _minimal_panel_row()
+    events = pd.DataFrame(
+        [
+            _make_event(slot=13, old_out=125.0, new_out=100.0),  # provided first
+            _make_event(slot=10, old_out=100.0, new_out=125.0),  # provided second
+        ]
+    )
+    slots = reconstruct_slots(
+        "c", "m", pd.Timestamp("2025-01-01"), panel, events
+    )
+    # Same expected result as the ordered case
+    assert np.all(slots[:10] == 100.0)
+    assert np.all(slots[10:13] == 125.0)
+    assert np.all(slots[13:] == 100.0)
+
+
+def test_revision_preserves_single_event_behaviour_byte_identical() -> None:
+    """Load-bearing invariant: on every single-event day in the Phase 2 panel,
+    revised reconstruct_slots produces byte-identical output to the
+    pre-revision single-event formula ``slots[:S] = old; slots[S:] = new``.
+
+    The Phase 2 generator dedupes by (contributor, constituent, date) so every
+    event in the pipeline's output is a single-event day. This test iterates
+    all of them and verifies the revision preserved behaviour exactly.
+    """
+    panel, events = _build_pipeline(n_days=365)
+
+    for ev in events.to_dict("records"):
+        slot = int(ev["change_slot_idx"])
+
+        # Pre-revision formula inlined
+        expected_out = np.empty(32, dtype=np.float64)
+        expected_out[:slot] = ev["old_output_price_usd_mtok"]
+        expected_out[slot:] = ev["new_output_price_usd_mtok"]
+        expected_in = np.empty(32, dtype=np.float64)
+        expected_in[:slot] = ev["old_input_price_usd_mtok"]
+        expected_in[slot:] = ev["new_input_price_usd_mtok"]
+
+        actual_out = reconstruct_slots(
+            ev["contributor_id"],
+            ev["constituent_id"],
+            ev["event_date"],
+            panel,
+            events,
+            price_field="output_price_usd_mtok",
+        )
+        actual_in = reconstruct_slots(
+            ev["contributor_id"],
+            ev["constituent_id"],
+            ev["event_date"],
+            panel,
+            events,
+            price_field="input_price_usd_mtok",
+        )
+
+        assert np.array_equal(expected_out, actual_out), (
+            f"output mismatch for {ev['contributor_id']} x "
+            f"{ev['constituent_id']} x {ev['event_date']}"
+        )
+        assert np.array_equal(expected_in, actual_in), (
+            f"input mismatch for {ev['contributor_id']} x "
+            f"{ev['constituent_id']} x {ev['event_date']}"
+        )
+
+
+def test_revision_preserves_twap_identity_byte_identical() -> None:
+    """Second byte-identical check: reconstruct + compute_daily_twap on every
+    event day still matches the panel's stored TWAP to 1e-12. This is the
+    same invariant verified in test_reconstruct_plus_twap_agrees_with_apply_twap_to_panel,
+    run explicitly here to guard against any subtle drift introduced by the
+    multi-event revision code path even on single-event inputs.
+    """
+    panel, events = _build_pipeline(n_days=200)
+    for ev in events.to_dict("records"):
+        slots = reconstruct_slots(
+            ev["contributor_id"],
+            ev["constituent_id"],
+            ev["event_date"],
+            panel,
+            events,
+            price_field="output_price_usd_mtok",
+        )
+        reconstructed = compute_daily_twap(slots)
+        panel_row = panel[
+            (panel["observation_date"] == pd.Timestamp(ev["event_date"]))
+            & (panel["contributor_id"] == ev["contributor_id"])
+            & (panel["constituent_id"] == ev["constituent_id"])
+        ].iloc[0]
+        assert abs(reconstructed - panel_row["output_price_usd_mtok"]) < 1e-12
