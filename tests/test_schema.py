@@ -46,7 +46,7 @@ def _valid_change_event() -> dict[str, object]:
         "new_input_price_usd_mtok": 12.0,
         "old_output_price_usd_mtok": 75.0,
         "new_output_price_usd_mtok": 60.0,
-        "reason": "baseline_cut",
+        "reason": "baseline_move",
     }
 
 
@@ -78,7 +78,7 @@ def test_panel_observation_accepts_valid_row() -> None:
 def test_change_event_accepts_valid_row() -> None:
     ev = ChangeEvent(**_valid_change_event())
     assert ev.change_slot_idx == 16
-    assert ev.reason == "baseline_cut"
+    assert ev.reason == "baseline_move"
 
 
 def test_index_value_accepts_valid_row() -> None:
@@ -197,7 +197,7 @@ def _valid_change_event_df() -> pd.DataFrame:
             "new_input_price_usd_mtok": [12.0],
             "old_output_price_usd_mtok": [75.0],
             "new_output_price_usd_mtok": [60.0],
-            "reason": ["baseline_cut"],
+            "reason": ["baseline_move"],
         }
     )
 

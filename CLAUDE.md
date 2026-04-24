@@ -428,7 +428,7 @@ Every material methodology change bumps version. Submodules under `src/tprr/inde
 | `new_input_price_usd_mtok` | float | |
 | `old_output_price_usd_mtok` | float | |
 | `new_output_price_usd_mtok` | float | |
-| `reason` | str | `baseline_cut` / `outlier_injection` / `version_update` |
+| `reason` | str | `baseline_move` / `contract_adjustment` / `outlier_injection` |
 
 ### IndexValue — daily fix output
 
