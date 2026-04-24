@@ -137,3 +137,20 @@ methodology choice must have an entry here.
 **Impact**: This panel design is the baseline for all Phase 2–10 work. Any change requires re-running the full backtest. Panel itself stored in config/contributors.yaml and tracked in git.
 
 **Methodology section**: 3.3.2 (three-tier hierarchy, Tier A definition)
+
+## 2026-04-23 — Volume correlation refactor: per-(contributor, model) idiosyncratic factor
+
+**Decision**: Each (contributor, model) pair has an independent random-walk idiosyncratic noise component layered on top of the contributor-level shared daily multiplier. Target median within-contributor cross-model correlation is 0.5-0.85 over the full window; individual pair correlations are path-dependent and may range from negative to near-unity.
+
+**Context**: The original 2a.3 implementation produced perfect 1.0 correlation across all of a contributor's covered models, which would have broken Tier B derivation testing (degenerate constant within-provider splits), trivialised Phase 10 scenario 3 (stale quote has no mix-shift dynamic to expose), and contradicted Noble's free-float pricing thesis (which implies fluid model-mix shifts, not frozen ratios). Identified during Phase 2a.3 spot-check.
+
+**Alternatives considered**:
+- AR(1) mean-reverting idiosyncratic noise — kills negative cross-pair correlations but also kills ratio drift; incompatible with thesis.
+- Larger shared-component σ to dominate — tightens per-pair correlation but re-introduces near-lockstep movement, weakens Tier B stress-test.
+- Random walk (chosen) — preserves ratio drift and model-mix fluidity; single-pair correlations are path-dependent; median-of-pairs is the stable diagnostic.
+
+**Rationale**: Thesis alignment is load-bearing. The volume panel must exercise fluid model-mix shifts over time to stress-test Tier B derivation and Phase 10 scenarios correctly. Random-walk noise is the only option that preserves that property.
+
+**Impact**: Panel now exhibits realistic within-contributor cross-model variance. Verified: atlas cross-model volume ratio drifts 0.58 → 0.52 → 0.72 across day 0/100/300/477. Median pair-correlation 0.72 (target band 0.5-0.85).
+
+**Methodology section**: 3.3.2 (Tier A volume attestation), thesis alignment with free-float pricing dynamics.
