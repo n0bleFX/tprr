@@ -201,3 +201,20 @@ methodology choice must have an entry here.
 - Tests and design doc references follow.
 
 **Methodology section**: 4.2.1 (TWAP daily fix).
+
+## 2026-04-24 — TWAP semantic of panel's price columns on change-event days
+
+**Decision**: On change-event days for a (contributor, constituent) pair, the panel's output_price_usd_mtok and input_price_usd_mtok fields store the daily TWAP — the weighted average of pre-change and post-change prices across the 32 intraday slots — not the pre-change or post-change posted price. On non-event days, these fields store the single posted price for that day.
+
+**Context**: The panel schema has one row per (contributor, constituent, date). On days with intraday price changes, the schema cannot distinguish pre-change from post-change without a slot dimension. Three readings of what the panel's price column should mean on such days: (a) pre-change price, (b) post-change price, (c) daily TWAP.
+
+**Alternatives considered**:
+- Store post-change price (end-of-day convention) — matches how many price feeds conventionally display "close price" for a day. Rejected — leaves the intraday TWAP derivable only through reconstruction, creating redundancy with what the ChangeEvent records already encode.
+- Store pre-change price — symmetric alternative to above, same drawback.
+- Store daily TWAP (chosen) — the panel's price column on change-event days IS the reconstructed TWAP. Consumers reading the panel directly get the day's benchmark-consistent price without needing to reconstruct slots. Consumers needing slot-level granularity reconstruct from ChangeEvent records via reconstruct_slots.
+
+**Rationale**: The panel is the primary aggregate reference; Phase 7 (aggregation) reads the panel, not the change events. Storing daily TWAP directly aligns the panel with the downstream benchmark-computation semantic. The slot-level detail remains recoverable from ChangeEvent records, preserved by the invariant (verified in Phase 2c property tests) that reconstruct_slots + compute_daily_twap reproduces the panel's stored TWAP exactly.
+
+**Impact**: Phase 6 quality gate reconstructs slots from ChangeEvent records, applies gate, computes slot-level-gated TWAP via compute_daily_twap. The panel's stored TWAP is the un-gated reference; the gated TWAP computed via reconstruction is what flows into Phase 7 aggregation. Difference between panel TWAP and gated TWAP is a direct signal of whether the quality gate fired on that (contributor, constituent, date).
+
+**Methodology section**: 4.2.1 (TWAP daily fix), 4.2.2 (quality gate)
