@@ -41,7 +41,7 @@ def _valid_change_event() -> dict[str, object]:
         "event_date": date(2025, 6, 3),
         "contributor_id": "contrib_alpha",
         "constituent_id": "openai/gpt-5-pro",
-        "change_slot_idx": 36,
+        "change_slot_idx": 16,
         "old_input_price_usd_mtok": 15.0,
         "new_input_price_usd_mtok": 12.0,
         "old_output_price_usd_mtok": 75.0,
@@ -77,7 +77,7 @@ def test_panel_observation_accepts_valid_row() -> None:
 
 def test_change_event_accepts_valid_row() -> None:
     ev = ChangeEvent(**_valid_change_event())
-    assert ev.change_slot_idx == 36
+    assert ev.change_slot_idx == 16
     assert ev.reason == "baseline_cut"
 
 
@@ -132,7 +132,7 @@ def test_panel_observation_rejects_invalid_attestation_tier() -> None:
 
 def test_change_event_rejects_slot_idx_above_range() -> None:
     payload = _valid_change_event()
-    payload["change_slot_idx"] = 96
+    payload["change_slot_idx"] = 32
     with pytest.raises(ValidationError):
         ChangeEvent(**payload)
 
@@ -148,8 +148,8 @@ def test_change_event_accepts_slot_idx_at_boundaries() -> None:
     payload = _valid_change_event()
     payload["change_slot_idx"] = 0
     assert ChangeEvent(**payload).change_slot_idx == 0
-    payload["change_slot_idx"] = 95
-    assert ChangeEvent(**payload).change_slot_idx == 95
+    payload["change_slot_idx"] = 31
+    assert ChangeEvent(**payload).change_slot_idx == 31
 
 
 def test_change_event_rejects_missing_field() -> None:
@@ -192,7 +192,7 @@ def _valid_change_event_df() -> pd.DataFrame:
             "event_date": pd.to_datetime(["2025-06-03"]),
             "contributor_id": ["contrib_alpha"],
             "constituent_id": ["openai/gpt-5-pro"],
-            "change_slot_idx": [36],
+            "change_slot_idx": [16],
             "old_input_price_usd_mtok": [15.0],
             "new_input_price_usd_mtok": [12.0],
             "old_output_price_usd_mtok": [75.0],

@@ -186,11 +186,13 @@ Noble's manipulation resistance framework is designed to ensure that TPRR cannot
 
 ### **4.2.1  Time-Weighted Average Price (TWAP) Daily Fix**
 
-The TPRR Daily Fix is not a snapshot price taken at a single moment. It is calculated as the volume-weighted average of all 96 validated price observations recorded during the fixing window (09:00–17:00 UTC), with each observation representing a 15-minute polling interval. This is Noble's primary manipulation-resistance mechanism.
+The TPRR Daily Fix is not a snapshot price taken at a single moment. It is calculated as the volume-weighted average of all 32 validated price observations recorded during the fixing window (09:00–17:00 UTC), with each observation representing a 15-minute polling interval. This is Noble's primary manipulation-resistance mechanism.
 
 A provider seeking to influence the daily fix would need to sustain a manipulated price continuously across an eight-hour window — representing a real cost in terms of revenue foregone on actual API transactions priced at that level. Point-in-time window-dressing, which was the primary mechanism exploited in the LIBOR manipulation, is structurally precluded by this design.
 
-**TPRR Daily Fix \= TWAP(Pᵢ(t))  over t ∈ \[09:00, 17:00\] UTC  across 96 fifteen-minute intervals**
+**TPRR Daily Fix \= TWAP(Pᵢ(t))  over t ∈ \[09:00, 17:00\] UTC  across 32 fifteen-minute intervals**
+
+*Corrected 2026-04-24: prior version contained an arithmetic inconsistency (96 observations across 8-hour window with 15-minute intervals is impossible). The 32-slot count derives from 15-minute polling across the 09:00–17:00 UTC window. See decision_log.md 2026-04-24 entry for full reasoning.*
 
 ### **4.2.2  Outlier Detection — Data Quality Gate**
 
@@ -238,7 +240,7 @@ Critically, the exponential weight compounds with volume weighting: a provider m
 | Series | Frequency | Publication Window |
 | :---- | :---- | :---- |
 | TPRR Spot (output) | Continuous (15-min) | Intraday; available via Noble Argon Insights API |
-| TPRR Daily Fix | Daily | 17:00 UTC; TWAP of 96 fifteen-minute observations (09:00–17:00 UTC); primary settlement reference for OTC derivatives |
+| TPRR Daily Fix | Daily | 17:00 UTC; TWAP of 32 fifteen-minute observations (09:00–17:00 UTC); primary settlement reference for OTC derivatives |
 | TPRR Monthly Average | Monthly | Published on the 3rd business day following month-end |
 | TPRR-B (Blended Analytics) | Daily | Published concurrently with TPRR Daily Fix; informational only — not a derivative settlement reference |
 | TPRR-FPR / TPRR-SER | Daily | Published concurrently with TPRR Daily Fix |

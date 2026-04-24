@@ -45,7 +45,7 @@ def _write_minimal_configs(config_dir: Path) -> None:
               B: 0.9
               C: 0.8
             twap_window_utc: [9, 17]
-            twap_slots: 96
+            twap_slots: 32
             default_ordering: twap_then_weight
             """
         ),
@@ -124,7 +124,7 @@ def test_index_config_defaults_when_loaded_from_empty_yaml(tmp_path: Path) -> No
         AttestationTier.C: 0.8,
     }
     assert cfg.twap_window_utc == (9, 17)
-    assert cfg.twap_slots == 96
+    assert cfg.twap_slots == 32
     assert cfg.default_ordering == "twap_then_weight"
 
 
@@ -134,7 +134,7 @@ def test_index_config_overrides_apply_from_yaml(tmp_path: Path) -> None:
     cfg = load_index_config(yaml_path)
     assert cfg.lambda_ == 5.0
     assert cfg.staleness_max_days == 7
-    assert cfg.twap_slots == 96  # untouched default
+    assert cfg.twap_slots == 32  # untouched default
 
 
 def test_index_config_lambda_alias_serialises() -> None:

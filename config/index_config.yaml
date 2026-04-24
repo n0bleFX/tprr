@@ -19,5 +19,5 @@ tier_haircuts:                    # volume-weight haircuts by attestation tier (
   C: 0.8
 
 twap_window_utc: [9, 17]          # daily TWAP window 09:00–17:00 UTC (Section 4.2.1)
-twap_slots: 96                    # 96 fifteen-minute observation slots
+twap_slots: 32                    # 32 fifteen-minute observation slots (15 min x 8h window; see decision_log.md 2026-04-24)
 default_ordering: twap_then_weight  # decision log 2026-04-23

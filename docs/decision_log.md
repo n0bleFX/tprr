@@ -154,3 +154,50 @@ methodology choice must have an entry here.
 **Impact**: Panel now exhibits realistic within-contributor cross-model variance. Verified: atlas cross-model volume ratio drifts 0.58 → 0.52 → 0.72 across day 0/100/300/477. Median pair-correlation 0.72 (target band 0.5-0.85).
 
 **Methodology section**: 3.3.2 (Tier A volume attestation), thesis alignment with free-float pricing dynamics.
+
+## 2026-04-24 — Phase 2b ChangeEvent layering and "contract_adjustment" reason naming
+
+**Decision**: Phase 2b ChangeEvent records come from two independent sources: (i) propagated 2a baseline step events, one per covering contributor, with tight slot jitter (σ=3 slots) around a single publication slot; and (ii) contributor-specific reprices drawn independently per (contributor, model) pair, full business-hours slot distribution, smaller magnitude (±2-5%), named **`contract_adjustment`**.
+
+**Context**: Resolving the 2a/2b relationship (see design note at `docs/findings/pricing_model_design.md`). project_plan 2b rates (F 4-6/yr, S 6-10/yr, E 10-20/yr per pair) are higher than 2a model-level rates (F 3/yr, S 4/yr, E 5/yr) because 2b fans out each baseline event to ~4-7 ChangeEvents (one per covering contributor) PLUS adds contributor-specific reprices. The naming of the contributor-specific `reason` value was a design choice between `contributor_reprice` and `contract_adjustment`.
+
+**Alternatives considered**:
+- `drift_correction` (prompts.md 2b.1 draft) — rejected: implies returning to a baseline, which isn't what these events model. They're non-reversing reprices driven by external (contract-level) triggers.
+- `contributor_reprice` — rejected: agent-neutral ("reprice" sounds market-driven); doesn't name the mechanism.
+- `contract_adjustment` (chosen) — names the underlying mechanism (MSA amendment, tier agreement, volume-commitment update). Reads unambiguously to a finance practitioner; consistent with the existing mechanism-describing pattern in the `reason` enum (`baseline_cut`, `version_update`, `outlier_injection`).
+
+**Rationale**: ChangeEvent `reason` values describe what HAPPENED in the world — the mechanism that caused the price to move — not the agent or the effect. `contract_adjustment` fits that pattern and is precise about the underlying driver. It also positions Phase 10 analysis cleanly: scenario logic can distinguish provider-driven moves (`baseline_cut` / `baseline_up`) from contract-level moves without ambiguity.
+
+**Also logged here**: the tight per-contributor slot jitter for propagated events (σ=3 slots ≈ ±45 min) reflects real-world API price propagation taking minutes rather than hours. Broad jitter (e.g., independent draws from full business-hours) would manufacture TWAP variance that doesn't reflect production.
+
+**Impact**: Phase 2b's change_events generator needs to emit two reason values for propagated events (`baseline_cut`, `baseline_up`) plus `contract_adjustment` for contributor-specific. Phase 10 scenarios can filter by `reason` to isolate provider-driven vs contributor-level dynamics.
+
+**Methodology section**: 4.2.1 (TWAP daily fix and intraday price model).
+
+## 2026-04-24 — Methodology Section 4.2.1 slot arithmetic corrected: 32 slots × 15 min × 8-hour window
+
+**Decision**: Resolve the arithmetic inconsistency in methodology Section 4.2.1 (which simultaneously asserts 96 observations, 15-minute polling intervals, and a 09:00–17:00 UTC fixing window — only two of those three can be true) by keeping **15-minute polling cadence** and the **8-hour fixing window** and correcting "96 observations" to **32 observations**. The MVP and all downstream code use 32 slots indexed [0, 31].
+
+**Context**: During Phase 2b design review, the combination 96 × 15-minute = 24 hours was flagged as incompatible with the "09:00–17:00 UTC fixing window" and "eight-hour window" statements that appear multiple times in the same section. One of the three values had to be wrong; the question was which.
+
+**Alternatives considered**:
+- **Keep 96 slots, change polling to 5-minute**: matches the arithmetic (96 × 5 min = 8h) but drops methodology's explicit "15-minute polling interval" statement. Rejected — 15-min polling cadence is the load-bearing operational constant for a benchmark whose prices barely move intraday; tighter cadence creates polling density that adds no index value and costs more to run at scale.
+- **Keep 96 slots, reinterpret as 24-hour daily grid with fixing-window subset of 32**: preserves all three stated values by introducing a "day-grid vs fixing-subset" distinction. Rejected — adds conceptual complexity without benefit; pre/post-fixing changes aren't modelled in v0.1.
+- **Keep 15-min and 8-hour window, correct 96 → 32** (chosen): fixes the arithmetic outlier and preserves the two values the methodology repeatedly anchors on.
+
+**Rationale — why 15-minute interval is the load-bearing constant, not the slot count**: The polling interval is an OPERATIONAL choice that defines data-collection infrastructure cost and matches real-world provider pricing-page update rhythm. The slot count is a DERIVED value (slots = window / interval). If the Index Committee later widens the fixing window — e.g., to 24 hours in v1.3+ to capture APAC activity — the correction is purely `32 → 96` slots at the same 15-minute cadence, with no change to polling infrastructure, schema granularity, or per-slot processing cost. Tightening to 5-minute polling would mean 96 slots today AND 288 slots in a future 24-hour window — polling density unnecessary for AI inference benchmark data and expensive to run at scale.
+
+**Rationale — why the 8-hour window is preserved for MVP despite APAC activity consideration**: Section 4.2.1's manipulation-resistance argument ("a provider seeking to influence the daily fix would need to sustain a manipulated price continuously across an eight-hour window") depends on the CONCENTRATION of the fixing window in a single liquid segment of the global trading day. Widening to 24 hours dilutes the revenue-foregone cost during thin APAC hours — a manipulator could hold a stale price through low-activity periods at lower real cost. MVP preserves the 8-hour concentrated window; window widening remains a v1.3+ methodology consideration pending observed APAC activity volumes.
+
+**Future evolution path**: A v1.3+ window widening is a linear change — `twap_slots: 32 → 96`, `change_slot_idx: [0, 31] → [0, 95]`, no schema redesign, no polling cadence change, no TWAP formula change. Per-slot economics unchanged.
+
+**Impact**:
+- Methodology v1.2 Section 4.2.1 corrected in-place as a defect (erratum, not a v1.3 revision — fixes arithmetic without altering methodological substance).
+- CLAUDE.md: working-summary slot counts, TWAP reconstruction examples, and ChangeEvent schema `change_slot_idx` range all updated 96 → 32 and [0, 95] → [0, 31].
+- `src/tprr/schema.py`: `Field(ge=0, le=95)` → `Field(ge=0, le=31)`.
+- `config/index_config.yaml`: `twap_slots: 96` → `twap_slots: 32`.
+- `src/tprr/config.py`: `IndexConfig.twap_slots` default `96 → 32`.
+- Phase 2b jitter recalibration to 32-slot basis: publication-slot distribution `Normal(μ=16, σ=6)` clipped `[0, 31]` (midpoint ~13:00 UTC, 1σ covers ~10:30–15:30); per-contributor jitter σ=2 slots (= ±30 minutes 1σ, realistic API ingestion propagation spread).
+- Tests and design doc references follow.
+
+**Methodology section**: 4.2.1 (TWAP daily fix).

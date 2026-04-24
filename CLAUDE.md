@@ -65,22 +65,22 @@ Where:
 
 ### TWAP daily fix (Section 4.2.1) — TWAP-then-weight ordering
 
-**Fixing window**: 09:00–17:00 UTC. 96 fifteen-minute observation slots per day.
+**Fixing window**: 09:00–17:00 UTC. 32 fifteen-minute observation slots per fixing window.
 
-**Intraday price model**: real-world providers don't change prices every 15 minutes — they post a price and leave it, often for weeks. Rather than storing 96 rows per constituent per day, we store:
+**Intraday price model**: real-world providers don't change prices every 15 minutes — they post a price and leave it, often for weeks. Rather than storing 32 rows per constituent per day, we store:
 
 - **Daily panel observations** (one row per contributor per model per date) containing that day's posted price (or daily TWAP on change-event days)
 - **Sparse change events** (one row per intraday price change) recording the time and new price
 
-At TWAP computation time, reconstruct the 96 slots on the fly:
-- No change event on day D → all 96 slots = posted price → TWAP = posted price
-- Change event at slot S → slots `[0, S)` use old price, slots `[S, 96)` use new price → TWAP is slot-weighted
+At TWAP computation time, reconstruct the 32 slots on the fly:
+- No change event on day D → all 32 slots = posted price → TWAP = posted price
+- Change event at slot S → slots `[0, S)` use old price, slots `[S, 32)` use new price → TWAP is slot-weighted
 
 **Ordering choice — TWAP-then-weight**. For each (contributor, model, date): compute daily TWAP first, then apply dual-weighted aggregation across contributors using each contributor's daily TWAP as their "price of the day." Matches dominant commodity-benchmark convention (ICE, Henry Hub, ASCI); keeps weighting dimensionally consistent.
 
 Phase 10 includes a weight-then-TWAP comparison for documentation and publication.
 
-**Data quality gate applies at slot level**. Each slot compared to constituent's 5-day trailing average posted price. Slots failing gate are excluded from the daily TWAP; if all 96 fail, constituent has no valid price that day.
+**Data quality gate applies at slot level**. Each slot compared to constituent's 5-day trailing average posted price. Slots failing gate are excluded from the daily TWAP; if all 32 fail, constituent has no valid price that day.
 
 ### Volume weights — three-tier attestation hierarchy (Section 3.3.2)
 
@@ -168,7 +168,7 @@ Commercial availability, pricing transparency, material enterprise adoption, ≥
 | Dual-weighted formula | ✅ | |
 | Exponential median-distance weighting (λ=3) | ✅ | |
 | Three-tier volume hierarchy — all three tiers | ✅ | Tier B v1.3 refinement |
-| TWAP daily fix (96 slots, 09:00–17:00 UTC) | ✅ | Intraday spot publication |
+| TWAP daily fix (32 slots, 09:00–17:00 UTC) | ✅ | Intraday spot publication |
 | TWAP-then-weight ordering | ✅ | |
 | Weight-then-TWAP comparison (Phase 10) | ✅ | |
 | Slot-level 15% data quality gate | ✅ | |
@@ -207,7 +207,7 @@ Commercial availability, pricing transparency, material enterprise adoption, ≥
 │  → Implied model-level volume     │                 │
 └───────────────────────────────────┘                 ▼
                                             ┌────────────────────┐
-                                            │ Reconstruct 96     │
+                                            │ Reconstruct 32     │
                                             │ intraday slots     │
                                             │ per (contrib,model,│
                                             │ date) from panel + │
@@ -301,7 +301,7 @@ tprr/
 │   ├── reference/
 │   │   └── openrouter.py
 │   ├── twap/
-│   │   └── reconstruct.py             # Reconstruct 96 slots + compute TWAP
+│   │   └── reconstruct.py             # Reconstruct 32 slots + compute TWAP
 │   ├── index/
 │   │   ├── __init__.py
 │   │   ├── eligibility.py
@@ -337,7 +337,7 @@ tprr/
 
 ### Naming
 - Prices include unit: `price_usd_per_mtok`. `mtok` = million tokens.
-- Intraday slot indices: `slot_idx`, integer 0–95.
+- Intraday slot indices: `slot_idx`, integer 0–31.
 - TWAP values: `twap_output_usd_mtok`, `twap_input_usd_mtok`.
 - Tier codes: `TPRR_F`, `TPRR_S`, `TPRR_E`.
 - Version IDs: `v0_1`, `v0_2` (underscore).
@@ -360,7 +360,7 @@ tprr/
 - Hypothesis property tests covering:
   - `exponential_weight` monotonic in distance
   - TWAP of constant prices = that price
-  - TWAP with single change event at slot S = (S × old + (96-S) × new) / 96
+  - TWAP with single change event at slot S = (S × old + (32-S) × new) / 32
   - Sum of final weights > 0 when ≥1 active constituent
   - Scaling all prices by k scales index by k
 
@@ -423,7 +423,7 @@ Every material methodology change bumps version. Submodules under `src/tprr/inde
 | `event_date` | date | |
 | `contributor_id` | str | |
 | `constituent_id` | str | |
-| `change_slot_idx` | int | 0–95. Slots `[0, idx)` old, `[idx, 96)` new. |
+| `change_slot_idx` | int | 0–31. Slots `[0, idx)` old, `[idx, 32)` new. |
 | `old_input_price_usd_mtok` | float | |
 | `new_input_price_usd_mtok` | float | |
 | `old_output_price_usd_mtok` | float | |

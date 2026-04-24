@@ -62,7 +62,7 @@ class IndexConfig(BaseModel):
         }
     )
     twap_window_utc: tuple[int, int] = (9, 17)
-    twap_slots: int = 96
+    twap_slots: int = 32
     default_ordering: str = "twap_then_weight"
 
 

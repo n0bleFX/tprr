@@ -62,13 +62,13 @@ class ChangeEvent(BaseModel):
     """Sparse intraday price change record.
 
     Slots ``[0, change_slot_idx)`` use the old price; slots
-    ``[change_slot_idx, 96)`` use the new price.
+    ``[change_slot_idx, 32)`` use the new price.
     """
 
     event_date: date
     contributor_id: str
     constituent_id: str
-    change_slot_idx: int = Field(ge=0, le=95)
+    change_slot_idx: int = Field(ge=0, le=31)
     old_input_price_usd_mtok: float
     new_input_price_usd_mtok: float
     old_output_price_usd_mtok: float
