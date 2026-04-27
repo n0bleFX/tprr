@@ -346,6 +346,110 @@ The two surfaces exercise different methodology controls and should be reasoned 
 
 **Methodology section**: 3.3.2 (three-tier volume hierarchy)
 
+## 2026-04-28 — xAI / Grok excluded from v0.1 universe; queued for v0.2
+
+**Decision**: The v0.1 TPRR registry covers 16 constituents across OpenAI, Anthropic, Google, DeepSeek, Alibaba, Xiaomi, Mistral, and Meta. xAI / Grok is not included in v0.1; addition is queued for the v0.2 universe expansion.
+
+**Context**: During Phase 4b drafting, the absence of xAI / Grok from the registry was raised. xAI is materially active in the institutional AI inference market with Grok-class models that would qualify for either Frontier or Standard tier depending on current pricing. The methodology Section 3.2 explicitly anticipates universe evolution through quarterly Index Committee review.
+
+**Alternatives considered**:
+- Retrofit v0.1 to add xAI now: requires regenerating mock data (480 days × per-contributor coverage), updating contributor profiles, refreshing decision-log entries that reference "16 models," potential adjustments to Phase 3 scenario coverage. ~2-3 hours of rework with no methodology benefit (validation already robust at 16 constituents).
+- Add xAI to Tier B revenue config only without mock data: creates a half-measure where Tier B has 9 providers but the registry has 16 models with no xAI rows; index doesn't actually reflect xAI in v0.1.
+- Document v0.1 omission, add in v0.2 (chosen): cleanest forward path; v0.1 validation is unaffected; v0.2 universe expansion is normal benchmark evolution per methodology Section 3.2.
+
+**Rationale**: The MVP's job is methodology validation, not market completeness. The exponential weighting, three-tier hierarchy, and manipulation resistance arguments all stress-test fully on 16 constituents. Adding a 17th constituent doesn't change what the validation proves. Retrofitting six phases of completed work for one additional constituent is real cost without methodology benefit.
+
+**Impact**:
+- v0.1 backtest results will reference a 16-constituent universe; this should be stated in Phase 11 summary materials
+- v0.2 universe expansion is queued to add xAI alongside any other emerging providers (e.g., new Chinese frontier labs, additional European providers)
+- Tier B revenue config in Phase 4b covers the 8 v0.1 providers only; xAI revenue data will be added in v0.2
+
+**Methodology section**: 3.1 (eligibility), 3.2 (tier classification — quarterly committee review)
+
+## 2026-04-28 — Tier B revenue config: 6 providers covered; Meta and Xiaomi excluded as Tier-A-only
+
+**Decision**: Tier B revenue config covers 6 of the 8 v0.1 providers (OpenAI, Anthropic, Google, DeepSeek, Alibaba, Mistral). Meta (Llama) and Xiaomi (MiMo) are intentionally excluded; their constituents (`meta/llama-4-70b-hosted` and `xiaomi/mimo-v2-pro`) fall through to Tier A only (mock contributor panel) for v0.1.
+
+**Context**: Tier B's methodology (Section 3.3.2) requires "disclosed provider total API revenue × OpenRouter within-provider split". This pattern presumes a centralized "provider" running a paid API at material scale where revenue is the volume proxy. Two of the v0.1 providers do not satisfy this presumption.
+
+**Methodology question raised**: when does free-distribution / open-weight or zero-public-data fall outside Tier B's revenue-proportional model?
+
+**Decision criteria for Tier B inclusion** (v0.1):
+- (a) Provider runs a paid hosted API at material scale, AND
+- (b) Revenue is publicly disclosed or analyst-triangulatable.
+
+**Meta excluded** because Llama is free-distributed open-weight; revenue accrues to hosting partners (AWS Bedrock, Azure, GCP, Together, Fireworks, Groq, Cerebras), not to Meta. Meta's own Llama API service launched April 2025 (LlamaCon) but has not reached the SEC-mandated separate-reporting threshold (~5-10% of total Meta revenue, i.e., $8B+). Synthesising a "Meta Llama API revenue" number would claim provider-level economics that don't exist; the within-provider OpenRouter split would also be ambiguous (Meta's OR models span `meta-llama/...` author with multiple variants).
+
+**Xiaomi excluded** because no public revenue disclosure for MiMo API service exists. MiMo-7B launched April 2025; commercial pricing only emerges late 2025 with V2-Flash. Xiaomi's $8.7B/3yr AI investment announcement (March 2026) is a capex commitment, not a revenue datapoint. Including symbolic ($2M-$25M) numbers would claim false precision; omission is more honest.
+
+**Impact**:
+- v0.1 Tier B has 6 providers × 5 quarters = 30 revenue datapoints in `config/tier_b_revenue.yaml`
+- `meta/llama-4-70b-hosted` and `xiaomi/mimo-v2-pro` get Tier C (where they have mappings — note meta is unmatched per Phase 4 close-out, Xiaomi is matched) and Tier A only; their Tier B contribution is zero by design
+- `TierBRevenueConfig.get_provider_revenue('meta', date)` and `get_provider_revenue('xiaomi', date)` will raise `ValueError("no Tier B revenue entries")` — same error path as any unknown provider
+- Phase 5b weighting must handle "no Tier B for this provider" as a tier-priority fall-through to Tier A, same path as "no Tier C data" handled in Phase 5b
+
+**v0.2 enhancement paths**:
+- **Meta**: if Llama paid hosting becomes material, either (a) add Meta to Tier B with explicit Llama API revenue disclosure when Meta starts reporting it, OR (b) create a new aggregated-host-revenue dimension that sums revenue across Llama hosts proportional to OpenRouter share. Option (b) is more accurate to Llama's actual economics but adds a methodology dimension.
+- **Xiaomi**: revisit when Xiaomi or analyst coverage starts disclosing MiMo API revenue. Likely v0.3+ given current opacity.
+
+**Methodology section**: 3.3.2 (three-tier volume hierarchy, Tier B definition)
+
+## 2026-04-28 — Tier B API share assumptions for v0.1
+
+**Decision**: Per-provider API-revenue-as-share-of-total-revenue assumptions for v0.1 Tier B are explicit and per-provider, not uniform. Each share is sourced from analyst commentary where available; estimated where not. The estimated splits are v0.1 simplifications subject to v0.2 revisit if finer-grained disclosure becomes available.
+
+**Context**: Tier B input is "disclosed provider total API revenue", but most providers do not disclose API revenue separately from total/cloud revenue. A per-provider API-share assumption is required to extract the API portion from the disclosed total.
+
+**Per-provider assumptions**:
+
+| Provider | API share of disclosed total | Source / rationale |
+|---|---:|---|
+| OpenAI | 17% | Sacra-disclosed 15-20% range (midpoint 17%); reflects ChatGPT consumer revenue dominance |
+| Anthropic | 72% | Sacra-disclosed 70-75% (API + enterprise API); midpoint 72%; reflects API-first business model |
+| Google (Gemini API) | 8% | Estimated; Google Cloud is mostly non-AI workloads (compute / storage / BigQuery / Workspace); Gemini API is a small slice. v0.1 simplification. |
+| DeepSeek | 60% | Estimated; web/app are free, API is the primary monetised stream. v0.1 simplification. |
+| Alibaba (Qwen) | 10% | Estimated; "AI revenue" reported only qualitatively as "triple-digit YoY growth"; Qwen API is one piece of Alibaba Cloud's AI offerings. v0.1 simplification. |
+| Mistral | 70% | Sacra-disclosed; reflects API + on-prem licensing + consultancy mix |
+
+**Alternatives considered**:
+- Uniform 20% across all providers: rejected because it loses the materially different API-vs-consumer mix (OpenAI ChatGPT-heavy vs Anthropic API-heavy vs Google Cloud-mostly-non-AI). Uniform-20% would systematically overweight OpenAI/Google relative to actual API economics.
+- Use Sacra figures only, omit estimated splits: would limit v0.1 to OpenAI, Anthropic, Mistral. Loses Google, DeepSeek, Alibaba — each material providers per registry. Rejected.
+- Use per-provider as drafted (chosen): preserves the per-provider economic differences, with explicit flagging of estimated vs disclosed splits.
+
+**Rationale**: The methodology test rests on Tier B providing differentiated volume signals across providers. Uniform splits would flatten that signal. Per-provider splits preserve it; the estimation uncertainty on Google/DeepSeek/Alibaba is documented and bounded.
+
+**Impact**:
+- Each provider's quarterly entry in `config/tier_b_revenue.yaml` is `total_revenue × api_share`, with the api_share rationale documented inline as a YAML comment
+- Phase 10 sensitivity sweeps could include API-share variations (e.g., Google 5% vs 8% vs 12%) to confirm the index is robust to this assumption
+- v0.2 may revisit with finer-grained disclosure if available
+
+**Methodology section**: 3.3.2 (Tier B implementation specifics — MVP scope per the May 2026 decision)
+
+## 2026-04-28 — Tier B quarterly revenue interpolation provenance
+
+**Decision**: Each provider's quarterly Tier B entry derives from ARR or total-revenue progression × the provider's API share. End-of-quarter anchor convention per decision log 2026-04-23 ("Tier B revenue interpolation anchored to end-of-quarter"). Sources are cited per-provider; values flagged `analyst_triangulation` cross-reference multiple analyst sources, `synthetic_for_mvp` flagged where no analyst breakdown exists.
+
+**Context**: The methodology requires quarterly disclosed revenue per provider. Most providers report ARR (annualized) at irregular cadences (monthly press releases, earnings calls, fundraising disclosures), not quarterly revenue directly. A provenance method is required to convert ARR datapoints into quarterly revenue values.
+
+**Method**:
+1. **Collect ARR datapoints** at known dates (monthly or quarterly) from public reporting + analyst commentary.
+2. **Interpolate to mid-quarter** ARR via linear interpolation between adjacent datapoints.
+3. **Convert to quarterly revenue** as `mid_quarter_ARR / 4`.
+4. **Apply API share** per the API-share assumption (decision log entry "Tier B API share assumptions for v0.1").
+5. **Anchor to end-of-quarter date** per the anchor convention; the loader interpolates linearly between consecutive end-of-quarter anchors when consumers query mid-quarter dates.
+
+**Sources** (per provider):
+- **OpenAI**: Sacra ARR profile, CFO-reported $20B end-2025, $25B Feb 2026 (Yahoo Finance / The Information). API share: Sacra 15-20%.
+- **Anthropic**: Sacra ARR profile ($1B Jan 2025, $4B Jun, $9B Dec, $19B Mar 2026), SaaStr commentary, Anthropic press releases. API share: Sacra 70-75%.
+- **Google (Gemini API)**: Pichai Cloud Next 2026 keynote ($70B annual run rate, 48% YoY). API share: estimated 8% based on Cloud composition.
+- **DeepSeek**: Latka ($1.1B FY 2025), TechCrunch (theoretical 545% margin commentary), official mid-2025 ARR $220M datapoint. API share: estimated 60%.
+- **Alibaba (Qwen)**: BusinessWire / Constellation Research / Bloomberg coverage of Q3 2025 ($5.6B Cloud revenue, 34% YoY) and Q4 2025 (36% YoY). API share: estimated 10%.
+- **Mistral**: Sacra ARR profile ($60M Mar 2025, $100M Nov, $312M Dec, $400M Jan 2026), mlq.ai. API share: Sacra 70%.
+
+**Impact**: Phase 5b's `derive_tier_b_volumes` will consume `config/tier_b_revenue.yaml` directly via `TierBRevenueConfig.get_provider_revenue(provider, date)`. The loader's linear-interpolation contract is unchanged; this entry documents how the YAML's quarterly amounts were derived in v0.1.
+
+**Methodology section**: 3.3.2 (Tier B implementation specifics)
+
 ## 2026-04-28 — Tier C historical backfill: option (a) static current snapshot
 
 **Decision**: Tier C historical backfill across the Jan 2025 → today backtest uses the current OpenRouter snapshot's structure (matched models, market shares, current prices) applied to all backtest days. No attempt is made to reconstruct historical OpenRouter snapshots. Documented as an MVP limitation.

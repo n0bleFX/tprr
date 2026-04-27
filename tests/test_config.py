@@ -387,6 +387,137 @@ def test_load_scenarios_accepts_empty_yaml(tmp_path: Path) -> None:
     assert isinstance(scenarios, ScenariosConfig)
 
 
+# ===========================================================================
+# Phase 4b — production tier_b_revenue.yaml
+# ===========================================================================
+
+
+_TIER_B_EXPECTED_PROVIDERS = {
+    "openai",
+    "anthropic",
+    "google",
+    "deepseek",
+    "alibaba",
+    "mistral",
+}
+_TIER_B_EXCLUDED_PROVIDERS = {"meta", "xiaomi"}
+_TIER_B_EXPECTED_PERIODS = {
+    "2025-Q1",
+    "2025-Q2",
+    "2025-Q3",
+    "2025-Q4",
+    "2026-Q1",
+}
+
+
+def test_production_tier_b_revenue_loads_cleanly() -> None:
+    cfg = load_tier_b_revenue()
+    # 6 providers x 5 quarters = 30 entries
+    assert len(cfg) == 30
+
+
+def test_production_tier_b_revenue_has_six_v0_1_providers() -> None:
+    cfg = load_tier_b_revenue()
+    providers = {e.provider for e in cfg.entries}
+    assert providers == _TIER_B_EXPECTED_PROVIDERS
+
+
+def test_production_tier_b_revenue_excludes_meta_and_xiaomi() -> None:
+    """Meta (Llama) and Xiaomi (MiMo) are intentionally absent per
+    decision log 2026-04-28 'Tier B revenue config: Meta + Xiaomi
+    excluded as Tier-A-only'."""
+    cfg = load_tier_b_revenue()
+    providers = {e.provider for e in cfg.entries}
+    assert _TIER_B_EXCLUDED_PROVIDERS.isdisjoint(providers)
+
+
+@pytest.mark.parametrize("provider", sorted(_TIER_B_EXPECTED_PROVIDERS))
+def test_production_tier_b_revenue_each_provider_has_5_quarters(
+    provider: str,
+) -> None:
+    cfg = load_tier_b_revenue()
+    periods = {e.period for e in cfg.entries if e.provider == provider}
+    assert periods == _TIER_B_EXPECTED_PERIODS
+
+
+def test_production_tier_b_revenue_get_provider_revenue_at_q1_2025() -> None:
+    cfg = load_tier_b_revenue()
+    # Spot-check exact end-of-quarter anchor returns the YAML amount
+    openai_q1 = cfg.get_provider_revenue("openai", date(2025, 3, 31))
+    anthropic_q1 = cfg.get_provider_revenue("anthropic", date(2025, 3, 31))
+    google_q1 = cfg.get_provider_revenue("google", date(2025, 3, 31))
+    assert openai_q1 == 300_000_000.0
+    assert anthropic_q1 == 200_000_000.0
+    assert google_q1 == 940_000_000.0
+
+
+def test_production_tier_b_revenue_interpolates_between_quarters() -> None:
+    cfg = load_tier_b_revenue()
+    # Mid-Q2 (mid-May) should fall between Q1 (Mar 31) and Q2 (Jun 30) anchors.
+    # OpenAI: Q1=$300M, Q2=$440M. Mid-May ~45 days into the 91-day window.
+    mid_q2 = cfg.get_provider_revenue("openai", date(2025, 5, 15))
+    span_days = (date(2025, 6, 30) - date(2025, 3, 31)).days
+    days_in = (date(2025, 5, 15) - date(2025, 3, 31)).days
+    expected = 300_000_000.0 + (days_in / span_days) * (
+        440_000_000.0 - 300_000_000.0
+    )
+    assert abs(mid_q2 - expected) < 1.0
+
+
+def test_production_tier_b_revenue_meta_raises_no_entries() -> None:
+    cfg = load_tier_b_revenue()
+    with pytest.raises(ValueError, match="no Tier B revenue entries"):
+        cfg.get_provider_revenue("meta", date(2025, 6, 30))
+
+
+def test_production_tier_b_revenue_xiaomi_raises_no_entries() -> None:
+    cfg = load_tier_b_revenue()
+    with pytest.raises(ValueError, match="no Tier B revenue entries"):
+        cfg.get_provider_revenue("xiaomi", date(2025, 6, 30))
+
+
+def test_production_tier_b_revenue_clamps_below_earliest_quarter() -> None:
+    """Below earliest anchor (2025-Q1 → Mar 31), returns earliest amount."""
+    cfg = load_tier_b_revenue()
+    early = cfg.get_provider_revenue("openai", date(2024, 1, 1))
+    assert early == 300_000_000.0  # 2025-Q1 amount, clamped
+
+
+def test_production_tier_b_revenue_clamps_above_latest_quarter() -> None:
+    """Above latest anchor (2026-Q1 → Mar 31), returns latest amount."""
+    cfg = load_tier_b_revenue()
+    late = cfg.get_provider_revenue("anthropic", date(2027, 1, 1))
+    assert late == 2_520_000_000.0  # 2026-Q1 amount, clamped
+
+
+def test_production_tier_b_revenue_amounts_strictly_increasing_per_provider() -> None:
+    """Each provider's quarterly revenue should be monotonically non-decreasing
+    across the v0.1 ARR-growth period (Jan 2025 - Mar 2026)."""
+    from itertools import pairwise
+
+    cfg = load_tier_b_revenue()
+    period_order = ["2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4", "2026-Q1"]
+    for provider in _TIER_B_EXPECTED_PROVIDERS:
+        amounts = [
+            next(e.amount_usd for e in cfg.entries if e.provider == provider and e.period == p)
+            for p in period_order
+        ]
+        for prev, curr in pairwise(amounts):
+            assert curr >= prev, (
+                f"{provider}: revenue not monotonic across {period_order} = {amounts}"
+            )
+
+
+def test_production_tier_b_revenue_source_values_in_known_set() -> None:
+    """Source field values must be one of the documented categories."""
+    cfg = load_tier_b_revenue()
+    known_sources = {"reported", "analyst_triangulation", "synthetic_for_mvp"}
+    actual_sources = {e.source for e in cfg.entries}
+    assert actual_sources <= known_sources, (
+        f"Unknown source values: {actual_sources - known_sources}"
+    )
+
+
 def test_load_tier_b_revenue_accepts_empty_entries_list(tmp_path: Path) -> None:
     yaml_path = tmp_path / "tier_b_revenue.yaml"
     yaml_path.write_text("entries: []\n", encoding="utf-8")
