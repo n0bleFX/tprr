@@ -329,3 +329,64 @@ The two surfaces exercise different methodology controls and should be reasoned 
 **Future work**: v0.2 may extend pre-flight to per-contributor event granularity for shock_price_cut and other propagated-event scenarios. The pre-flight infrastructure already supports this; only the scope filter needs broadening. Defer until Phase 10 findings indicate it matters.
 
 **Methodology section**: 3.3 (aggregation), 4.2 (validation framework — scenario design)
+
+## 2026-04-28 — OpenRouter coverage: 15/16 registry models mapped; 1 documented unmatched
+
+**Decision**: Tier C reference data covers 15 of 16 registry constituents via `openrouter_author/openrouter_slug` mapping in `config/model_registry.yaml`. The remaining 1 (`meta/llama-4-70b-hosted`) is documented as having no OpenRouter analogue at the same architectural-variant granularity.
+
+**Context**: Phase 4 Batch B match-rate verification revealed three naming-convention mismatches between the TPRR registry and OpenRouter: separator differences (dot vs hyphen), family-component reordering / minor version bumps, and absent-or-different authors. Initial inspection underestimated coverage at 5/16 due to truncated investigation of the OpenRouter response — first iteration looked at `+N more`-summarised author lists rather than full enumeration. Two follow-up rounds refined the mapping: Pattern 2 (family-rename judgment for the gemini variants) lifted to 11/16, then Pattern 3 (author-naming convention differences for mistral ↔ mistralai, alibaba ↔ qwen, and the missed anthropic dotted-version entries) lifted to 15/16. The iterative-discovery audit trail is recorded in conversation-context for Batch B and in feedback memory `feedback_grep_full_lists_not_truncated.md`. Tier C coverage of 15/16 (94%) is well above design floor.
+
+**Resolution path chosen**: Populate `openrouter_author/slug` fields explicitly in `model_registry.yaml` for the 15 mappable models. Use case-by-case judgment for family-rename cases. Minor version bumps within the same series are accepted as legitimate mappings (`gemini-2-flash` → `gemini-2.5-flash`, `gemini-3-pro` → `gemini-3.1-pro-preview`); the rationale is that within-series minor versions represent the same model lineage at a more recent release cadence than our registry's projected names. Author-naming convention differences (`alibaba` ↔ `qwen`, `mistral` ↔ `mistralai`) are accepted as legitimate mappings when the model lineage is clear. Architectural variant differences (`llama-4-70b-hosted` ↔ `llama-4-maverick`) are NOT accepted — these are different model variants in the same family rather than naming-convention or version-level differences, and forcing a map would distort what Tier C reference data represents for that constituent.
+
+**Unmatched models**: Only `meta/llama-4-70b-hosted` remains unmatched. Its registry entry leaves `openrouter_author/slug` unset; the `/api/v1/models` matcher logs INFO at fetch time and skips. This constituent will have no Tier C reference data; Phase 5 weighting falls through to Tier A (contributor panel) and Tier B (revenue proxy) for it.
+
+**Impact**: 15/16 (94%) coverage. OpenAI + Anthropic + Google + DeepSeek + Mistral + Alibaba/Qwen + Xiaomi all covered. Pattern: forward-projected registry names mostly map cleanly to OpenRouter via small convention adjustments. The single unmatched constituent (Llama 4 hosted variant) reflects an architectural-naming gap rather than absence of the model family from OpenRouter.
+
+**Future work**: v0.2 may revisit `meta/llama-4-70b-hosted` if OpenRouter publishes a 70B-parameter hosted variant that matches the registry's intent more precisely than maverick or scout. Re-run mapping audit during Phase 4 maintenance cycles when registry constituents are revised or OpenRouter model availability shifts.
+
+**Methodology section**: 3.3.2 (three-tier volume hierarchy)
+
+## 2026-04-28 — Tier C historical backfill: option (a) static current snapshot
+
+**Decision**: Tier C historical backfill across the Jan 2025 → today backtest uses the current OpenRouter snapshot's structure (matched models, market shares, current prices) applied to all backtest days. No attempt is made to reconstruct historical OpenRouter snapshots. Documented as an MVP limitation.
+
+**Context**: OpenRouter's `/api/v1/models` endpoint and the per-model `/endpoints` endpoint both return current data with no historical version. The rankings mirror at jampongsathorn/openrouter-rankings publishes weekly snapshots from a relatively recent date, but does not extend back to Jan 2025. The MVP backtest covers ~480 days and needs Tier C reference data on every backtest day.
+
+**Alternatives considered**:
+- **Option (a) — static current snapshot (chosen)**: apply current prices, match list, and rankings-derived volumes uniformly across the full backtest. Simple to implement; honest about Tier C's proxy-by-design nature; aligned with project_plan recommendation.
+- **Option (b) — Tier C only when historical mirror data is available**: would leave Jan 2025 → mid-2025 with no Tier C data. Phase 5 weighting falls through to A/B for those days. Creates a discontinuity in Tier C coverage at the date the rankings mirror starts publishing.
+- **Option (c) — hybrid (historical mirror where available, current snapshot before)**: most "honest" representation but introduces a discontinuity at the boundary, adds source-tracking complexity, and the marginal benefit over (a) is small given Tier C's 20% haircut and proxy-by-design framing.
+
+**Rationale**: The MVP's validation question is whether the algorithm computes correctly on panel-shaped multi-source input. Historical OpenRouter market structure is not load-bearing for that question. Tier C's 20% haircut already discounts its confidence; (b) and (c) would add complexity without unlocking a methodology question this MVP needs to answer.
+
+**Impact and known consequence**: Tier C carries current OR prices applied to early-2025 backtest days, while Tier A carries the mock historical price evolution. The dual-weighted aggregation will blend these on each day. On early-backtest days, Tier C and Tier A may price the same constituent at materially different levels (current 2026-era prices vs simulated Jan 2025 baselines). This is an inherent property of (a), not a defect. Phase 10 findings will surface whether the early-backtest blend produces interpretive noise; if so, the v0.2 fix is option (c) using historical rankings-mirror snapshots where available — NOT a "price-syncing" variant of (a) that aligns Tier C prices to Tier A baselines, which would defeat the data-source independence Tier C is supposed to provide.
+
+**v0.2 enhancement path**: option (c) using historical rankings-mirror snapshots, when the rankings mirror has accumulated enough history to backfill meaningfully.
+
+**Methodology section**: 3.3.2 (three-tier volume hierarchy), 4.2.5 (Tier C as transaction-verified market proxy)
+
+## 2026-04-28 — Tier C rankings sparseness: model-level only with author fallback rejected
+
+**Decision**: Tier C volume is populated from OpenRouter rankings ONLY when a constituent matches a rankings entry at the model level (via date-suffix stripping). Constituents without a model-level match receive `volume_mtok_7d = 0` with a `"no_rankings_data"` flag in the panel row's `notes` field. Author-level proportional splits are NOT used.
+
+**Context**: OpenRouter's rankings mirror returns ~9 entries at the per-model granularity, with dated-version naming (e.g., `anthropic/claude-4.7-opus-20260416`). Of the 15 registry constituents mapped to OpenRouter, only 1 (`deepseek/deepseek-v3-2`) has a discoverable model-level rankings match via date-suffix stripping. The remaining 14 have no model-level rankings data.
+
+**Alternatives considered**:
+- Option A (author-share split): equal split within author. Rejected — distorts within-author volume relationships (GPT-5-Pro vs GPT-5-Nano carry vastly different real-world volumes).
+- Option B (model-level + author fallback): mixed semantics under one variable. Rejected — creates audit-trail confusion in Phase 10 findings analysis.
+- Option C (chosen): model-level matching only; missing data is honestly missing.
+
+**Rationale**: The three-tier hierarchy is designed to handle this. Tier C is the lowest-confidence proxy; when its data is sparse, Phase 5b's tier-priority logic falls through to Tier B (revenue-derived) or Tier A (contributor panel). Synthesising volume that doesn't exist in the source data corrupts the manipulation-resistance argument.
+
+**Impact**:
+- Tier C is effectively a price-reference tier in v0.1 with negligible weight contribution.
+- Phase 5b implementation must handle "Tier C volume is zero" as a fall-through condition, not as "constituent has no weight" — the constituent gets weight from Tier A or Tier B instead.
+- Phase 10 findings should report Tier C contribution percentage; if it's near-zero, that's expected for v0.1 and the methodology validation rests on Tier A weighting working correctly.
+
+**v0.2 enhancement paths queued**:
+- Historical rankings snapshots with proper time-series (current is single snapshot)
+- Author-level distribution refinement using observed constituent prominence within author from secondary sources
+- Supplementary volume sources (Menlo enterprise spend reports, analyst-provided model-mix estimates)
+- Date-suffix matcher generalisation: match the most recent dated variant of a base slug rather than exact match
+
+**Methodology section**: 3.3.2 (three-tier volume hierarchy)

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -48,6 +49,12 @@ from tprr.config import ModelRegistry
 from tprr.schema import AttestationTier, Tier
 
 logger = logging.getLogger(__name__)
+
+# Match a trailing -YYYYMMDD suffix on a rankings slug (the OpenRouter rankings
+# mirror suffixes the dated variant of each model). Stripping yields the base
+# slug for matching against /api/v1/models conventions.
+_DATE_SUFFIX_PATTERN = re.compile(r"-\d{8}$")
+_NO_RANKINGS_NOTE = "no_rankings_data"
 
 USER_AGENT = "Noble-Argon-TPRR/0.1 research"
 TIMEOUT_SECONDS = 30.0
@@ -384,18 +391,107 @@ def normalise_endpoints_to_panel(
 def enrich_with_rankings_volume(
     panel_df: pd.DataFrame,
     rankings_json: dict[str, Any],
+    model_registry: ModelRegistry,
 ) -> pd.DataFrame:
-    """Populate ``volume_mtok_7d`` from rankings data.
+    """Populate ``volume_mtok_7d`` from rankings data via model-level matching.
 
-    Batch B: structural pass-through. Returns a copy of ``panel_df``
-    unchanged (volume_mtok_7d remains 0.0). Batch C will implement the
-    rankings-to-volume conversion once the rankings JSON shape is
-    confirmed via real fetch — current uncertainty about the mirror's
-    exact schema (counts vs share-of-traffic vs both) makes a speculative
-    implementation here worse than a documented stub.
+    Per docs/decision_log.md 2026-04-28 ("Tier C rankings sparseness"):
+    model-level matching only. A panel row's ``constituent_id`` resolves
+    to its registry entry's ``(openrouter_author, openrouter_slug)``;
+    rankings entries are matched via exact ``(author, slug)`` after
+    stripping the trailing ``-YYYYMMDD`` date suffix from the rankings
+    slug. Constituents without a model-level rankings match receive
+    ``volume_mtok_7d = 0`` and a ``"no_rankings_data"`` flag in
+    ``notes``. Author-level fallback is NOT used.
+
+    Tokens conversion: rankings ``tokens`` field is the trailing weekly
+    aggregate per the mirror's documentation, converted to ``mtok``
+    via ``tokens / 1e6``. Rankings ``tokens`` covers combined input +
+    output traffic — using it as ``volume_mtok_7d`` (output volume by
+    schema) slightly overstates output, accepted MVP simplification.
+
+    Variant-suffixed rankings entries (``:free`` etc.) are filtered out
+    consistent with ``/api/v1/models`` normalisation.
+
+    Only Tier C panel rows are touched. Other-tier rows pass through
+    unchanged.
     """
-    _ = rankings_json  # consumed in Batch C
-    return panel_df.copy()
+    volume_by_constituent = _build_rankings_volume_lookup(
+        rankings_json, model_registry
+    )
+
+    out = panel_df.copy()
+    if len(out) == 0 or "attestation_tier" not in out.columns:
+        return out
+
+    tier_c_mask = out["attestation_tier"] == AttestationTier.C.value
+    matched_constituents: set[str] = set()
+    unmatched_constituents: set[str] = set()
+
+    for idx in out.index[tier_c_mask]:
+        cid = str(out.at[idx, "constituent_id"])
+        if cid in volume_by_constituent:
+            out.at[idx, "volume_mtok_7d"] = volume_by_constituent[cid]
+            matched_constituents.add(cid)
+        else:
+            existing = str(out.at[idx, "notes"]) if "notes" in out.columns else ""
+            out.at[idx, "notes"] = (
+                _NO_RANKINGS_NOTE
+                if not existing
+                else f"{existing};{_NO_RANKINGS_NOTE}"
+            )
+            unmatched_constituents.add(cid)
+
+    n_matched = len(matched_constituents)
+    n_total = n_matched + len(unmatched_constituents)
+    logger.info(
+        "OpenRouter rankings: %d of %d Tier C constituents matched to rankings",
+        n_matched,
+        n_total,
+    )
+    return out
+
+
+def _build_rankings_volume_lookup(
+    rankings_json: dict[str, Any],
+    model_registry: ModelRegistry,
+) -> dict[str, float]:
+    """Map registry constituent_ids to ``volume_mtok_7d`` via rankings match.
+
+    1. Build ``(rankings_author, stripped_rankings_slug) -> tokens`` from
+       ``rankings_json["models"]``, stripping trailing ``-YYYYMMDD`` and
+       skipping variant suffixes.
+    2. For each registry model with ``openrouter_author/slug`` populated,
+       look up ``(openrouter_author, openrouter_slug)`` in step 1's map
+       and emit ``constituent_id -> tokens / 1e6`` if found.
+    """
+    rankings_volume: dict[tuple[str, str], float] = {}
+    models = rankings_json.get("models", [])
+    if isinstance(models, list):
+        for entry in models:
+            if not isinstance(entry, dict):
+                continue
+            author = entry.get("author")
+            slug = entry.get("slug")
+            tokens = entry.get("tokens")
+            if not (
+                isinstance(author, str)
+                and isinstance(slug, str)
+                and isinstance(tokens, int | float)
+            ):
+                continue
+            if any(slug.endswith(suffix) for suffix in _VARIANT_SUFFIXES):
+                continue
+            stripped_slug = _DATE_SUFFIX_PATTERN.sub("", slug)
+            rankings_volume[(author, stripped_slug)] = float(tokens) / 1e6
+
+    out: dict[str, float] = {}
+    for m in model_registry.models:
+        if m.openrouter_author and m.openrouter_slug:
+            key = (m.openrouter_author, m.openrouter_slug)
+            if key in rankings_volume:
+                out[m.constituent_id] = rankings_volume[key]
+    return out
 
 
 # ---------------------------------------------------------------------------
