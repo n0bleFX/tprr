@@ -1,11 +1,169 @@
-# Outlier injection scenarios for stress-testing the aggregation.
+# scenarios.yaml — Phase 3 outlier-injection scenario manifest.
 #
-# Phase 3 will populate this with the nine scenario types defined in
-# project_plan.md Phase 3 (fat_finger_high/low, stale_quote, contributor_blackout,
-# shock_price_cut, sustained_manipulation, tier_reshuffle, new_model_launch,
-# intraday_spike).
+# Each entry is a parameter set for one scenario type ("kind"). Composer
+# functions in src/tprr/mockdata/scenarios.py map (kind -> composer) and
+# translate these abstract parameters into primitive calls on the Phase 2
+# panel + change events. See docs/decision_log.md for per-scenario rationale.
 #
-# Schema: src/tprr/config.py :: ScenariosConfig (currently a permissive
-# placeholder accepting arbitrary content; Phase 3 will tighten the schema).
+# Day offsets are 0-indexed days from index_config.backtest_start (2025-01-01).
+# Slot indices are 0..31, covering the 09:00-17:00 UTC fixing window.
+#
+# Schema: src/tprr/config.py :: ScenariosConfig
 
-scenarios: []
+scenarios:
+
+  # 1. Fat-finger high — 10x price spike for one slot on a Standard model.
+  - id: fat_finger_high
+    kind: fat_finger
+    description: "10x price spike for one slot, single contributor x Standard model"
+    tier: TPRR_S
+    target:
+      contributor_id: contrib_atlas
+      constituent_id: openai/gpt-5-mini
+    timing:
+      day_offset: 120
+      slot: 16
+    magnitude:
+      multiplier: 10.0
+    revert:
+      after_slots: 1
+
+  # 2. Fat-finger low — 0.1x price drop for one slot on a Standard model.
+  - id: fat_finger_low
+    kind: fat_finger
+    description: "0.1x price drop for one slot, single contributor x Standard model"
+    tier: TPRR_S
+    target:
+      contributor_id: contrib_orion
+      constituent_id: anthropic/claude-haiku-4-5
+    timing:
+      day_offset: 250
+      slot: 20
+    magnitude:
+      multiplier: 0.1
+    revert:
+      after_slots: 1
+
+  # 3. Stale quote — freeze a pair's price across a 14-day window.
+  - id: stale_quote
+    kind: stale_quote
+    description: "Freeze pair's price for 14 days while market moves, Efficiency tier"
+    tier: TPRR_E
+    target:
+      contributor_id: contrib_zeta
+      constituent_id: google/gemini-flash-lite
+    timing:
+      day_offset_start: 300
+      duration_days: 14
+    freeze_price_source: entry_day
+
+  # 4. Correlated blackout — concurrent outage of two contributors. Drops
+  # gemini-flash-lite, qwen-3-6-plus, mimo-v2-pro to exactly 3 contributors.
+  - id: correlated_blackout
+    kind: correlated_blackout
+    description: "Concurrent blackout of contrib_sirius + contrib_polaris, 10 days"
+    target:
+      contributor_ids:
+        - contrib_sirius
+        - contrib_polaris
+    timing:
+      day_offset_start: 250
+      duration_days: 10
+
+  # 5. Shock price cut — 50% provider-level step-down, fans out to all 6
+  # covering contribs (atlas, helios, lyra, sirius, polaris, nova).
+  - id: shock_price_cut
+    kind: shock_price_cut
+    description: "50% step-down on deepseek-v3-2, propagated to all covering contribs"
+    tier: TPRR_E
+    target:
+      constituent_id: deepseek/deepseek-v3-2
+    timing:
+      day_offset: 203
+    magnitude:
+      multiplier: 0.5
+    notes:
+      - "Day 203 is +3 from original day 200 to dodge natural step event at day 198 on seed 42"
+
+  # 6. Sustained manipulation — contributor sustains tier-median x 1.25 pricing
+  # for 60 days. Multiplier recomputed daily from active S constituents.
+  - id: sustained_manipulation
+    kind: sustained_manipulation
+    description: "contrib_lyra prices claude-haiku-4-5 at tier-median x 1.25 for 60 days"
+    tier: TPRR_S
+    target:
+      contributor_id: contrib_lyra
+      constituent_id: anthropic/claude-haiku-4-5
+    timing:
+      day_offset_start: 150
+      duration_days: 60
+    manipulation:
+      type: tier_median_multiplier
+      multiplier: 1.25
+
+  # 7. Tier reshuffle — Index Committee reclassifies sonnet-4-6 F -> S at day 400.
+  - id: tier_reshuffle
+    kind: tier_reshuffle
+    description: "Sonnet-4-6 reclassified F -> S at day 400 by Index Committee"
+    target:
+      constituent_id: anthropic/claude-sonnet-4-6
+    new_tier: TPRR_S
+    timing:
+      day_offset: 400
+
+  # 8. New model launch — anthropic/claude-haiku-5 launches at day 350, S-tier.
+  # Coverage: same seven contributors as claude-haiku-4-5 today.
+  - id: new_model_launch
+    kind: new_model_launch
+    description: "Anthropic launches claude-haiku-5 mid-period, S-tier defaults"
+    new_model:
+      constituent_id: anthropic/claude-haiku-5
+      tier: TPRR_S
+      provider: anthropic
+      canonical_name: Claude Haiku 5
+      baseline_input_price_usd_mtok: 1.0
+      baseline_output_price_usd_mtok: 4.0
+    coverage:
+      contributor_ids:
+        - contrib_atlas
+        - contrib_helios
+        - contrib_orion
+        - contrib_vega
+        - contrib_lyra
+        - contrib_polaris
+        - contrib_rigel
+    timing:
+      day_offset: 350
+
+  # 9. Intraday spike — +25% off-market price for slots 10-12, reverts at slot 13.
+  - id: intraday_spike
+    kind: intraday_spike
+    description: "+25% off-market price across slots 10-12 on mistral-large-3, reverts at slot 13"
+    tier: TPRR_S
+    target:
+      contributor_id: contrib_polaris
+      constituent_id: mistral/mistral-large-3
+    timing:
+      day_offset: 270
+      slot_start: 10
+      slot_end: 12
+    magnitude:
+      multiplier: 1.25
+    revert:
+      at_slot: 13
+
+  # 10. Regime shift — all 4 S constituents under elevated bidirectional vol,
+  # 90-day window. Thesis-alignment test; do not re-anchor on day 269.
+  - id: regime_shift
+    kind: regime_shift
+    description: "All 4 S constituents under sigma=0.07/day, mu=0, step_rate=0 for 90 days"
+    tier: TPRR_S
+    target:
+      tier_wide: true
+    timing:
+      day_offset_start: 180
+      duration_days: 90
+    dynamics:
+      sigma_daily: 0.07
+      mu_daily: 0.0
+      step_rate_per_year: 0.0

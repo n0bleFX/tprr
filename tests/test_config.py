@@ -12,11 +12,19 @@ from pydantic import ValidationError
 from tprr.config import (
     AllConfig,
     ContributorProfile,
+    CorrelatedBlackoutSpec,
+    FatFingerSpec,
     IndexConfig,
+    IntradaySpikeSpec,
     ModelMetadata,
+    NewModelLaunchSpec,
+    RegimeShiftSpec,
     ScenariosConfig,
+    StaleQuoteSpec,
+    SustainedManipulationSpec,
     TierBRevenueConfig,
     TierBRevenueEntry,
+    TierReshuffleSpec,
     VolumeScale,
     load_all,
     load_index_config,
@@ -384,3 +392,393 @@ def test_load_tier_b_revenue_accepts_empty_entries_list(tmp_path: Path) -> None:
     yaml_path.write_text("entries: []\n", encoding="utf-8")
     cfg = load_tier_b_revenue(yaml_path)
     assert len(cfg) == 0
+
+
+# ===========================================================================
+# Scenarios — schema-level validation tests (per-spec, no I/O)
+# ===========================================================================
+
+
+def _ff_payload(**overrides: object) -> dict[str, object]:
+    """Minimal fat_finger payload as a dict — overridable per test."""
+    base: dict[str, object] = {
+        "id": "ff_test",
+        "kind": "fat_finger",
+        "description": "test",
+        "tier": "TPRR_S",
+        "target": {"contributor_id": "c", "constituent_id": "m"},
+        "timing": {"day_offset": 10, "slot": 5},
+        "magnitude": {"multiplier": 10.0},
+        "revert": {"after_slots": 1},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_fat_finger_spec_validates_minimal_happy_path() -> None:
+    spec = FatFingerSpec.model_validate(_ff_payload())
+    assert spec.id == "ff_test"
+    assert spec.tier == Tier.TPRR_S
+    assert spec.timing.slot == 5
+    assert spec.magnitude.multiplier == 10.0
+
+
+def test_fat_finger_spec_rejects_invalid_slot() -> None:
+    payload = _ff_payload(timing={"day_offset": 10, "slot": 32})
+    with pytest.raises(ValidationError):
+        FatFingerSpec.model_validate(payload)
+
+
+def test_fat_finger_spec_rejects_zero_or_negative_multiplier() -> None:
+    for bad in (0.0, -1.0):
+        payload = _ff_payload(magnitude={"multiplier": bad})
+        with pytest.raises(ValidationError):
+            FatFingerSpec.model_validate(payload)
+
+
+def test_fat_finger_spec_rejects_negative_day_offset() -> None:
+    payload = _ff_payload(timing={"day_offset": -1, "slot": 5})
+    with pytest.raises(ValidationError):
+        FatFingerSpec.model_validate(payload)
+
+
+def test_intraday_spike_spec_rejects_slot_start_after_end() -> None:
+    payload = {
+        "id": "is_test",
+        "kind": "intraday_spike",
+        "description": "test",
+        "tier": "TPRR_S",
+        "target": {"contributor_id": "c", "constituent_id": "m"},
+        "timing": {"day_offset": 10, "slot_start": 20, "slot_end": 10},
+        "magnitude": {"multiplier": 1.25},
+        "revert": {"at_slot": 11},
+    }
+    with pytest.raises(ValidationError, match="slot_start"):
+        IntradaySpikeSpec.model_validate(payload)
+
+
+def test_intraday_spike_spec_validates_full_range_at_boundary() -> None:
+    """Boundary case: slot_start=0 + slot_end=31 covers the entire fixing window."""
+    payload = {
+        "id": "is_test",
+        "kind": "intraday_spike",
+        "description": "test",
+        "tier": "TPRR_S",
+        "target": {"contributor_id": "c", "constituent_id": "m"},
+        "timing": {"day_offset": 10, "slot_start": 0, "slot_end": 31},
+        "magnitude": {"multiplier": 1.25},
+        "revert": {"at_slot": 0},
+    }
+    spec = IntradaySpikeSpec.model_validate(payload)
+    assert spec.timing.slot_start == 0
+    assert spec.timing.slot_end == 31
+
+
+def test_correlated_blackout_spec_rejects_single_contributor() -> None:
+    payload = {
+        "id": "cb_test",
+        "kind": "correlated_blackout",
+        "description": "test",
+        "target": {"contributor_ids": ["c1"]},
+        "timing": {"day_offset_start": 10, "duration_days": 5},
+    }
+    with pytest.raises(ValidationError, match="at least 2"):
+        CorrelatedBlackoutSpec.model_validate(payload)
+
+
+def test_correlated_blackout_spec_rejects_duplicate_contributors() -> None:
+    payload = {
+        "id": "cb_test",
+        "kind": "correlated_blackout",
+        "description": "test",
+        "target": {"contributor_ids": ["c1", "c1"]},
+        "timing": {"day_offset_start": 10, "duration_days": 5},
+    }
+    with pytest.raises(ValidationError, match="unique"):
+        CorrelatedBlackoutSpec.model_validate(payload)
+
+
+def test_tier_reshuffle_spec_validates_happy_path() -> None:
+    payload = {
+        "id": "tr_test",
+        "kind": "tier_reshuffle",
+        "description": "test",
+        "target": {"constituent_id": "x/y"},
+        "new_tier": "TPRR_S",
+        "timing": {"day_offset": 200},
+    }
+    spec = TierReshuffleSpec.model_validate(payload)
+    assert spec.new_tier == Tier.TPRR_S
+    assert spec.timing.day_offset == 200
+
+
+def test_new_model_launch_spec_rejects_negative_baseline_price() -> None:
+    payload = {
+        "id": "nml_test",
+        "kind": "new_model_launch",
+        "description": "test",
+        "new_model": {
+            "constituent_id": "x/new",
+            "tier": "TPRR_S",
+            "provider": "x",
+            "canonical_name": "X New",
+            "baseline_input_price_usd_mtok": -1.0,
+            "baseline_output_price_usd_mtok": 4.0,
+        },
+        "coverage": {"contributor_ids": ["c1"]},
+        "timing": {"day_offset": 100},
+    }
+    with pytest.raises(ValidationError):
+        NewModelLaunchSpec.model_validate(payload)
+
+
+def test_regime_shift_spec_rejects_negative_sigma() -> None:
+    payload = {
+        "id": "rs_test",
+        "kind": "regime_shift",
+        "description": "test",
+        "tier": "TPRR_S",
+        "target": {"tier_wide": True},
+        "timing": {"day_offset_start": 0, "duration_days": 10},
+        "dynamics": {
+            "sigma_daily": -0.01,
+            "mu_daily": 0.0,
+            "step_rate_per_year": 0.0,
+        },
+    }
+    with pytest.raises(ValidationError):
+        RegimeShiftSpec.model_validate(payload)
+
+
+def test_stale_quote_spec_rejects_unsupported_freeze_source() -> None:
+    payload = {
+        "id": "sq_test",
+        "kind": "stale_quote",
+        "description": "test",
+        "tier": "TPRR_E",
+        "target": {"contributor_id": "c", "constituent_id": "m"},
+        "timing": {"day_offset_start": 100, "duration_days": 14},
+        "freeze_price_source": "tier_median",
+    }
+    with pytest.raises(ValidationError):
+        StaleQuoteSpec.model_validate(payload)
+
+
+def test_sustained_manipulation_spec_rejects_unknown_manipulation_type() -> None:
+    payload = {
+        "id": "sm_test",
+        "kind": "sustained_manipulation",
+        "description": "test",
+        "tier": "TPRR_S",
+        "target": {"contributor_id": "c", "constituent_id": "m"},
+        "timing": {"day_offset_start": 100, "duration_days": 60},
+        "manipulation": {"type": "tier_min_multiplier", "multiplier": 1.25},
+    }
+    with pytest.raises(ValidationError):
+        SustainedManipulationSpec.model_validate(payload)
+
+
+def test_scenarios_config_discriminates_correctly_on_kind() -> None:
+    """A list with mixed kinds parses each entry to the right concrete class."""
+    cfg = ScenariosConfig.model_validate(
+        {
+            "scenarios": [
+                _ff_payload(id="ff_a"),
+                {
+                    "id": "rs_a",
+                    "kind": "regime_shift",
+                    "description": "x",
+                    "tier": "TPRR_S",
+                    "target": {"tier_wide": True},
+                    "timing": {"day_offset_start": 0, "duration_days": 10},
+                    "dynamics": {
+                        "sigma_daily": 0.01,
+                        "mu_daily": 0.0,
+                        "step_rate_per_year": 0.0,
+                    },
+                },
+            ]
+        }
+    )
+    assert isinstance(cfg.scenarios[0], FatFingerSpec)
+    assert isinstance(cfg.scenarios[1], RegimeShiftSpec)
+
+
+def test_scenarios_config_unknown_kind_raises() -> None:
+    payload = {
+        "scenarios": [
+            {"id": "x", "kind": "unknown_kind", "description": "x"},
+        ]
+    }
+    with pytest.raises(ValidationError):
+        ScenariosConfig.model_validate(payload)
+
+
+def test_scenarios_config_rejects_duplicate_scenario_ids() -> None:
+    payload = {
+        "scenarios": [
+            _ff_payload(id="dup"),
+            _ff_payload(id="dup", timing={"day_offset": 11, "slot": 6}),
+        ]
+    }
+    with pytest.raises(ValidationError, match="unique"):
+        ScenariosConfig.model_validate(payload)
+
+
+# ===========================================================================
+# Scenarios — file-load + cross-validation tests
+# ===========================================================================
+
+
+def test_load_scenarios_full_manifest_from_disk() -> None:
+    """Production config/scenarios.yaml loads with all 10 expected entries."""
+    cfg = load_scenarios()
+    assert len(cfg.scenarios) == 10
+    expected_ids = {
+        "fat_finger_high",
+        "fat_finger_low",
+        "stale_quote",
+        "correlated_blackout",
+        "shock_price_cut",
+        "sustained_manipulation",
+        "tier_reshuffle",
+        "new_model_launch",
+        "intraday_spike",
+        "regime_shift",
+    }
+    assert {s.id for s in cfg.scenarios} == expected_ids
+
+
+def test_load_all_cross_validates_scenario_contributor_refs(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_configs(tmp_path)
+    (tmp_path / "scenarios.yaml").write_text(
+        dedent(
+            """\
+            scenarios:
+              - id: bad_contrib
+                kind: fat_finger
+                description: x
+                tier: TPRR_S
+                target:
+                  contributor_id: contrib_nonexistent
+                  constituent_id: openai/gpt-5-pro
+                timing: { day_offset: 10, slot: 5 }
+                magnitude: { multiplier: 10.0 }
+                revert: { after_slots: 1 }
+            """
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="not in contributor panel"):
+        load_all(tmp_path, backtest_end=date(2027, 1, 1))
+
+
+def test_load_all_cross_validates_scenario_constituent_refs(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_configs(tmp_path)
+    (tmp_path / "scenarios.yaml").write_text(
+        dedent(
+            """\
+            scenarios:
+              - id: bad_const
+                kind: fat_finger
+                description: x
+                tier: TPRR_S
+                target:
+                  contributor_id: contrib_alpha
+                  constituent_id: nonexistent/model
+                timing: { day_offset: 10, slot: 5 }
+                magnitude: { multiplier: 10.0 }
+                revert: { after_slots: 1 }
+            """
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="not in model registry"):
+        load_all(tmp_path, backtest_end=date(2027, 1, 1))
+
+
+def test_load_all_rejects_new_model_launch_constituent_already_in_registry(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_configs(tmp_path)
+    (tmp_path / "scenarios.yaml").write_text(
+        dedent(
+            """\
+            scenarios:
+              - id: dup_constituent
+                kind: new_model_launch
+                description: x
+                new_model:
+                  constituent_id: openai/gpt-5-pro
+                  tier: TPRR_F
+                  provider: openai
+                  canonical_name: GPT-5 Pro Duplicate
+                  baseline_input_price_usd_mtok: 15.0
+                  baseline_output_price_usd_mtok: 75.0
+                coverage:
+                  contributor_ids: [contrib_alpha]
+                timing: { day_offset: 100 }
+            """
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="already in registry"):
+        load_all(tmp_path, backtest_end=date(2027, 1, 1))
+
+
+def test_load_all_rejects_scenario_day_offset_beyond_backtest_window(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_configs(tmp_path)
+    (tmp_path / "scenarios.yaml").write_text(
+        dedent(
+            """\
+            scenarios:
+              - id: too_far
+                kind: fat_finger
+                description: x
+                tier: TPRR_S
+                target:
+                  contributor_id: contrib_alpha
+                  constituent_id: openai/gpt-5-pro
+                timing: { day_offset: 999, slot: 5 }
+                magnitude: { multiplier: 10.0 }
+                revert: { after_slots: 1 }
+            """
+        ),
+        encoding="utf-8",
+    )
+    # backtest_start (2025-01-01) -> backtest_end (2025-01-31) = 30-day window.
+    with pytest.raises(ValueError, match="exceeds backtest window"):
+        load_all(tmp_path, backtest_end=date(2025, 1, 31))
+
+
+def test_load_all_rejects_scenario_window_extending_beyond_backtest_end(
+    tmp_path: Path,
+) -> None:
+    _write_minimal_configs(tmp_path)
+    (tmp_path / "scenarios.yaml").write_text(
+        dedent(
+            """\
+            scenarios:
+              - id: window_overflow
+                kind: regime_shift
+                description: x
+                tier: TPRR_S
+                target: { tier_wide: true }
+                timing: { day_offset_start: 25, duration_days: 20 }
+                dynamics:
+                  sigma_daily: 0.05
+                  mu_daily: 0.0
+                  step_rate_per_year: 0.0
+            """
+        ),
+        encoding="utf-8",
+    )
+    # day_offset_start=25 + duration_days=20 → last day 44, > 30-day window.
+    with pytest.raises(ValueError, match="exceeds backtest window"):
+        load_all(tmp_path, backtest_end=date(2025, 1, 31))

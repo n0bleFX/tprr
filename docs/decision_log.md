@@ -218,3 +218,114 @@ methodology choice must have an entry here.
 **Impact**: Phase 6 quality gate reconstructs slots from ChangeEvent records, applies gate, computes slot-level-gated TWAP via compute_daily_twap. The panel's stored TWAP is the un-gated reference; the gated TWAP computed via reconstruction is what flows into Phase 7 aggregation. Difference between panel TWAP and gated TWAP is a direct signal of whether the quality gate fired on that (contributor, constituent, date).
 
 **Methodology section**: 4.2.1 (TWAP daily fix), 4.2.2 (quality gate)
+
+## 2026-04-27 — Tier reshuffle handling: panel as source of per-day tier membership truth
+
+**Decision**: Index Committee tier reclassifications (e.g. scenario 7's F→S move of anthropic/claude-sonnet-4-6 on day 400) are encoded as: (i) `mutate_registry` updates the `ModelMetadata.tier` to the new value; (ii) the panel's `tier_code` column is rewritten from old to new for that constituent on `observation_date >= effective_date`. Pre-effective-date panel rows retain the old `tier_code` (historical truth — the constituent was in the old tier on those days). The 5-day quality-gate trailing window (Section 4.2.2) and tier median (Section 3.3.3) consume the panel's per-row `tier_code` on each day; no warmup period is imposed on a reclassified constituent.
+
+**Context**: Methodology Sections 3.3.3 (tier median) and 4.2.2 (slot-level quality gate, 5-day trailing average) do not explicitly address the case where a constituent's tier_code changes mid-window. The question is: when sonnet-4-6 reclassifies F→S on day 400, does the new tier's median computation on days 401+ use sonnet's pre-day-400 (F-tagged) prices for the 5-day trailing window in the data quality gate? Or is sonnet treated as a "new entrant" to S tier requiring a 5-day warmup before contributing?
+
+**Alternatives considered**:
+- **Reading A — panel-as-truth, no warmup (chosen)**: gate walks back 5 days of (contributor, constituent) prices regardless of `tier_code`; panel-row tier rewrite is sufficient. Tier median includes the reclassified constituent on `day_offset >= effective_date`.
+- **Reading B — tier change triggers warmup**: sonnet contributes to S median starting day 405 (first day with 5 days of S-tagged trailing data). Imposes a 5-day hole in the constituent's contribution to its new tier.
+
+**Rationale**:
+- The 5-day trailing window in Section 4.2.2 is per-(contributor, constituent), not per-tier. Its purpose is detecting slot-level outliers against the constituent's recent pricing baseline. The constituent's actual prices are continuous across the reclassification boundary; only the tier label changes. Forcing a 5-day warmup imposes conservatism the methodology doesn't ask for.
+- The tier median (Section 3.3.3) is a snapshot of day-t active members' prices. It has no memory of pre-day-t tier history. On day t the constituent is in tier X by Index Committee fiat; the median uses its day-t price.
+- Reading B introduces a "tier residency duration" concept absent from both methodology sections, and creates an awkward operational gap (Index Committee has reclassified, but the index pretends the change hasn't taken effect for 5 days). Harder to defend to a reviewer than "Index Committee decisions take effect on the effective date".
+
+**Impact**:
+- `mutate_registry` is single-tier-valued — `ModelMetadata` carries one current tier, no temporal model. After scenario 7 composition the registry says sonnet is in S; reading the registry alone for a date < day_400 would return the post-reclassification tier, which is wrong-for-that-date.
+- **Phase 7 must read `tier_code` from the panel**, not from the registry, when computing per-day tier membership. The panel is the source of truth for historical tier state; the registry holds the current state only.
+- Scenario 7 composer records a manifest note flagging this so downstream consumers see it in the audit trail: "tier_reshuffle: registry holds single-valued tier (post-change=…); per-day tier membership truth is panel.tier_code, not registry. Phase 7 must read tier_code from the panel for dates < {effective_date}."
+- This is a v0.1 simplification. v0.2+ may add a temporal `ModelRegistry` (e.g. `tier_history: list[TierAtDate]` on `ModelMetadata`) if Index Committee mechanics become operationally significant beyond MVP scope.
+
+**Methodology section**: 3.3.3, 4.2.2 — Section 3.2 (tier classification rules) does not prescribe the temporal interface but is consistent with Reading A.
+
+## 2026-04-27 — Scenario 4 (correlated_blackout) two-contributor target rationale
+
+**Decision**: Scenario 4 (correlated_blackout) blacks out contrib_sirius + contrib_polaris concurrently for 10 days (days 250–259). A single-contributor blackout was rejected because the production contributor panel does not produce a min-3 floor breach with a one-contributor outage.
+
+**Context**: Phase 3.1 design reviewed contributor coverage against the methodology's minimum-3-active-constituents-per-tier suspension rule (Section 4.2.4). Least-covered Efficiency-tier model on the production panel has 5 covering contributors; dropping any single contributor leaves 4 active — above the suspension floor.
+
+**Alternatives considered**:
+- **Single-contributor blackout** — does not exercise the suspension mechanism on any model with current coverage. Rejected as it would test only "panel partially missing" rather than "tier suspension fired".
+- **Three-contributor concurrent blackout** — would over-test, dropping multiple models below the floor on multiple tiers simultaneously. Rejected as too aggressive for a calibration scenario.
+- **Two-contributor concurrent blackout (chosen)** — sirius + polaris share coverage of three E models (gemini-flash-lite, qwen-3-6-plus, mimo-v2-pro), each currently at 5 contributors; concurrent removal drops all three to exactly 3 contributors, hitting the suspension boundary precisely.
+
+**Rationale**: Correlated outages model real-world phenomena: shared cloud-provider outage, billing-system upstream issue, auth-provider outage affecting multiple enterprise consumers simultaneously. The two-contributor concurrent design exercises both the cross-contributor outage pattern (realistic) and the min-3 suspension boundary (the methodology mechanism we want to test).
+
+**Impact**: Three E-tier models hit the min-3 boundary during the 10-day window. If any of them additionally has a quality-gate exclusion or another contributor drops out for any reason during the window, the floor is breached and the tier suspension fallback (prior-day value) fires. This is the intended exercise.
+
+**Methodology section**: 3.3.2 (Tier A volume attestation), 4.2.4 (minimum-constituent-count suspension)
+
+## 2026-04-27 — Scenario 5 (shock_price_cut) day shift from 200 to 203
+
+**Decision**: Scenario 5 (shock_price_cut) targets day 203 of the backtest, shifted +3 days from the originally planned day 200 due to a natural deepseek-v3-2 baseline step event landing on day 198 on seed 42 with the production registry.
+
+**Context**: Phase 3.1 design originally targeted day 200 for the 50% provider-level step-down on deepseek-v3-2. Pre-flight verification on seed 42 showed a natural Phase 2 baseline_move event at day 198 — within the ±5 event-clear window of the originally planned day. The natural event was a step-down drawn from the E-tier step-down range (20–35%); landing a 50% scenario-driven step-down two days later would have made it harder to attribute index movements to the scenario alone.
+
+**Alternatives considered**:
+- **Keep day 200, accept overlapping events** — rejected because attribution becomes muddied; Phase 10 finding would have to disentangle scenario-driven and natural step-down effects.
+- **Change seed** — rejected because every other scenario's event-clear-day annotation is also seed-specific; re-verifying all annotations on a new seed is more disruptive than shifting one date.
+- **Shift to day 203 (chosen)** — places the scenario exactly 5 days after the natural day-198 event. With strict ±5 window semantics in the pre-flight check, day 203 is clear at the constituent level for baseline_move events.
+
+**Rationale**: The ±5 buffer is sufficient for the index to absorb the prior step-down's TWAP impact before the scenario's day. Shift logged in scenarios.yaml `notes` field for traceability; the manifest captures the note via `add_note()` so the audit trail is preserved through composition.
+
+**Impact**: Phase 10 scenario 5 analysis can attribute index movement on/after day 203 to the scenario step-down without confounding from the natural day-198 step. Scenario 5's per-contributor-level event-clear status is documented separately (see "Pre-flight scope finding: scenario 5 day 203 has nova contract_adjustment collision" entry, same date) — the day-shift rationale here is constituent-level only.
+
+**Methodology section**: 4.2.1 (TWAP daily fix), 4.2.2 (slot-level quality gate, 5-day trailing window)
+
+## 2026-04-27 — Scenario 6 (sustained_manipulation) target contributor: lyra not rigel
+
+**Decision**: Scenario 6 (sustained_manipulation) targets contrib_lyra × anthropic/claude-haiku-4-5, not contrib_rigel × claude-haiku-4-5. Same constituent preserved across alternatives; only the contributor differs.
+
+**Context**: Phase 3.1 design considered both rigel (+1.5% systematic bias) and lyra (-0.5% systematic bias) as candidates for the manipulation contributor. Both cover claude-haiku-4-5. The scenario sustains an off-median price (tier-median × 1.25) for 60 days; the manipulator's normal bias affects how cleanly the sustained off-median signal is attributed to manipulation vs to pre-existing bias drift.
+
+**Alternatives considered**:
+- **rigel (+1.5% bias)** — rejected. rigel's positive bias would conflate the manipulation signal with rigel's already-elevated normal pricing. The sustained tier-median × 1.25 manipulation would partially overlap with the +1.5% bias, making attribution noisier.
+- **lyra (-0.5% bias) (chosen)** — near-neutral bias gives a cleaner manipulation signal. The 25% sustained over-pricing is unambiguously above lyra's normal price level (which is slightly below baseline).
+
+**Rationale**: Scenario 6 tests the methodology's exponential median-distance weighting under sustained off-median pricing. The cleaner the signal-to-bias ratio, the cleaner the test. lyra's −0.5% bias means the sustained over-pricing is ~25.5% above lyra's normal price — versus ~23.5% above rigel's, with rigel's pre-existing positive bias as background noise that would have to be separated out in interpretation.
+
+**Impact**: Phase 10 scenario 6 analysis can attribute index responses to the manipulation cleanly; the manipulator's normal pricing pattern doesn't pre-bias the result. Same constituent (claude-haiku-4-5) preserved across alternatives so the tier-median computation pool is unchanged.
+
+**Methodology section**: 3.3.3 (exponential median-distance weighting), 4.2.6 (continuous exponential weighting as manipulation control)
+
+## 2026-04-27 — Scenario 7 (tier_reshuffle) tests committee mechanics, not adversarial pricing
+
+**Decision**: Scenario 7 (tier_reshuffle) is classified as a methodology-administration scenario, not an adversarial- or erroneous-pricing scenario. Distinct threat surface from scenarios 1–6 and 9.
+
+**Context**: Phase 3.1 scenario taxonomy review distinguished two threat surfaces:
+- **Adversarial / erroneous pricing** (scenarios 1–6, 9) — tests exponential weighting, quality gate, TWAP under bad or manipulated prices.
+- **Methodology administration** (scenario 7) — tests Index Committee actions: tier reclassification, constituent reshuffling.
+
+The two surfaces exercise different methodology controls and should be reasoned about separately.
+
+**Rationale**: Methodology Section 3.2 (tier classification) explicitly contemplates quarterly Index Committee constituent review — a constituent's price evolution can move it across tier boundaries (e.g., a Frontier model whose price drops below $10/Mtok would be reclassified to Standard). Scenario 7 validates that the implementation handles this correctly:
+- Pre-effective-date panel rows retain the old tier_code (historical truth).
+- Post-effective-date panel rows carry the new tier_code (current truth).
+- No retroactive contamination of pre-change index values: if Phase 7 reads tier_code from the panel per-row (not from the registry), per-day tier membership is correct for every day.
+
+**Impact**: Phase 10's scenario 7 finding tests methodology administration mechanics independently of the pricing-driven scenarios. Companion decision: "Tier reshuffle handling: panel as source of per-day tier membership truth" (same date) — that entry covers the implementation details (Reading A vs Reading B; the Phase 7 contract that tier_code comes from panel rows, not from the registry).
+
+**Methodology section**: 3.2 (tier classification, quarterly review), 3.3.3 (tier median computation per-day)
+
+## 2026-04-27 — Pre-flight scope finding: scenario 5 day 203 has nova contract_adjustment collision
+
+**Decision**: Pre-flight event-clear check applied to scenarios 1, 2, 9 only (fat_finger × 2, intraday_spike). Scenario 5 (shock_price_cut) excluded from pre-flight despite its event-clear annotation in scenarios.yaml.
+
+**Context**: During Batch E implementation, attempt to extend pre-flight to scenario 5 (using its day-203 verified-clear annotation) revealed that on seed 42, the per-contributor event level shows contract_adjustment events for helios and nova × deepseek-v3-2 within the strict ±5 window of day 203 — including ON day 203 itself for nova. The historical "day-203 is event-clear" annotation (originally established when scenario 5 was shifted from day 200 to day 203) was based on baseline_move events at the constituent layer; per-contributor contract_adjustment events were not part of that verification.
+
+**Behaviour under v0.1**: scenario 5's composer is multi-event-aware (per Phase 2c.1 multi-event reconstruction support) and correctly handles the stacking via re-TWAP. Index values produced are mathematically correct. Conceptually, the scenario tests provider-shock dynamics on a day where one covering contributor (nova) also has a natural contract adjustment — a legitimate edge case rather than a methodology defect.
+
+**Alternatives considered**:
+- Shift scenario 5 to a day clear of all event types per-contributor — requires re-running event-clear analysis at per-contributor granularity across days 195-220, picking a new day, updating scenarios.yaml. Defensible but cosmetic for v0.1.
+- Accept the stacking as realistic and document (chosen) — composer is mathematically correct, scenario still tests methodology behaviour under price shock, real markets do see coincident events.
+- Extend pre-flight to scenario 5 with strict per-contributor granularity — would force a re-verification cycle and currently rejects day 203. Deferred to v0.2.
+
+**Rationale**: For v0.1, the composer's correctness is sufficient. The "verified clear day" concept is a scenario-design convenience, not a methodology requirement. Phase 10 findings can revisit if the day-203 collision distorts scenario 5's results.
+
+**Future work**: v0.2 may extend pre-flight to per-contributor event granularity for shock_price_cut and other propagated-event scenarios. The pre-flight infrastructure already supports this; only the scope filter needs broadening. Defer until Phase 10 findings indicate it matters.
+
+**Methodology section**: 3.3 (aggregation), 4.2 (validation framework — scenario design)

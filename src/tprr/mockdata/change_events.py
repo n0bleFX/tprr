@@ -36,9 +36,9 @@ from tprr.mockdata.pricing import _stable_int
 from tprr.schema import Tier
 
 _TWAP_SLOTS = 32
-_PUBLICATION_SLOT_MEAN = 16
-_PUBLICATION_SLOT_SIGMA = 6.0
-_CONTRIB_JITTER_SIGMA = 2.0
+PUBLICATION_SLOT_MEAN = 16
+PUBLICATION_SLOT_SIGMA = 6.0
+CONTRIB_JITTER_SIGMA = 2.0
 
 _REASON_BASELINE_MOVE = "baseline_move"
 _REASON_CONTRACT_ADJUSTMENT = "contract_adjustment"
@@ -230,7 +230,7 @@ def _generate_propagated_events(
             np.clip(
                 round(
                     pub_rng.normal(
-                        _PUBLICATION_SLOT_MEAN, _PUBLICATION_SLOT_SIGMA
+                        PUBLICATION_SLOT_MEAN, PUBLICATION_SLOT_SIGMA
                     )
                 ),
                 0,
@@ -252,7 +252,7 @@ def _generate_propagated_events(
                 ]
             )
             jit_rng = np.random.default_rng(jit_ss)
-            jitter = jit_rng.normal(0.0, _CONTRIB_JITTER_SIGMA)
+            jitter = jit_rng.normal(0.0, CONTRIB_JITTER_SIGMA)
             contrib_slot = int(
                 np.clip(round(publication_slot + jitter), 0, _TWAP_SLOTS - 1)
             )
@@ -323,7 +323,7 @@ def _generate_contributor_specific_events(
                 if event_key in propagated_keys or event_date in pair_seen:
                     # skip collisions (propagated wins) and within-pair duplicates
                     _ = rng.normal(
-                        _PUBLICATION_SLOT_MEAN, _PUBLICATION_SLOT_SIGMA
+                        PUBLICATION_SLOT_MEAN, PUBLICATION_SLOT_SIGMA
                     )  # drain to keep stream deterministic even on skip
                     _ = rng.random()
                     _ = rng.uniform(_CONTRIB_SPEC_MAG_LO, _CONTRIB_SPEC_MAG_HI)
@@ -334,8 +334,8 @@ def _generate_contributor_specific_events(
                     np.clip(
                         round(
                             rng.normal(
-                                _PUBLICATION_SLOT_MEAN,
-                                _PUBLICATION_SLOT_SIGMA,
+                                PUBLICATION_SLOT_MEAN,
+                                PUBLICATION_SLOT_SIGMA,
                             )
                         ),
                         0,
