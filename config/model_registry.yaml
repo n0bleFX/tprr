@@ -7,8 +7,11 @@
 # Baseline prices anchor the mock price generator (Phase 2a). Real provider
 # prices for 2026-04 era; subject to revision via decision log.
 #
-# openrouter_author / openrouter_slug intentionally omitted — Phase 4 will
-# populate from actual OpenRouter API responses.
+# openrouter_author / openrouter_slug populated per docs/decision_log.md
+# 2026-04-27 ("OpenRouter coverage: 15/16 registry models mapped").
+# Only meta/llama-4-70b-hosted has no OpenRouter analogue at the same
+# architectural-variant granularity and intentionally leaves the
+# openrouter_* fields unset; it will not contribute Tier C reference data.
 #
 # Schema: src/tprr/config.py :: ModelMetadata
 
@@ -22,6 +25,8 @@ models:
     canonical_name: GPT-5 Pro
     baseline_input_price_usd_mtok: 15.00
     baseline_output_price_usd_mtok: 75.00
+    openrouter_author: openai
+    openrouter_slug: gpt-5-pro
 
   - constituent_id: openai/gpt-5
     tier: TPRR_F
@@ -29,6 +34,8 @@ models:
     canonical_name: GPT-5
     baseline_input_price_usd_mtok: 10.00
     baseline_output_price_usd_mtok: 40.00
+    openrouter_author: openai
+    openrouter_slug: gpt-5
 
   - constituent_id: anthropic/claude-opus-4-7
     tier: TPRR_F
@@ -36,6 +43,8 @@ models:
     canonical_name: Claude Opus 4.7
     baseline_input_price_usd_mtok: 15.00
     baseline_output_price_usd_mtok: 75.00
+    openrouter_author: anthropic
+    openrouter_slug: claude-opus-4.7
 
   - constituent_id: anthropic/claude-opus-4-6
     tier: TPRR_F
@@ -43,13 +52,20 @@ models:
     canonical_name: Claude Opus 4.6
     baseline_input_price_usd_mtok: 15.00
     baseline_output_price_usd_mtok: 75.00
+    openrouter_author: anthropic
+    openrouter_slug: claude-opus-4.6
 
+  # OR carries gemini-3.1-pro-preview as the closest active text/reasoning
+  # gemini-3 model; gemini-3-pro itself is not published. Minor-version bump
+  # within the same series, same convention as gemini-2-flash -> gemini-2.5-flash.
   - constituent_id: google/gemini-3-pro
     tier: TPRR_F
     provider: google
     canonical_name: Gemini 3 Pro
     baseline_input_price_usd_mtok: 5.00
     baseline_output_price_usd_mtok: 30.00
+    openrouter_author: google
+    openrouter_slug: gemini-3.1-pro-preview
 
   - constituent_id: anthropic/claude-sonnet-4-6
     tier: TPRR_F
@@ -57,6 +73,8 @@ models:
     canonical_name: Claude Sonnet 4.6
     baseline_input_price_usd_mtok: 3.00
     baseline_output_price_usd_mtok: 15.00
+    openrouter_author: anthropic
+    openrouter_slug: claude-sonnet-4.6
 
   # === Standard (TPRR-S) — 4 constituents ===
 
@@ -66,6 +84,8 @@ models:
     canonical_name: GPT-5 Mini
     baseline_input_price_usd_mtok: 0.50
     baseline_output_price_usd_mtok: 4.00
+    openrouter_author: openai
+    openrouter_slug: gpt-5-mini
 
   - constituent_id: anthropic/claude-haiku-4-5
     tier: TPRR_S
@@ -73,20 +93,31 @@ models:
     canonical_name: Claude Haiku 4.5
     baseline_input_price_usd_mtok: 1.00
     baseline_output_price_usd_mtok: 5.00
+    openrouter_author: anthropic
+    openrouter_slug: claude-haiku-4.5
 
+  # OR's closest active Standard-tier Gemini is gemini-2.5-flash.
   - constituent_id: google/gemini-2-flash
     tier: TPRR_S
     provider: google
     canonical_name: Gemini 2 Flash
     baseline_input_price_usd_mtok: 0.30
     baseline_output_price_usd_mtok: 2.50
+    openrouter_author: google
+    openrouter_slug: gemini-2.5-flash
 
+  # OR uses author "mistralai" (canonical) where our registry uses "mistral";
+  # OR uses date-suffix versioning (2512 = Dec 2024 vintage of Mistral Large)
+  # which corresponds to our "v3" intent. Both author convention and version
+  # convention differ.
   - constituent_id: mistral/mistral-large-3
     tier: TPRR_S
     provider: mistral
     canonical_name: Mistral Large 3
     baseline_input_price_usd_mtok: 2.00
     baseline_output_price_usd_mtok: 6.00
+    openrouter_author: mistralai
+    openrouter_slug: mistral-large-2512
 
   # === Efficiency (TPRR-E) — 6 constituents ===
 
@@ -96,6 +127,8 @@ models:
     canonical_name: Gemini Flash Lite
     baseline_input_price_usd_mtok: 0.10
     baseline_output_price_usd_mtok: 0.40
+    openrouter_author: google
+    openrouter_slug: gemini-2.5-flash-lite
 
   - constituent_id: openai/gpt-5-nano
     tier: TPRR_E
@@ -103,6 +136,8 @@ models:
     canonical_name: GPT-5 Nano
     baseline_input_price_usd_mtok: 0.15
     baseline_output_price_usd_mtok: 0.60
+    openrouter_author: openai
+    openrouter_slug: gpt-5-nano
 
   - constituent_id: deepseek/deepseek-v3-2
     tier: TPRR_E
@@ -110,13 +145,20 @@ models:
     canonical_name: DeepSeek V3.2
     baseline_input_price_usd_mtok: 0.25
     baseline_output_price_usd_mtok: 1.00
+    openrouter_author: deepseek
+    openrouter_slug: deepseek-v3.2
 
+  # OR uses author "qwen" where our registry uses "alibaba"; version separator
+  # also differs (registry uses 3-6-plus, OR uses 3.6-plus). Both differences
+  # accepted since model lineage is clear.
   - constituent_id: alibaba/qwen-3-6-plus
     tier: TPRR_E
     provider: alibaba
     canonical_name: Qwen 3.6 Plus
     baseline_input_price_usd_mtok: 0.20
     baseline_output_price_usd_mtok: 0.80
+    openrouter_author: qwen
+    openrouter_slug: qwen3.6-plus
 
   - constituent_id: xiaomi/mimo-v2-pro
     tier: TPRR_E
@@ -124,7 +166,13 @@ models:
     canonical_name: MiMo V2 Pro
     baseline_input_price_usd_mtok: 0.30
     baseline_output_price_usd_mtok: 1.10
+    openrouter_author: xiaomi
+    openrouter_slug: mimo-v2-pro
 
+  # OR uses author "meta-llama" but its Llama 4 lineup (maverick, scout) is
+  # an architectural-variant split — different model variants in the same
+  # family, not a parameter-count + hosting variant of llama-4-70b-hosted.
+  # Decision log 2026-04-27: leave Tier C absent for this constituent.
   - constituent_id: meta/llama-4-70b-hosted
     tier: TPRR_E
     provider: meta
