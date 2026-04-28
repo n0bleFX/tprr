@@ -61,10 +61,14 @@ def _valid_index_value() -> dict[str, object]:
         "index_level": 100.0,
         "n_constituents": 5,
         "n_constituents_active": 5,
+        "n_constituents_a": 3,
+        "n_constituents_b": 1,
+        "n_constituents_c": 1,
         "tier_a_weight_share": 0.7,
         "tier_b_weight_share": 0.2,
         "tier_c_weight_share": 0.1,
         "suspended": False,
+        "suspension_reason": "",
         "notes": "",
     }
 
@@ -214,10 +218,14 @@ def _valid_index_value_df() -> pd.DataFrame:
             "index_level": [100.0],
             "n_constituents": [5],
             "n_constituents_active": [5],
+            "n_constituents_a": [3],
+            "n_constituents_b": [1],
+            "n_constituents_c": [1],
             "tier_a_weight_share": [0.7],
             "tier_b_weight_share": [0.2],
             "tier_c_weight_share": [0.1],
             "suspended": [False],
+            "suspension_reason": [""],
             "notes": [""],
         }
     )
@@ -283,5 +291,39 @@ def test_panel_observation_df_tolerates_extra_columns() -> None:
 
 def test_index_value_df_rejects_missing_lambda_column() -> None:
     df = _valid_index_value_df().drop(columns=["lambda"])
+    with pytest.raises(ValueError, match="missing required columns"):
+        IndexValueDF.validate(df)
+
+
+def test_index_value_accepts_suspension_reason_values() -> None:
+    """The closed value set documented in SuspensionReason (and empty string
+    for the not-suspended case) must round-trip through the pydantic model."""
+    payload = _valid_index_value()
+    for reason in (
+        "",
+        "insufficient_constituents",
+        "tier_data_unavailable",
+        "quality_gate_cascade",
+    ):
+        payload["suspension_reason"] = reason
+        iv = IndexValue(**payload)
+        assert iv.suspension_reason == reason
+
+
+def test_index_value_n_constituents_per_tier_sum_to_active() -> None:
+    """Consistency invariant (enforced in aggregation.py, not pydantic):
+    n_constituents_a + n_constituents_b + n_constituents_c == n_constituents_active.
+    This test documents the invariant via a constructed example."""
+    payload = _valid_index_value()
+    iv = IndexValue(**payload)
+    assert (
+        iv.n_constituents_a + iv.n_constituents_b + iv.n_constituents_c
+        == iv.n_constituents_active
+    )
+
+
+def test_index_value_df_rejects_missing_n_constituents_a() -> None:
+    """Phase 7 instrumentation columns are required, not optional."""
+    df = _valid_index_value_df().drop(columns=["n_constituents_a"])
     with pytest.raises(ValueError, match="missing required columns"):
         IndexValueDF.validate(df)

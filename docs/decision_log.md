@@ -676,3 +676,84 @@ For each provider P with revenue R(t) on `as_of_date`:
 
 **Methodology section**: 4.2.1 (TWAP daily fix — implementation correctness).
 
+## 2026-04-30 — Phase 7 IndexValue schema additions for tier-share instrumentation
+
+**Decision**: `IndexValue` (and `IndexValueDF`) gain four fields in Phase 7:
+- `n_constituents_a: int >= 0` — count of constituents in this (tier, date) IndexValue row whose selected attestation tier is A.
+- `n_constituents_b: int >= 0` — same for Tier B.
+- `n_constituents_c: int >= 0` — same for Tier C.
+- `suspension_reason: str = ""` — when `suspended=True`, one of `insufficient_constituents` / `tier_data_unavailable` / `quality_gate_cascade`. Empty string when `suspended=False`. The closed value set is exposed as a `SuspensionReason` StrEnum in `tprr.index.aggregation`; the schema field is free `str` per the v0.1 closed-set discipline (decision log 2026-04-23 "Closed-set string fields left as str in v0.1 schema").
+
+The consistency invariant `n_constituents_a + n_constituents_b + n_constituents_c == n_constituents_active` is enforced in `tprr.index.aggregation`, NOT at the pydantic layer. Pydantic field-level validators don't compose well across multiple columns; cross-column invariants belong with the producer.
+
+**Context**: Phase 7 implements the cross-tier dominance characterisation called for in decision log 2026-04-29 "Three-tier volume hierarchy: priority fall-through, literal-canon haircuts" (Phase 5b empirical addition: ~66,000:1 magnitude ratio between Tier B-derived volumes and Tier A panel-sum volumes). Both *weight share* and *count share* per tier are needed: a tier can have many constituents at small weight share, OR few constituents at dominant share — the count separates these two stories. The existing `tier_a/b/c_weight_share` fields cover the share dimension; the new `n_constituents_a/b/c` cover the count dimension. The `suspension_reason` field separates the three v0.1 suspension causes in the IndexValueDF artefact so Phase 9 (viz) and Phase 10 (sensitivity) can reason about the breakdown without recomputing from raw inputs.
+
+**Alternatives considered**:
+- **Defer to a downstream "diagnostics" frame separate from IndexValueDF** — adds a join keyed on (date, tier_code) for every Phase 9/10 chart that wants to overlay tier-share / count breakdown. Rejected — the per-row instrumentation is small (3 ints + 1 str = ~20 bytes/row) and lives where consumers need it.
+- **One field `suspension_reason` instead of three int counters** — collapses count info into a free-form string; loses queryability (Phase 10 needs to filter by tier-A-count-zero days, etc.). Rejected.
+- **Closed-set enforcement on `suspension_reason` via pydantic Literal/StrEnum** — couples the schema to the v0.1 reason set; future reasons (e.g. "insufficient_quality_gate_history" if the 5-day warmup behaviour ever fires meaningfully) require schema bumps. Rejected per the existing v0.1 closed-set discipline; SuspensionReason StrEnum in aggregation.py provides type safety where it matters (the producer).
+
+**Rationale**: Phase 10's cross-tier dominance finding is a load-bearing v1.3 methodology question. The instrumentation must not require recomputation to answer "in mixed-tier indices, how many constituents at what shares cumulatively dominate?" Persisting per-tier count + share per IndexValue row makes the answer trivially queryable.
+
+**Impact**:
+- `IndexValue` and `IndexValueDF` test fixtures expand to populate the four new fields. 27 schema tests pass (24 existing + 3 new): suspension_reason value round-trip, sum-to-active invariant, missing-column rejection.
+- `tprr.index.aggregation.compute_tier_index` populates the four fields on every emitted row (active and suspended); `_suspended_row` zeroes the count fields and sets `suspension_reason` to the appropriate enum value.
+- Phase 8 (FPR/SER): no new field consumption beyond `suspended` and `suspension_reason` (used to propagate suspension reasons into derived ratios).
+- Phase 9 (viz): chart annotations on suspended days; tier-share + tier-count stacked bars across the backtest.
+- Phase 10 cross-tier dominance finding: primary consumer. Both `tier_*_weight_share` and `n_constituents_*` are needed to characterise dominance fully.
+- Phase 10 Tier B prior sensitivity: reads `tier_*_weight_share` + `n_constituents_b` for β-vs-δ comparison.
+- Phase 11 writeup: full field set feeds the methodology summary table.
+
+**Methodology section**: 3.3.2 (three-tier volume hierarchy — instrumentation enables Phase 10's empirical characterisation).
+
+## 2026-04-30 — Phase 7 active-constituent definition for tier aggregation
+
+**Decision**: A constituent is *active* for a given (tier, date) computation iff all three clauses hold:
+
+1. **At least one non-suspended contributor TWAP survives the Phase 6 slot-level gate** for the (constituent, date) pair. Equivalently, after `apply_slot_level_gate` and `compute_panel_twap`, the constituent has at least one row in `panel_day_df` with `attestation_tier in {A, B, C}` and `volume_mtok_7d > 0` (Tier A strict-positive volume per decision log 2026-04-29 "Tier A 'attested volume' interpretation"; Tier B/C have one row per constituent already).
+2. **The constituent's panel-row `tier_code` matches the index tier under computation** (panel-as-truth per decision log 2026-04-27 "Tier reshuffle handling"). A constituent reclassified F→S on day 400 contributes to TPRR_F on day < 400 and to TPRR_S on day ≥ 400, with no warmup hole.
+3. **The constituent is not globally suspended via cross-contributor cascade**. v0.1's suspension schema is per-(contributor, constituent) per `compute_consecutive_day_suspensions` (decision log 2026-04-29 "Phase 6 suspension counter"). A "global" constituent suspension would require ALL of its contributors to be suspended on or before the date. This clause is therefore vacuous in v0.1 — falls out as an emergent property when Tier A activation drops below 3 contributors (which is then handled by `compute_tier_volume`'s priority fall-through). Reserved for v0.2+ where a constituent-level suspension primitive may be introduced.
+
+**Context**: Phase 7's `compute_tier_index` aggregates over active constituents only. The methodology's Section 3.3.1 dual-weighted formula iterates over constituent index `i` but does not specify the activation predicate — earlier phases (Phase 6 quality gate, Phase 6 suspension counter) defined per-pair gating without explicitly composing them into a constituent-level "active" definition.
+
+**Alternatives considered**:
+- **Activate any constituent with any panel row, regardless of volume / suspension** — drops the Phase 6 quality controls at the aggregation boundary. Rejected.
+- **Require ≥3 active contributors per constituent (mirroring Tier A activation)** — mixes activation (constituent admissibility) with tier selection (which attestation tier to use). The Tier A min-3 contributor rule is about TIER SELECTION not constituent activation: a constituent with 2 Tier A contributors is still an *active constituent* — it just falls through to Tier B/C for its volume signal. Rejected.
+- **The 3-clause chain above** (chosen) — cleanly separates per-pair gating (clause 1, Phase 6 product), per-day tier-code mapping (clause 2, panel-as-truth precedent), and the placeholder for v0.2+ constituent-level suspension (clause 3).
+
+**Rationale**: Each clause maps to an existing decision log entry, and the chain composition is the natural way to compose them. Documenting the chain explicitly closes a methodology gap that would otherwise require re-deriving the predicate from the per-phase decisions every time a new aggregation question arises.
+
+**Impact**: `compute_tier_index` filters `panel_day_df` by clause 2 (tier_code), drops suspended pairs by clause 1 (suspended_pairs_df left-anti-join), and the upstream Phase 6 gate plus `compute_panel_twap` enforce the per-slot survival in clause 1. Clause 3 has no v0.1 effect beyond the natural emergence via Tier A min-3 → Tier B/C fall-through.
+
+**Empirical observation on clean panel (added 2026-04-30 post-Batch-A)**: On the synthetic Phase 2 panel where all 16 constituents have ≥4 covering contributors with positive volume, the priority fall-through always selects Tier A. Tier B and Tier C contribute zero weight to the index on clean data. The cross-tier magnitude gap (66,000:1 documented in DL 2026-04-29 priority fall-through entry) is latent — it manifests only when Phase 10 scenarios suppress contributors below the ≥3 threshold (correlated_blackout, contributor outage edge cases) or in real production data where Tier A coverage is sparser than the full panel. Future reviewers reading the v0.1 backtest should not conclude "Tier A always wins, three-tier hierarchy is over-engineered" — the hierarchy is exercised under stress, not on clean inputs.
+
+**Methodology section**: 3.3.1 (dual-weighted formula — activation predicate specified for v0.1).
+
+## 2026-04-30 — Phase 7 contributor-to-constituent price collapse: volume-weighted average
+
+**Decision**: When a Tier A or Tier C constituent has multiple contributor rows on a given date (N contributors for Tier A, multiple endpoint rows per constituent for Tier C), the constituent-level price P̃ᵢᵒᵘᵗ(t) consumed by the dual-weighted formula in Section 3.3.1 is the volume-weighted average across contributor TWAPs:
+
+P̃_const(t) = Σ_c [ v_c(t) x P̃_c(t) ] / Σ_c [ v_c(t) ]
+
+where c iterates over the constituent's contributors with strictly-positive volume on day t.
+
+**Methodology gap addressed**: Section 3.3.1 specifies the dual-weighted formula `Σᵢ wᵢ x P̃ᵢ` over constituents but does not specify how P̃ᵢ is constructed from multiple contributor observations. Implementation of Phase 7 aggregation requires this rule. Without explicit specification, a future Index Committee member could legitimately ask why the implementation chose any particular aggregation; this entry resolves the ambiguity. This is the third v1.3 methodology specification gap surfaced through Phase 5–7 validation work, alongside cross-tier magnitude commensurability (DL 2026-04-29 priority fall-through entry) and suspension semantics (DL 2026-04-29 Phase 6 suspension counter entry).
+
+**Alternatives considered**:
+- Simple mean across contributors: treats each contributor as equally informative regardless of book size. Asymmetric with the Tier A volume rule (which sums contributor volumes). Drops the volume-as-confidence signal that justifies Tier A's existence.
+- Median across contributors: robust to single-contributor outliers, but the slot-level gate at Phase 6 already provides outlier defence at the contributor-day level. Adds redundant robustness at the cost of dropping the volume signal.
+- Largest-contributor's-TWAP: degrades to a single-contributor reading; defeats the multi-contributor panel's purpose.
+- Volume-weighted average (chosen): symmetric with the volume aggregation rule, matches commodity-benchmark precedent (ICE PRA, Argus, Platts venue-aggregated reference rates), falls back to simple mean when contributors have equal volume.
+
+**Rationale**: Symmetry with the volume aggregation rule is load-bearing. If Tier A aggregates volume as `Σ v_c` (multi-source confidence), the price aggregation must respect the same source-confidence structure. Anything else makes the dual-weighted formula treat the same data heterogeneously between its volume term and its price term.
+
+**Tier C application**: Same rule — when OpenRouter has multiple endpoint rows per constituent (different hosts serving the same model), volume-weighted average across endpoint rows. Tier B has one row per (constituent, date) so no collapse needed.
+
+**Impact**: Phase 7 aggregation now has a fully-specified path from contributor panel rows to constituent-level inputs to the dual-weighted formula. Phase 8 derived indices (FPR, SER, B blended) inherit this collapse from F/S/E. Phase 10 sensitivity tests can include "alternate collapse rule" (simple mean, median) as a v1.3 methodology comparison if surfaced as relevant.
+
+**Phase 11 writeup**: This is the third v1.3 specification gap surfaced through validation rigor — alongside the cross-tier magnitude commensurability finding (Phase 5) and suspension semantics threat coverage gap (Phase 6). The pattern of validation rigor surfacing methodology specification gaps is itself a finding worth highlighting in the Phase 11 writeup; it positions Noble as the entity doing the methodology rigor that institutional benchmarks require, not just building an index.
+
+**v1.3+ methodology specification**: Section 3.3.1 should explicitly state the contributor-to-constituent price aggregation rule. Volume-weighted is the recommended default; the methodology should document it as such rather than leaving it as an implementation choice.
+
+**Methodology section**: 3.3.1 (dual-weighted formula — gap addressed)
+

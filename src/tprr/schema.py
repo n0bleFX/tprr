@@ -77,7 +77,19 @@ class ChangeEvent(BaseModel):
 
 
 class IndexValue(BaseModel):
-    """Daily fix output — one row per (date, index_code, version, ordering)."""
+    """Daily fix output — one row per (date, index_code, version, ordering).
+
+    The ``n_constituents_a/b/c`` and ``suspension_reason`` fields were added in
+    Phase 7 for cross-tier dominance characterisation (decision_log.md
+    2026-04-30 "Phase 7 IndexValue schema additions"). The
+    ``n_constituents_a + b + c == n_constituents_active`` invariant is
+    enforced in ``tprr.index.aggregation``, not at the pydantic layer —
+    pydantic field-level validators don't compose well across multiple
+    columns. ``suspension_reason`` is free ``str`` here; the
+    ``SuspensionReason`` StrEnum in ``tprr.index.aggregation`` defines the
+    closed value set producers use (``insufficient_constituents``,
+    ``tier_data_unavailable``, ``quality_gate_cascade``).
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -90,10 +102,14 @@ class IndexValue(BaseModel):
     index_level: float
     n_constituents: int
     n_constituents_active: int
+    n_constituents_a: int = Field(ge=0)
+    n_constituents_b: int = Field(ge=0)
+    n_constituents_c: int = Field(ge=0)
     tier_a_weight_share: float
     tier_b_weight_share: float
     tier_c_weight_share: float
     suspended: bool
+    suspension_reason: str = ""
     notes: str = ""
 
 
@@ -209,9 +225,13 @@ class IndexValueDF(_DFValidator):
         "index_level": "float",
         "n_constituents": "int",
         "n_constituents_active": "int",
+        "n_constituents_a": "int",
+        "n_constituents_b": "int",
+        "n_constituents_c": "int",
         "tier_a_weight_share": "float",
         "tier_b_weight_share": "float",
         "tier_c_weight_share": "float",
         "suspended": "bool",
+        "suspension_reason": "string",
         "notes": "string",
     }
