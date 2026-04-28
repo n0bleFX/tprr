@@ -92,7 +92,7 @@ Phase 10 includes a weight-then-TWAP comparison for documentation and publicatio
 
 **Tier B implementation (Option B, per 2026-04-22 decision)**:
 1. Input: disclosed provider total API revenue (quarterly), from `config/tier_b_revenue.yaml`
-2. Compute: implied provider-level token volume = revenue ÷ provider-weighted reference output price
+2. Compute: implied provider-level token volume (Mtok) = revenue (USD) ÷ provider-weighted reference output price (USD/Mtok). No `× 1e6` factor — the units already cancel to Mtok.
 3. Split: allocate implied volume across provider's models using OpenRouter's within-provider market share
 4. Scale: normalise so Σ(allocated_volume × model_price) = disclosed_revenue
 

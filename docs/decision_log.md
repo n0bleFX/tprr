@@ -494,3 +494,88 @@ The two surfaces exercise different methodology controls and should be reasoned 
 - Date-suffix matcher generalisation: match the most recent dated variant of a base slug rather than exact match
 
 **Methodology section**: 3.3.2 (three-tier volume hierarchy)
+
+## 2026-04-29 — Three-tier volume hierarchy: priority fall-through, literal-canon haircuts
+
+**Decision**: For each (constituent, date), exactly one tier is selected per Section 3.3.2's priority ordering: Tier A used when ≥3 contributors with attested non-zero volume; Tier B used when A is insufficient and the provider has revenue config; Tier C used only when A and B are both insufficient and rankings data exists. Tier-haircut multipliers (1.0/0.9/0.8) apply to the selected tier's volume as confidence discounts. No cross-tier blending.
+
+**Context**: Phase 5 implementation requires precise w_vol formula. Section 3.3.2 specifies tier hierarchy with priority language ("highest-confidence data available", "Tier C only where A and B are both insufficient"). Implementation tested whether haircuts could be read as cross-tier blend coefficients vs. confidence discounts on a selected tier. Methodology language consistently supports the latter reading.
+
+**Cross-tier magnitude question — surfaced and deferred**: Tier A volumes (per-contributor panel sum, ~1-520 mtok/7d) and Tier C volumes (OpenRouter whole-market rankings, ~50,000+ mtok/7d for mapped constituents) operate on fundamentally different scales — Tier A is a panel slice, Tier C is whole-market estimate. After haircutting, Tier-C-attested constituents could carry 100-1000× the w_vol of Tier-A-attested constituents in mixed-tier indices.
+
+This is a real methodology question, not a v0.1 data artefact. Even with full Phase 4 data, Tier A's panel-sum denominator differs structurally from Tier C's whole-market denominator. Section 3.3.2 implicitly assumes the three tiers are commensurable; in v0.1 data, they aren't.
+
+**v0.1 treatment**: Literal-canon application of Section 3.3.2 (apply haircuts as written, accept any cross-tier magnitude gap that emerges). Engineering rescaling factors not supported by methodology language would foreclose discovering whether the gap is real.
+
+**Phase 10 obligation**: explicitly measure Tier-C dominance in mixed-tier indices. If TPRR-F (or any tier index) is materially shifted by Tier-C-attested constituents, that's a methodology finding, not a defect.
+
+**v0.2/v1.3+ enhancement paths queued**:
+- Path 2 (rescale to common basis): introduce panel_share_estimate parameter so Tier C volume converts to "panel-equivalent" magnitude before haircutting. Requires panel_share_estimate parameter to be itself defended; introduces methodology dimension v1.2 doesn't define.
+- Path 3 (within-tier share): replace raw_volume with constituent's share of its attestation tier's total before haircutting. Eliminates magnitude differences mathematically; loses absolute-volume signal.
+- Either path is a v1.3+ methodology revision, not an MVP shim.
+
+**Methodology section**: 3.3.2 (three-tier volume hierarchy)
+
+**Phase 5b empirical finding (added 2026-04-29 post-Batch-B)**: With v0.1 data and Option δ price-implied prior, projected Tier B implied volumes for Tier-B-attested constituents are ~20M mtok/7d, vs ~300 mtok/7d for Tier-A-attested constituents (3 contributors × ~100 mtok each on the synthetic panel). Cross-tier magnitude ratio is approximately 66,000:1 in v0.1. Tier B will dominate any constituent where it's the selected tier, by a margin the haircut multipliers cannot offset. This confirms the methodology question raised at the entry's drafting; Phase 10 will quantify and Phase 11 writeup will address.
+
+## 2026-04-29 — Tier A "attested volume" interpretation: strict > 0 required
+
+**Decision**: A panel row with `attestation_tier='A'` and `volume_mtok_7d == 0` does NOT count toward the ≥3-contributors threshold for Tier A selection. Tier A requires ≥3 contributors with strictly positive `volume_mtok_7d`.
+
+**Context**: Section 3.3.2 specifies "≥3 contributors with attested volumes" for Tier A eligibility. Implementation question: does a contributor reporting zero volume satisfy "attested"? Two readings: (a) row exists = attestation, regardless of volume; (b) attestation requires positive volume.
+
+**Reading chosen**: (b). Reasoning: zero volume from a panel contributor functionally means "no market activity reported," which is informationally equivalent to no attestation. Including zero-volume rows in the threshold would let a constituent technically meet the ≥3 floor while contributing no actual volume signal — defeating the threshold's purpose (ensuring Tier A volume is materially based on real usage data, not contributor-count theatre).
+
+**Impact**: Constituents covered by ≥3 contributors where one or more report zero volume on a given date may fall through to Tier B/C on that date.
+
+**Methodology section**: 3.3.2 (three-tier hierarchy, Tier A threshold)
+
+## 2026-04-29 — Tier B price-implied within-provider split for sparse OR rankings
+
+**Decision**: Tier B's Option B within-provider allocation step (Section 3.3.2) requires per-model OR rankings shares to split disclosed provider revenue across the provider's models. The v0.1 OR rankings mirror's top-9 limit means 5 of 6 Tier B providers (openai, anthropic, google, alibaba, mistral) have zero model-level rankings coverage; only deepseek/deepseek-v3-2 has a model-level match. Strict literal-canon application of Option B would emit Tier B rows for only 1 of 16 constituents, cascading to permanent index suspension.
+
+For v0.1, Tier B uses a **price-implied within-provider split (Option δ)** as the default fallback when model-level rankings are absent. Volume per model = (R/n) / p_i — equal-revenue share across the provider's registered models, which (because revenue = volume × price) implies cheap models receive proportionally more volume than expensive models within the provider. Configurable via a `prior` parameter so Phase 10 can run sensitivity comparison against the equal-volume alternative (Option β).
+
+**Context**: prompts.md 5b.1's algorithm spec assumed model-level rankings would be sufficiently dense to support canonical Option B for most providers. The actual OR rankings mirror exposes only the top-9 models globally, of which exactly one — `deepseek/deepseek-v3.2-20251201` — matches a TPRR registry constituent (after date-suffix stripping per the 2026-04-28 entry). The other 8 entries in the rankings top-9 are non-registry models or registry models with naming conventions that don't match the registry's `openrouter_author/openrouter_slug` (e.g. rankings has `claude-4.6-sonnet-20260217` while the registry's anthropic/claude-sonnet-4-6 has OR slug `claude-sonnet-4.6` — different family-component ordering).
+
+The structural sparseness affects Tier B differently than Tier C. Tier C uses OR rankings for VOLUME ATTRIBUTION on a per-constituent basis; the sparseness was already documented (decision log 2026-04-28 "Tier C rankings sparseness model-level only with author fallback rejected") — Tier C constituents without rankings get volume_mtok_7d = 0 and the tier hierarchy falls through to A or B for those constituents. But Tier B itself uses OR rankings for the WITHIN-PROVIDER ALLOCATION step. With zero coverage, the algorithm has no allocation signal.
+
+**Three approaches considered**:
+
+- **α (strict literal-canon)**: emit no Tier B rows for providers without model-level rankings. Result: only deepseek/deepseek-v3-2 gets Tier B; all other Tier-B-eligible constituents fall through to Tier C (also sparse) and are excluded entirely from aggregation. TPRR-F + TPRR-S near-permanently suspended (min-3 unmet). Defensible to the canon, but produces a degenerate v0.1 backtest that validates nothing about the formula's behaviour on plausible data.
+
+- **β (equal-volume fallback)**: provider revenue split equally as VOLUME across registered models when rankings absent. Implies all models within a provider have the same usage volume regardless of their price. Empirically counter to observed enterprise behaviour — within a provider, cheap models (gpt-5-nano, gemini-flash-lite) typically see far higher volume than premium models (gpt-5-pro, gemini-3-pro). Bakes a directionally-incorrect prior.
+
+- **δ (price-implied within-provider split, chosen)**: provider revenue split equally as REVENUE share across registered models when rankings absent. Volume per model = (R/n) / p_i. Cheap models receive proportionally more volume than expensive models within the provider. Empirically closer to observed enterprise API usage patterns where high-volume tasks (summarisation, classification, extraction, RAG, agentic loops) gravitate to cheap-fast models, with premium models reserved for harder tasks at lower volume share.
+
+**Rationale (β vs δ)**: Both are wrong in different directions; the question is which prior is closer to enterprise reality. A flat-volume prior (β) would have a small efficiency-tier model and a flagship reasoning model carrying identical volume — clearly false. A price-implied prior (δ) recovers the observed pattern that provider revenue mix is roughly balanced across products while volume mix is skewed cheap. Phase 10 sensitivity will run the β alternative as comparison data — if δ produces a materially different index from β, that's a methodology finding worth documenting; if not, it's evidence that within-provider mix doesn't drive the index much. Either way, the empirical question gets answered. Picking the "neutral-feeling" prior (β) and never testing the alternative would be the worse discipline.
+
+**Implementation algorithm (per-provider)**:
+
+For each provider P with revenue R(t) on `as_of_date`:
+
+1. registered_models = registry models with `provider == P`.
+2. covered = subset with model-level OR rankings entry; uncovered = the rest.
+3. n_total = |registered_models|; n_covered = |covered|; n_uncovered = |uncovered|.
+4. **Coverage-share assumption**: R_covered = R × n_covered / n_total; R_uncovered = R × n_uncovered / n_total. Equal-revenue assumption across registry models within provider — same prior used to allocate uncovered volumes, applied symmetrically across the partition.
+5. **For covered models** — canonical Option B within the covered group:
+   - ref_price = Σ(p × s) / Σ(s) where s is per-model rankings token count
+   - total_covered_vol = R_covered / ref_price (in mtok per quarterly period)
+   - vol_i = total_covered_vol × s_i / Σ(s) for each covered model
+6. **For uncovered models** — by `prior`:
+   - **"price_implied" (default, δ)**: each model gets R_uncovered/n_uncovered revenue share; vol_i = (R_uncovered / n_uncovered) / p_i
+   - **"equal_volume" (β, Phase 10 comparison)**: ref_price = mean(p) over uncovered; total_uncovered_vol = R_uncovered / ref_price; vol_i = total_uncovered_vol / n_uncovered
+7. **Scale normalisation** (canonical step 2.f): factor = R / Σ(vol × p) across the union of covered + uncovered. By construction with steps 5 + 6 the factor is ≈ 1.0; the step is a safety check against accumulated floating-point drift, applied uniformly across all models so the revenue identity holds exactly post-scaling.
+8. **Convert quarterly → 7-day**: vol_7d_i = vol_quarterly_i × 7 / 91.25 (calendar-stable: 365.25/4 days per quarter).
+9. **Emit one panel row per (provider, model, as_of_date)** with attestation_tier="B", source="tier_b_derived", volume_mtok_7d populated, prices from panel (median across rows on `as_of_date`) with registry baseline as fallback.
+
+**Why steps 5/6 split provider revenue between covered and uncovered fractions, rather than skipping uncovered**: prompts.md 5b.1's "Missing OpenRouter coverage for a model → skipped with warning" describes the behaviour for a single uncovered model in an otherwise-covered provider. Applied literally to a provider with mixed coverage, "skipping uncovered" loses the revenue allocation for those models entirely — Σ(vol × p) over the emitted rows < R, and the methodology's revenue-identity invariant breaks. Step 4's coverage-share assumption preserves the identity by giving uncovered models a defined revenue share, which the prior (price_implied or equal_volume) then converts to per-model volume. The "skip with warning" path in prompts.md is now interpreted as "log a warning that coverage was incomplete" rather than "drop the model from the output".
+
+**Phase 10 obligation**: `derive_tier_b_volumes(..., prior="equal_volume")` runs as a sensitivity comparison alongside the default "price_implied" run. Phase 10 finding `tier_b_prior_sensitivity.md` reports the index divergence and informs whether v1.3 should adopt one prior canonically.
+
+**v0.2/v1.3+ enhancement paths queued**:
+- **Replace fallback prior with author-level market_share + secondary signals** (analyst-published model-mix estimates; e.g. Sacra's "60-70% of OpenAI API revenue from frontier-class"). The rankings JSON's `market_share` field provides author-level totals for top-9 providers; mistral and alibaba currently fall outside even that.
+- **Generalise model-level rankings matching to the most recent dated variant of a base slug** — currently only exact base-slug match works (deepseek). Loosened matching (e.g. `claude-4.7-opus` → `claude-opus-4.7` with reordering) could lift from 1/16 to 4/16 model coverage.
+- Either path is a v1.3+ methodology refinement, not an MVP shim.
+
+**Methodology section**: 3.3.2 (three-tier volume hierarchy, Tier B implementation specifics — MVP scope per the May 2026 decision and the prior choice clarified for v0.1 here).
