@@ -1,21 +1,24 @@
 """End-to-end TPRR index compute pipeline — Phase 7.
 
-Batch A scope: TPRR_F only, TWAP-then-weight ordering, clean panel.
-Batch B scope: all 3 core tiers (F/S/E) + derived (FPR, SER), rebased to
-100 on the configured base_date. Composes the multi-tier panel (Tier A
-from disk + Tier B derived per-date + Tier C from OpenRouter), runs
-Phase 2c TWAP reconstruction, then Phase 7 dual-weighted aggregation.
+Batch A: TPRR_F only, TWAP-then-weight, clean panel.
+Batch B: all 3 core tiers (F/S/E) + derived (FPR, SER), rebased to 100
+  on the configured base_date.
+Batch B': adds the blended TPRR_B series (B_F/B_S/B_E) using
+  P_blended_i = 0.25 x P_out + 0.75 x P_in per methodology Section
+  3.3.4. Same dual-weighted aggregation, same rebase convention.
+
+Composes the multi-tier panel (Tier A from disk + Tier B derived per-date
++ Tier C from OpenRouter), runs Phase 2c TWAP reconstruction, then Phase
+7 dual-weighted aggregation per tier.
 
 Usage:
     uv run python scripts/compute_indices.py [--seed 42] [--start YYYY-MM-DD]
         [--end YYYY-MM-DD]
 
-Output: prints a one-line summary per (index, date) in the requested
-range, plus a per-index "first valid fix" report at the end with the
-rebase anchor metadata.
+Output: per-index "first valid fix" report with rebase anchor metadata,
+plus values at base_date as the rebase target = 100 sanity check.
 
 Subsequent batches will:
-  * Batch B' — TPRR_B blended (0.25*P_in + 0.75*P_out).
   * Batch C — suspension consumption + fallback fall-through.
   * Batch D — SQLite + parquet persistence.
   * Batch E — weight-then-TWAP alternate ordering.
@@ -37,7 +40,7 @@ from tprr.config import (
     load_tier_b_revenue,
 )
 from tprr.index.aggregation import compute_tier_index, rebase_index_level
-from tprr.index.derived import compute_fpr, compute_ser
+from tprr.index.derived import compute_fpr, compute_ser, compute_tprr_b_indices
 from tprr.index.tier_b import derive_tier_b_volumes
 from tprr.index.weights import TierBVolumeFn
 from tprr.reference.openrouter import (
@@ -265,6 +268,32 @@ def main() -> int:
     ser_df, anchors["TPRR_SER"] = compute_ser(rebased["TPRR_S"], rebased["TPRR_E"], config)
     rebased["TPRR_FPR"] = fpr_df
     rebased["TPRR_SER"] = ser_df
+
+    # Blended TPRR_B series. The driver re-walks the date range with the
+    # blended price column; reusing rows_per_index is not possible since
+    # the per-row TWAPs are output-only. We recompose per-date and feed
+    # the multi-tier panel into compute_tprr_b_indices.
+    composed_panels: list[pd.DataFrame] = []
+    for ts in days:
+        d = ts.date()
+        composed = compose_panel_for_date(
+            tier_a_panel=tier_a_panel,
+            tier_c_panel=tier_c_panel,
+            tier_b_panel=tier_b_by_date[ts],
+            as_of_date=d,
+        )
+        composed_panels.append(compute_panel_twap(composed, change_events))
+    full_panel = pd.concat(composed_panels, ignore_index=True)
+    b_result = compute_tprr_b_indices(
+        panel_df=full_panel,
+        config=config,
+        registry=registry,
+        tier_b_config=tier_b_config,
+        tier_b_volume_fn=tier_b_volume_fn,
+    )
+    for b_code, b_df in b_result.indices.items():
+        rebased[b_code] = b_df
+        anchors[b_code] = b_result.rebase_anchors[b_code]
 
     print("\nFirst valid fix per index:")
     print("-" * 90)

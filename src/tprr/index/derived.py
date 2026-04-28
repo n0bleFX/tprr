@@ -1,9 +1,13 @@
-"""Phase 8 — derived TPRR indices (FPR, SER) computed from core (F, S, E).
+"""Phase 8 — derived TPRR indices (FPR, SER, B_F/B_S/B_E) from core (F, S, E).
 
-Two cross-tier ratios per CLAUDE.md / methodology Section 3.3.4:
+Three derived index families:
 
-  TPRR_FPR(t) = TPRR_F(t) / TPRR_S(t)   # Frontier Premium Ratio
-  TPRR_SER(t) = TPRR_S(t) / TPRR_E(t)   # Standard Efficiency Ratio
+* **TPRR_FPR(t) = TPRR_F(t) / TPRR_S(t)** — Frontier Premium Ratio.
+* **TPRR_SER(t) = TPRR_S(t) / TPRR_E(t)** — Standard Efficiency Ratio.
+* **TPRR_B_F / TPRR_B_S / TPRR_B_E** — blended-price series (methodology
+  Section 3.3.4) using P_blended_i = 0.25 x P̃_outᵢ + 0.75 x P̃_inᵢ as the
+  per-constituent price input to the dual-weighted formula. Analytics-
+  only per CLAUDE.md ("never for derivative settlement").
 
 Rebase convention (Q4 lock 2026-04-29 + decision log 2026-04-30 schema):
 
@@ -12,14 +16,14 @@ Rebase convention (Q4 lock 2026-04-29 + decision log 2026-04-30 schema):
 Same uniform convention as the price indices — anchor = first non-suspended
 ratio at-or-after ``config.base_date``.
 
-Suspension propagation: the derived ratio inherits suspension from the
-upstream tier indices. ``FPR`` is suspended on day t if either F or S is
-suspended on day t. ``SER`` is suspended on day t if either S or E is
-suspended. The ``suspension_reason`` propagated is the numerator's reason
-when both are suspended, the suspended one's reason otherwise.
+Suspension propagation: ratio derived indices (FPR, SER) inherit suspension
+from the upstream tier indices — FPR is suspended on day t if either F or
+S is suspended; SER if either S or E is. The B series runs the full
+aggregation pipeline on blended prices, so it suspends per the same
+v0.1 SuspensionReason mechanism as the core tier indices.
 
-Phase 8 (Batch B' next batch): adds ``compute_tprr_b`` for the blended
-``0.25 x P_in + 0.75 x P_out`` series; lives next to FPR/SER here.
+The ``suspension_reason`` propagated for FPR/SER is the numerator's reason
+when both are suspended, the suspended one's reason otherwise.
 """
 
 from __future__ import annotations
@@ -30,11 +34,27 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from tprr.config import IndexConfig
-from tprr.index.aggregation import rebase_index_level
+from tprr.config import IndexConfig, ModelRegistry, TierBRevenueConfig
+from tprr.index.aggregation import (
+    CoreIndexResults,
+    rebase_index_level,
+    run_tier_pipeline,
+)
+from tprr.index.weights import TierBVolumeFn
+from tprr.schema import Tier
 
 INDEX_CODE_FPR = "TPRR_FPR"
 INDEX_CODE_SER = "TPRR_SER"
+
+BLENDED_OUTPUT_WEIGHT = 0.25
+BLENDED_INPUT_WEIGHT = 0.75
+BLENDED_PRICE_COLUMN = "twap_blended_usd_mtok"
+
+TIER_TO_BLENDED_CODE: dict[Tier, str] = {
+    Tier.TPRR_F: "TPRR_B_F",
+    Tier.TPRR_S: "TPRR_B_S",
+    Tier.TPRR_E: "TPRR_B_E",
+}
 
 
 def compute_fpr(
@@ -202,3 +222,87 @@ def _ratio_row(
         "suspension_reason": suspension_reason,
         "notes": "",
     }
+
+
+# ---------------------------------------------------------------------------
+# TPRR_B blended series (Section 3.3.4)
+# ---------------------------------------------------------------------------
+
+
+def add_blended_twap_column(panel_df: pd.DataFrame) -> pd.DataFrame:
+    """Append ``twap_blended_usd_mtok = 0.25 x out + 0.75 x in`` to a panel.
+
+    Methodology Section 3.3.4 specifies the blended price applied at the
+    constituent level. Computing the blend per (contributor, constituent,
+    date) before the volume-weighted constituent-level collapse is
+    mathematically equivalent to collapsing output and input separately
+    then blending — both produce the same constituent-level blended price
+    because the blend is linear (and the collapse is volume-weighted with
+    the same weights for both directions). We compute per-row here so
+    downstream ``compute_tier_index(price_field=...)`` can operate
+    uniformly.
+
+    The input panel must already carry ``twap_output_usd_mtok`` and
+    ``twap_input_usd_mtok`` populated by ``compute_panel_twap``.
+    """
+    if panel_df.empty:
+        out = panel_df.copy()
+        out[BLENDED_PRICE_COLUMN] = pd.Series([], dtype="float64")
+        return out
+    out = panel_df.copy()
+    out[BLENDED_PRICE_COLUMN] = (
+        BLENDED_OUTPUT_WEIGHT * out["twap_output_usd_mtok"]
+        + BLENDED_INPUT_WEIGHT * out["twap_input_usd_mtok"]
+    )
+    return out
+
+
+def compute_tprr_b_indices(
+    panel_df: pd.DataFrame,
+    config: IndexConfig,
+    registry: ModelRegistry,
+    tier_b_config: TierBRevenueConfig,
+    tier_b_volume_fn: TierBVolumeFn,
+    suspended_pairs_df: pd.DataFrame | None = None,
+    *,
+    ordering: str = "twap_then_weight",
+    version: str = "v0_1",
+) -> CoreIndexResults:
+    """Compute the blended TPRR_B_F / TPRR_B_S / TPRR_B_E series.
+
+    Per CLAUDE.md / methodology Section 3.3.4, the blended series uses
+    P_blended_i = 0.25 x P̃_outᵢ + 0.75 x P̃_inᵢ as the per-constituent
+    price input to the dual-weighted formula. Volume aggregation, w_exp,
+    median, and the priority fall-through are all unchanged from the
+    output-only core indices — only the price column flowing into the
+    dual-weighted aggregation differs.
+
+    Returns a ``CoreIndexResults`` keyed by ``TPRR_B_F`` / ``TPRR_B_S`` /
+    ``TPRR_B_E``. Per-tier rebase anchors fall through the same way the
+    core indices' anchors do (decision log Q4 lock 2026-04-29).
+    """
+    panel_blended = add_blended_twap_column(panel_df)
+
+    indices: dict[str, pd.DataFrame] = {}
+    anchors: dict[str, date | None] = {}
+    for tier, b_code in TIER_TO_BLENDED_CODE.items():
+        tier_indices = run_tier_pipeline(
+            panel_df=panel_blended,
+            tier=tier,
+            config=config,
+            registry=registry,
+            tier_b_config=tier_b_config,
+            tier_b_volume_fn=tier_b_volume_fn,
+            suspended_pairs_df=suspended_pairs_df,
+            ordering=ordering,
+            version=version,
+            price_field=BLENDED_PRICE_COLUMN,
+        )
+        # Rewrite index_code from "TPRR_F" → "TPRR_B_F" etc.
+        if not tier_indices.empty:
+            tier_indices = tier_indices.copy()
+            tier_indices["index_code"] = b_code
+        rebased, anchor = rebase_index_level(tier_indices, base_date=config.base_date)
+        indices[b_code] = rebased
+        anchors[b_code] = anchor
+    return CoreIndexResults(indices=indices, rebase_anchors=anchors)

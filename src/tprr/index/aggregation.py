@@ -126,12 +126,16 @@ def compute_tier_index(
     ordering: str = "twap_then_weight",
     prior_raw_value: float | None = None,
     version: str = "v0_1",
+    price_field: str = "twap_output_usd_mtok",
 ) -> dict[str, Any]:
     """Compute one (tier, date) IndexValue row from a single-day panel slice.
 
     ``panel_day_df`` must:
       - Span exactly one ``observation_date``.
-      - Carry ``twap_output_usd_mtok`` populated by ``compute_panel_twap``.
+      - Carry the column named by ``price_field`` populated upstream
+        (default ``twap_output_usd_mtok`` — set by ``compute_panel_twap``;
+        ``twap_blended_usd_mtok`` for the TPRR_B series, set by
+        ``tprr.index.derived.add_blended_twap_column``).
       - Hold rows from all three attestation tiers (A/B/C) needed for
         priority fall-through; rows whose ``tier_code`` differs from
         ``tier`` are filtered out here (panel-as-truth).
@@ -233,7 +237,9 @@ def compute_tier_index(
             # were excluded by upstream gating). Skip the constituent.
             continue
 
-        constituent_price = collapse_constituent_price(price_rows)
+        constituent_price = collapse_constituent_price(
+            price_rows, price_col=price_field
+        )
         w_vol = volume_weight(raw_volume, selected_tier, config)
         rows.append(
             {
@@ -410,16 +416,19 @@ def run_tier_pipeline(
     *,
     ordering: str = "twap_then_weight",
     version: str = "v0_1",
+    price_field: str = "twap_output_usd_mtok",
 ) -> pd.DataFrame:
     """Run aggregation across every distinct date in ``panel_df`` for one tier.
 
-    ``panel_df`` must have ``twap_output_usd_mtok`` populated upstream by
-    ``compute_panel_twap``. The driver iterates dates in ascending order,
-    threading the most recent valid ``raw_value_usd_mtok`` as
-    ``prior_raw_value`` so suspended rows carry it forward (Q2 lock).
+    ``panel_df`` must have the column named by ``price_field`` populated
+    upstream (default ``twap_output_usd_mtok`` set by
+    ``compute_panel_twap``; ``twap_blended_usd_mtok`` for the TPRR_B
+    series). The driver iterates dates in ascending order, threading the
+    most recent valid ``raw_value_usd_mtok`` as ``prior_raw_value`` so
+    suspended rows carry it forward (Q2 lock).
 
-    Output is an IndexValueDF-shape DataFrame (Batch B will populate
-    ``index_level``; Batch A leaves it NaN).
+    Output is an IndexValueDF-shape DataFrame (rebase to ``index_level``
+    is delegated to ``rebase_index_level`` — caller decides anchor).
     """
     if panel_df.empty:
         return pd.DataFrame()
@@ -441,6 +450,7 @@ def run_tier_pipeline(
             ordering=ordering,
             prior_raw_value=prior_raw_value,
             version=version,
+            price_field=price_field,
         )
         rows.append(result)
         if not result["suspended"] and not np.isnan(result["raw_value_usd_mtok"]):
