@@ -11,6 +11,7 @@ priority fall-through and TWAP-ordering decisions in
    → constituent-level price collapse            # this module
    → tier median, w_exp, w_vol                   # this module + weights
    → dual-weighted aggregate                     # this module
+   → rebase to 100 on base_date                  # this module (Batch B)
 
 Active constituent (decision log 2026-04-30 "Phase 7 active-constituent
 definition for tier aggregation"):
@@ -25,9 +26,10 @@ to-constituent price collapse"): volume-weighted average across the
 selected tier's contributor rows, with simple-mean fallback when total
 volume is zero.
 
-Batch A scope: TWAP-then-weight ordering only, single tier per call,
-clean panel (no scenarios), no suspension fallback. Subsequent batches:
-- Batch B: extend to all 3 core tiers + rebase to 100 on 2026-01-01
+Batch A: TWAP-then-weight, single tier, clean panel.
+Batch B: all 3 core tiers + rebase to 100 on 2026-01-01 (per-tier anchor
+  fall-through when base_date itself is suspended for a tier).
+Subsequent batches:
 - Batch B': blended TPRR-B over (0.25 x P_in + 0.75 x P_out)
 - Batch C: suspension consumption + fallback to prior valid index level
 - Batch D: schema additions land (already in this file via SuspensionReason)
@@ -37,6 +39,7 @@ clean panel (no scenarios), no suspension fallback. Subsequent batches:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date
 from enum import StrEnum
 from typing import Any
@@ -446,3 +449,101 @@ def run_tier_pipeline(
     out = pd.DataFrame(rows)
     out["as_of_date"] = pd.to_datetime(out["as_of_date"]).astype("datetime64[ns]")
     return out
+
+
+# ---------------------------------------------------------------------------
+# Rebase + multi-tier driver (Batch B)
+# ---------------------------------------------------------------------------
+
+
+def rebase_index_level(
+    indices_df: pd.DataFrame,
+    *,
+    base_date: date,
+    base_value: float = 100.0,
+) -> tuple[pd.DataFrame, date | None]:
+    """Set ``index_level`` so the anchor row equals ``base_value``.
+
+    Anchor selection (Q4 sub-question lock 2026-04-29):
+      anchor = first non-suspended row with finite, positive
+      ``raw_value_usd_mtok`` whose ``as_of_date >= base_date``. Different
+      indices may have different anchor dates if some are suspended on
+      ``base_date``; the caller persists the per-index anchor in metadata.
+
+    When no anchor exists (every row at or after ``base_date`` is
+    suspended or non-finite), returns the input unchanged with anchor
+    ``None`` — caller may flag the index as un-rebasable.
+
+    Empty input returns ``(input, None)``.
+    """
+    if indices_df.empty:
+        return indices_df, None
+
+    out = indices_df.copy()
+    base_ts = pd.Timestamp(base_date)
+    eligible = out[
+        (out["as_of_date"] >= base_ts)
+        & (~out["suspended"])
+        & out["raw_value_usd_mtok"].apply(lambda v: isinstance(v, float) and np.isfinite(v) and v > 0)
+    ]
+    if eligible.empty:
+        return out, None
+    anchor_row = eligible.iloc[0]
+    anchor_value = float(anchor_row["raw_value_usd_mtok"])
+    anchor_date = pd.Timestamp(anchor_row["as_of_date"]).date()
+    factor = base_value / anchor_value
+    out["index_level"] = out["raw_value_usd_mtok"].astype(float) * factor
+    return out, anchor_date
+
+
+@dataclass
+class CoreIndexResults:
+    """Output of ``run_all_core_indices`` — per-tier IndexValueDF + anchor metadata.
+
+    ``indices`` maps each ``index_code`` (``TPRR_F`` / ``TPRR_S`` / ``TPRR_E``)
+    to its IndexValueDF-shape DataFrame with ``index_level`` populated by
+    rebase. ``rebase_anchors`` maps ``index_code`` to the anchor date used
+    (or ``None`` if no eligible anchor existed at or after ``base_date``).
+    """
+
+    indices: dict[str, pd.DataFrame]
+    rebase_anchors: dict[str, date | None]
+
+
+def run_all_core_indices(
+    panel_df: pd.DataFrame,
+    config: IndexConfig,
+    registry: ModelRegistry,
+    tier_b_config: TierBRevenueConfig,
+    tier_b_volume_fn: TierBVolumeFn,
+    suspended_pairs_df: pd.DataFrame | None = None,
+    *,
+    ordering: str = "twap_then_weight",
+    version: str = "v0_1",
+) -> CoreIndexResults:
+    """Run aggregation for TPRR_F, TPRR_S, TPRR_E with rebase to 100 on base_date.
+
+    Each tier runs independently. Per-tier rebase anchor is computed from
+    that tier's own indices_df — different tiers may have different
+    anchors when ``base_date`` itself is suspended for some tier.
+    """
+    indices: dict[str, pd.DataFrame] = {}
+    anchors: dict[str, date | None] = {}
+    for tier in (Tier.TPRR_F, Tier.TPRR_S, Tier.TPRR_E):
+        tier_indices = run_tier_pipeline(
+            panel_df=panel_df,
+            tier=tier,
+            config=config,
+            registry=registry,
+            tier_b_config=tier_b_config,
+            tier_b_volume_fn=tier_b_volume_fn,
+            suspended_pairs_df=suspended_pairs_df,
+            ordering=ordering,
+            version=version,
+        )
+        rebased, anchor = rebase_index_level(
+            tier_indices, base_date=config.base_date
+        )
+        indices[tier.value] = rebased
+        anchors[tier.value] = anchor
+    return CoreIndexResults(indices=indices, rebase_anchors=anchors)

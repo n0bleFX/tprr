@@ -1,21 +1,20 @@
 """End-to-end TPRR index compute pipeline — Phase 7.
 
-Batch A scope: TPRR_F only, TWAP-then-weight ordering, clean panel
-(``data/raw/mock_panel_clean_seed42.parquet``). Composes the multi-tier
-panel (Tier A from disk + Tier B derived per-date + Tier C from
-OpenRouter), runs Phase 6 quality gate, Phase 2c TWAP reconstruction,
-then Phase 7 dual-weighted aggregation.
+Batch A scope: TPRR_F only, TWAP-then-weight ordering, clean panel.
+Batch B scope: all 3 core tiers (F/S/E) + derived (FPR, SER), rebased to
+100 on the configured base_date. Composes the multi-tier panel (Tier A
+from disk + Tier B derived per-date + Tier C from OpenRouter), runs
+Phase 2c TWAP reconstruction, then Phase 7 dual-weighted aggregation.
 
 Usage:
-    uv run python scripts/compute_indices.py [--seed 42] [--end YYYY-MM-DD]
-        [--start YYYY-MM-DD] [--summary-only]
+    uv run python scripts/compute_indices.py [--seed 42] [--start YYYY-MM-DD]
+        [--end YYYY-MM-DD]
 
-Output: prints a one-line summary per date in the requested range. With
-``--summary-only`` (default for Batch A), prints only the first valid fix
-plus a tier-share / constituent-share breakdown for inspection.
+Output: prints a one-line summary per (index, date) in the requested
+range, plus a per-index "first valid fix" report at the end with the
+rebase anchor metadata.
 
 Subsequent batches will:
-  * Batch B — extend to TPRR_S, TPRR_E + rebase to 100 on 2026-01-01.
   * Batch B' — TPRR_B blended (0.25*P_in + 0.75*P_out).
   * Batch C — suspension consumption + fallback fall-through.
   * Batch D — SQLite + parquet persistence.
@@ -25,9 +24,9 @@ Subsequent batches will:
 from __future__ import annotations
 
 import argparse
-import json
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -37,7 +36,8 @@ from tprr.config import (
     load_model_registry,
     load_tier_b_revenue,
 )
-from tprr.index.aggregation import compute_tier_index
+from tprr.index.aggregation import compute_tier_index, rebase_index_level
+from tprr.index.derived import compute_fpr, compute_ser
 from tprr.index.tier_b import derive_tier_b_volumes
 from tprr.index.weights import TierBVolumeFn
 from tprr.reference.openrouter import (
@@ -54,9 +54,12 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--start", type=str, default=None, help="ISO date; default = panel min")
-    p.add_argument("--end", type=str, default=None, help="ISO date; default = panel min + 1 day")
-    p.add_argument("--summary-only", action="store_true", default=True)
-    p.add_argument("--no-summary-only", dest="summary_only", action="store_false")
+    p.add_argument(
+        "--end",
+        type=str,
+        default=None,
+        help="ISO date; default = base_date (first valid fix proof + rebase exercise)",
+    )
     return p.parse_args()
 
 
@@ -186,7 +189,7 @@ def main() -> int:
     )
 
     start = date.fromisoformat(args.start) if args.start else tier_a_panel["observation_date"].min().date()
-    end = date.fromisoformat(args.end) if args.end else start + timedelta(days=1)
+    end = date.fromisoformat(args.end) if args.end else config.base_date
 
     rankings_json = fetch_rankings(
         as_of_date=date.fromisoformat(
@@ -210,10 +213,22 @@ def main() -> int:
 
     tier_b_volume_fn = _tier_b_volume_fn_factory(tier_b_by_date)
 
-    print(f"\nRunning TPRR_F aggregation from {start} to {end} (TWAP-then-weight)", flush=True)
-    print("=" * 70, flush=True)
-    prior_raw_value: float | None = None
-    first_valid: dict[str, object] | None = None
+    print(
+        f"\nRunning core indices (TPRR_F/S/E) + derived (FPR/SER) from "
+        f"{start} to {end} (TWAP-then-weight)",
+        flush=True,
+    )
+    print("=" * 90, flush=True)
+    prior_raw_value: dict[str, float | None] = {
+        "TPRR_F": None,
+        "TPRR_S": None,
+        "TPRR_E": None,
+    }
+    rows_per_index: dict[str, list[dict[str, Any]]] = {
+        "TPRR_F": [],
+        "TPRR_S": [],
+        "TPRR_E": [],
+    }
     for ts in days:
         d = ts.date()
         composed = compose_panel_for_date(
@@ -223,49 +238,71 @@ def main() -> int:
             as_of_date=d,
         )
         composed_with_twap = compute_panel_twap(composed, change_events)
-        result = compute_tier_index(
-            panel_day_df=composed_with_twap,
-            tier=Tier.TPRR_F,
-            config=config,
-            registry=registry,
-            tier_b_config=tier_b_config,
-            tier_b_volume_fn=tier_b_volume_fn,
-            prior_raw_value=prior_raw_value,
+        for tier in (Tier.TPRR_F, Tier.TPRR_S, Tier.TPRR_E):
+            result = compute_tier_index(
+                panel_day_df=composed_with_twap,
+                tier=tier,
+                config=config,
+                registry=registry,
+                tier_b_config=tier_b_config,
+                tier_b_volume_fn=tier_b_volume_fn,
+                prior_raw_value=prior_raw_value[tier.value],
+            )
+            if not result["suspended"]:
+                prior_raw_value[tier.value] = float(result["raw_value_usd_mtok"])
+            rows_per_index[tier.value].append(result)
+
+    rebased: dict[str, pd.DataFrame] = {}
+    anchors: dict[str, date | None] = {}
+    for code, rows in rows_per_index.items():
+        df = pd.DataFrame(rows)
+        df["as_of_date"] = pd.to_datetime(df["as_of_date"]).astype("datetime64[ns]")
+        df_rebased, anchor = rebase_index_level(df, base_date=config.base_date)
+        rebased[code] = df_rebased
+        anchors[code] = anchor
+
+    fpr_df, anchors["TPRR_FPR"] = compute_fpr(rebased["TPRR_F"], rebased["TPRR_S"], config)
+    ser_df, anchors["TPRR_SER"] = compute_ser(rebased["TPRR_S"], rebased["TPRR_E"], config)
+    rebased["TPRR_FPR"] = fpr_df
+    rebased["TPRR_SER"] = ser_df
+
+    print("\nFirst valid fix per index:")
+    print("-" * 90)
+    for code, df in rebased.items():
+        if df.empty:
+            print(f"  {code}: empty result")
+            continue
+        valid = df[~df["suspended"]]
+        if valid.empty:
+            print(f"  {code}: NO valid fix in range")
+            continue
+        first = valid.iloc[0]
+        print(
+            f"  {code:10s}  first_valid={pd.Timestamp(first['as_of_date']).date()}  "
+            f"raw={float(first['raw_value_usd_mtok']):>12.4f}  "
+            f"index_level={float(first['index_level']):>10.4f}  "
+            f"anchor={anchors[code]}  "
+            f"n=A{int(first['n_constituents_a'])}/B{int(first['n_constituents_b'])}/C{int(first['n_constituents_c'])}  "
+            f"w=A{float(first['tier_a_weight_share']):.3f}/B{float(first['tier_b_weight_share']):.3f}/C{float(first['tier_c_weight_share']):.3f}"
         )
-        if not result["suspended"]:
-            prior_raw_value = float(result["raw_value_usd_mtok"])
-            if first_valid is None:
-                first_valid = result
-        _print_result(result)
 
-    if first_valid is not None and args.summary_only:
-        print("\n" + "=" * 70)
-        print("First valid TPRR_F fix:")
-        print(json.dumps(_jsonable(first_valid), indent=2, default=str))
+    print("\nValue at base_date (anchor day; rebase target = 100):")
+    print("-" * 90)
+    base_ts = pd.Timestamp(config.base_date)
+    for code, df in rebased.items():
+        if df.empty:
+            continue
+        match = df[df["as_of_date"] == base_ts]
+        if match.empty:
+            continue
+        r = match.iloc[0]
+        susp_str = "[SUSP]" if bool(r["suspended"]) else "      "
+        print(
+            f"  {code:10s}  {susp_str}  raw={float(r['raw_value_usd_mtok']):>12.4f}  "
+            f"index_level={float(r['index_level']):>10.4f}  "
+            f"reason={r['suspension_reason'] or '-'}"
+        )
     return 0
-
-
-def _print_result(result: dict[str, object]) -> None:
-    d = result["as_of_date"]
-    susp = "SUSPENDED" if result["suspended"] else "         "
-    raw = result["raw_value_usd_mtok"]
-    raw_str = f"${raw:.4f}/Mtok" if isinstance(raw, float) and raw == raw else "      NaN"
-    n_a = result["n_constituents_a"]
-    n_b = result["n_constituents_b"]
-    n_c = result["n_constituents_c"]
-    wa = result["tier_a_weight_share"]
-    wb = result["tier_b_weight_share"]
-    wc = result["tier_c_weight_share"]
-    print(
-        f"{d}  {susp}  {raw_str:>20}  "
-        f"n=A{n_a}/B{n_b}/C{n_c}  "
-        f"w=A{wa:.3f}/B{wb:.3f}/C{wc:.3f}  "
-        f"{result['suspension_reason']}"
-    )
-
-
-def _jsonable(obj: dict[str, object]) -> dict[str, object]:
-    return {k: (v if not hasattr(v, "isoformat") else v.isoformat()) for k, v in obj.items()}
 
 
 if __name__ == "__main__":

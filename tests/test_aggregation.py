@@ -600,3 +600,253 @@ def test_run_tier_pipeline_unsupported_ordering_raises() -> None:
             tier_b_volume_fn=_stub_tier_b_volume_fn(),
             ordering="weight_then_twap",
         )
+
+
+# ---------------------------------------------------------------------------
+# rebase_index_level (Batch B)
+# ---------------------------------------------------------------------------
+
+
+def _index_value_df_row(
+    *,
+    as_of_date: date,
+    index_code: str = "TPRR_F",
+    raw_value: float,
+    suspended: bool = False,
+    suspension_reason: str = "",
+) -> dict[str, Any]:
+    return {
+        "as_of_date": pd.Timestamp(as_of_date),
+        "index_code": index_code,
+        "version": "v0_1",
+        "lambda": 3.0,
+        "ordering": "twap_then_weight",
+        "raw_value_usd_mtok": raw_value,
+        "index_level": float("nan"),
+        "n_constituents": 6,
+        "n_constituents_active": 6,
+        "n_constituents_a": 6,
+        "n_constituents_b": 0,
+        "n_constituents_c": 0,
+        "tier_a_weight_share": 1.0,
+        "tier_b_weight_share": 0.0,
+        "tier_c_weight_share": 0.0,
+        "suspended": suspended,
+        "suspension_reason": suspension_reason,
+        "notes": "",
+    }
+
+
+def test_rebase_index_level_anchors_on_base_date() -> None:
+    """When base_date is in the panel and not suspended, rebase factor is
+    100 / raw_value_at_base_date and applies uniformly to all rows."""
+    from tprr.index.aggregation import rebase_index_level
+
+    df = pd.DataFrame(
+        [
+            _index_value_df_row(as_of_date=date(2025, 12, 31), raw_value=50.0),
+            _index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=60.0),
+            _index_value_df_row(as_of_date=date(2026, 1, 2), raw_value=63.0),
+        ]
+    )
+    out, anchor = rebase_index_level(df, base_date=date(2026, 1, 1))
+    assert anchor == date(2026, 1, 1)
+    # Factor = 100 / 60 = 1.6667. So 50 -> 83.33, 60 -> 100, 63 -> 105.
+    assert float(out.iloc[0]["index_level"]) == pytest.approx(50.0 * 100 / 60)
+    assert float(out.iloc[1]["index_level"]) == pytest.approx(100.0)
+    assert float(out.iloc[2]["index_level"]) == pytest.approx(63.0 * 100 / 60)
+
+
+def test_rebase_index_level_skips_suspended_anchor() -> None:
+    """If base_date row is suspended, anchor falls through to next valid row."""
+    from tprr.index.aggregation import rebase_index_level
+
+    df = pd.DataFrame(
+        [
+            _index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=float("nan"), suspended=True),
+            _index_value_df_row(as_of_date=date(2026, 1, 2), raw_value=float("nan"), suspended=True),
+            _index_value_df_row(as_of_date=date(2026, 1, 3), raw_value=70.0),
+        ]
+    )
+    out, anchor = rebase_index_level(df, base_date=date(2026, 1, 1))
+    assert anchor == date(2026, 1, 3)
+    # Suspended rows have NaN raw_value → factor application produces NaN.
+    assert np.isnan(float(out.iloc[0]["index_level"]))
+    assert np.isnan(float(out.iloc[1]["index_level"]))
+    assert float(out.iloc[2]["index_level"]) == pytest.approx(100.0)
+
+
+def test_rebase_index_level_no_eligible_anchor_returns_none() -> None:
+    """If every row at-or-after base_date is suspended, anchor is None and
+    index_level stays NaN throughout."""
+    from tprr.index.aggregation import rebase_index_level
+
+    df = pd.DataFrame(
+        [
+            _index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=float("nan"), suspended=True),
+            _index_value_df_row(as_of_date=date(2026, 1, 2), raw_value=float("nan"), suspended=True),
+        ]
+    )
+    out, anchor = rebase_index_level(df, base_date=date(2026, 1, 1))
+    assert anchor is None
+    assert out["index_level"].isna().all()
+
+
+def test_rebase_index_level_empty_input_returns_empty_no_anchor() -> None:
+    from tprr.index.aggregation import rebase_index_level
+
+    out, anchor = rebase_index_level(pd.DataFrame(), base_date=date(2026, 1, 1))
+    assert anchor is None
+    assert out.empty
+
+
+# ---------------------------------------------------------------------------
+# run_all_core_indices
+# ---------------------------------------------------------------------------
+
+
+def _three_tier_panel(d: date) -> pd.DataFrame:
+    """Tier A panel covering 3 F + 3 S + 3 E constituents on date d.
+
+    Lets run_all_core_indices return non-empty IndexValueDFs for all 3 tiers.
+    """
+    rows: list[dict[str, Any]] = []
+    f_constituents = [
+        ("openai/gpt-5-pro", 75.0),
+        ("anthropic/claude-opus-4-7", 70.0),
+        ("google/gemini-3-pro", 30.0),
+    ]
+    s_constituents = [
+        ("openai/gpt-5-mini", 4.0),
+        ("anthropic/claude-haiku-4-5", 5.0),
+        ("google/gemini-2-flash", 2.5),
+    ]
+    e_constituents = [
+        ("google/gemini-flash-lite", 0.4),
+        ("openai/gpt-5-nano", 0.6),
+        ("deepseek/deepseek-v3-2", 1.0),
+    ]
+    for cid, price in f_constituents:
+        for c in ["c1", "c2", "c3"]:
+            rows.append(
+                _row(
+                    constituent_id=cid,
+                    contributor_id=c,
+                    observation_date=d,
+                    attestation_tier=AttestationTier.A,
+                    volume_mtok_7d=100.0,
+                    twap_output=price,
+                    tier_code=Tier.TPRR_F,
+                )
+            )
+    for cid, price in s_constituents:
+        for c in ["c1", "c2", "c3"]:
+            rows.append(
+                _row(
+                    constituent_id=cid,
+                    contributor_id=c,
+                    observation_date=d,
+                    attestation_tier=AttestationTier.A,
+                    volume_mtok_7d=300.0,
+                    twap_output=price,
+                    tier_code=Tier.TPRR_S,
+                )
+            )
+    for cid, price in e_constituents:
+        for c in ["c1", "c2", "c3"]:
+            rows.append(
+                _row(
+                    constituent_id=cid,
+                    contributor_id=c,
+                    observation_date=d,
+                    attestation_tier=AttestationTier.A,
+                    volume_mtok_7d=900.0,
+                    twap_output=price,
+                    tier_code=Tier.TPRR_E,
+                )
+            )
+    return pd.DataFrame(rows)
+
+
+def _three_tier_registry() -> ModelRegistry:
+    """Mini registry covering the constituents in _three_tier_panel."""
+    return ModelRegistry(
+        models=[
+            ModelMetadata(
+                constituent_id=cid,
+                tier=tier,
+                provider=cid.split("/")[0],
+                canonical_name=cid,
+                baseline_input_price_usd_mtok=baseline_in,
+                baseline_output_price_usd_mtok=baseline_out,
+            )
+            for cid, tier, baseline_in, baseline_out in [
+                ("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0),
+                ("anthropic/claude-opus-4-7", Tier.TPRR_F, 15.0, 75.0),
+                ("google/gemini-3-pro", Tier.TPRR_F, 5.0, 30.0),
+                ("openai/gpt-5-mini", Tier.TPRR_S, 0.5, 4.0),
+                ("anthropic/claude-haiku-4-5", Tier.TPRR_S, 1.0, 5.0),
+                ("google/gemini-2-flash", Tier.TPRR_S, 0.3, 2.5),
+                ("google/gemini-flash-lite", Tier.TPRR_E, 0.1, 0.4),
+                ("openai/gpt-5-nano", Tier.TPRR_E, 0.15, 0.6),
+                ("deepseek/deepseek-v3-2", Tier.TPRR_E, 0.25, 1.0),
+            ]
+        ]
+    )
+
+
+def test_run_all_core_indices_emits_three_tiers_with_rebase() -> None:
+    """All three core tier indices land with rebase to 100 on base_date."""
+    from tprr.index.aggregation import run_all_core_indices
+
+    config = IndexConfig(base_date=date(2025, 1, 1))
+    panel = pd.concat(
+        [_three_tier_panel(date(2025, 1, 1)), _three_tier_panel(date(2025, 1, 2))],
+        ignore_index=True,
+    )
+    result = run_all_core_indices(
+        panel_df=panel,
+        config=config,
+        registry=_three_tier_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    assert set(result.indices.keys()) == {"TPRR_F", "TPRR_S", "TPRR_E"}
+    for df in result.indices.values():
+        assert len(df) == 2
+        # First row (anchor) should land at 100.0
+        anchor_row = df[df["as_of_date"] == pd.Timestamp(date(2025, 1, 1))]
+        assert float(anchor_row["index_level"].iloc[0]) == pytest.approx(100.0)
+    # Anchor metadata for each tier
+    for code in ("TPRR_F", "TPRR_S", "TPRR_E"):
+        assert result.rebase_anchors[code] == date(2025, 1, 1)
+
+
+def test_run_all_core_indices_per_tier_anchor_when_one_tier_suspended() -> None:
+    """If TPRR_S is suspended on base_date but F/E are not, F/E anchor on
+    base_date while S anchors on the next valid day."""
+    from tprr.index.aggregation import run_all_core_indices
+
+    config = IndexConfig(base_date=date(2025, 1, 1))
+    # Day 1: full panel for F + E, only 2 S constituents (S suspends).
+    p1 = _three_tier_panel(date(2025, 1, 1))
+    p1 = p1[
+        ~(
+            (p1["constituent_id"] == "google/gemini-2-flash")
+            & (p1["observation_date"] == pd.Timestamp(date(2025, 1, 1)))
+        )
+    ]
+    # Day 2: full panel, all tiers active.
+    p2 = _three_tier_panel(date(2025, 1, 2))
+    panel = pd.concat([p1, p2], ignore_index=True)
+
+    result = run_all_core_indices(
+        panel_df=panel,
+        config=config,
+        registry=_three_tier_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    assert result.rebase_anchors["TPRR_F"] == date(2025, 1, 1)
+    assert result.rebase_anchors["TPRR_E"] == date(2025, 1, 1)
+    assert result.rebase_anchors["TPRR_S"] == date(2025, 1, 2)

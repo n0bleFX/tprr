@@ -757,3 +757,18 @@ where c iterates over the constituent's contributors with strictly-positive volu
 
 **Methodology section**: 3.3.1 (dual-weighted formula — gap addressed)
 
+## 2026-04-30 — Phase 7 Batch B empirical observation: SER tripled over backtest window on seed 42
+
+**Observation**: On the clean Phase 2 panel with seed 42, the Standard/Efficiency Ratio (SER) moved from 5.36 at 2025-01-01 to 17.23 at 2026-01-01 (base_date) — a ~3.2× expansion. This reflects E-tier price decline (-77% from $0.82 to $0.19) substantially exceeding S-tier decline (-25% from $4.41 to $3.30) over the backtest window.
+
+**Three possible readings**:
+1. Synthetic panel artifact: Phase 2a drift parameters produce more aggressive E-tier decline than S-tier in seed 42's realisation. Phase 2a Monte Carlo realism check showed wide path dispersion for E-tier (p10/p50/p90 final-prices = 0.082/0.227/0.524 of starting). Seed 42 lands near p50; different seeds could produce SER compression instead.
+2. Real-world parallel: SER expansion matches the actual 2024-2025 AI inference market pattern, where DeepSeek/Qwen/Llama drove dramatic Efficiency-tier collapse while Standard-tier declined more modestly. The synthetic panel may be capturing this dynamic correctly.
+3. Methodology working correctly: regardless of magnitude, the dual-weighted aggregation surfaced a real cross-tier pattern in the underlying panel. SER is functioning as a relative-value shift indicator.
+
+**Phase 10 obligation**: Multi-seed runs should report SER trajectory distribution to characterise whether expansion is robust across seeds or seed-42-specific. If consistently expanding, the synthetic panel's drift calibration is producing economically meaningful patterns. If varying widely, the seed-42 result is one realisation of a wider distribution.
+
+**Phase 11 writeup material**: Either outcome is publishable. Robust SER expansion → "TPRR's derived ratios surface real cross-tier dynamics that simple price indices miss." Seed-dependent SER → "TPRR's derived ratios are sensitive to underlying panel realisation, which is itself a calibration finding for v0.2 panel design."
+
+**Methodology section**: 3.3.4 (derived indices)
+
