@@ -138,12 +138,11 @@ def compute_panel_twap(
     — the DataFrame must have columns ``(contributor_id, constituent_id,
     date, slot_idx)``, one row per excluded slot.
 
-    Single-event assumption: the internal event lookup stores at most one
-    event per (contributor, constituent, date). Valid for Phase 2 panels
-    (the Phase 2b generator dedupes by key). Phase 3 outlier-injection
-    scenarios that emit multiple events per day will require a revision here
-    (and in ``change_events.apply_twap_to_panel``) to compose segmented
-    reconstructions the same way ``reconstruct_slots`` does.
+    Multi-event aware (Phase 3 outlier-injection scenarios — fat_finger and
+    intraday_spike — emit two events per day; the same segmentation logic
+    used in ``reconstruct_slots`` is mirrored here so the bulk path agrees
+    with the public reconstructor on every input shape). On Phase 2 single-
+    event panels the result is byte-identical to the prior implementation.
     """
     event_lookup = _build_event_lookup(change_events_df)
     exclusions = _build_exclusions_lookup(excluded_slots_df)
@@ -158,15 +157,11 @@ def compute_panel_twap(
         obs_date = pd.Timestamp(rec["observation_date"])
         key = (cid, const_id, obs_date)
         excluded = exclusions.get(key)
+        events = event_lookup.get(key)
 
-        if key in event_lookup:
-            slot, old_out, new_out, old_in, new_in = event_lookup[key]
-            out_slots = np.empty(_TWAP_SLOTS, dtype=np.float64)
-            out_slots[:slot] = old_out
-            out_slots[slot:] = new_out
-            in_slots = np.empty(_TWAP_SLOTS, dtype=np.float64)
-            in_slots[:slot] = old_in
-            in_slots[slot:] = new_in
+        if events:
+            out_slots = _slots_from_events(events, "output_price_usd_mtok")
+            in_slots = _slots_from_events(events, "input_price_usd_mtok")
         elif excluded is None or len(excluded) == 0:
             # No event, no exclusions — TWAP is just the posted price.
             twap_output[i] = float(rec["output_price_usd_mtok"])
@@ -189,25 +184,54 @@ def compute_panel_twap(
 
 def _build_event_lookup(
     change_events_df: pd.DataFrame,
-) -> dict[tuple[str, str, pd.Timestamp], tuple[int, float, float, float, float]]:
-    """(contributor, constituent, date) -> (slot, old_out, new_out, old_in, new_in)."""
-    lookup: dict[
-        tuple[str, str, pd.Timestamp], tuple[int, float, float, float, float]
-    ] = {}
-    for rec in change_events_df.to_dict("records"):
+) -> dict[tuple[str, str, pd.Timestamp], list[dict[str, Any]]]:
+    """(contributor, constituent, date) -> list of event records sorted by slot.
+
+    Multi-event aware. The Phase 2 generator dedupes by key (one event per
+    cell) but Phase 3 outlier-injection scenarios (fat_finger, intraday_spike)
+    emit two events on the same day; the lookup preserves both, sorted by
+    ``change_slot_idx`` so segmentation is straightforward.
+    """
+    lookup: dict[tuple[str, str, pd.Timestamp], list[dict[str, Any]]] = {}
+    for raw in change_events_df.to_dict("records"):
+        rec: dict[str, Any] = {str(k): v for k, v in raw.items()}
         key = (
             str(rec["contributor_id"]),
             str(rec["constituent_id"]),
             pd.Timestamp(rec["event_date"]),
         )
-        lookup[key] = (
-            int(rec["change_slot_idx"]),
-            float(rec["old_output_price_usd_mtok"]),
-            float(rec["new_output_price_usd_mtok"]),
-            float(rec["old_input_price_usd_mtok"]),
-            float(rec["new_input_price_usd_mtok"]),
-        )
+        lookup.setdefault(key, []).append(rec)
+    for k in lookup:
+        lookup[k].sort(key=lambda r: int(r["change_slot_idx"]))
     return lookup
+
+
+def _slots_from_events(
+    events: list[dict[str, Any]],
+    price_field: str,
+) -> npt.NDArray[np.float64]:
+    """Build the 32-slot price array for one (contributor, constituent, date).
+
+    Mirrors ``reconstruct_slots``' multi-event segmentation: slots
+    ``[0, events[0].slot)`` carry ``events[0].old``; slots
+    ``[events[i].slot, events[i+1].slot)`` carry ``events[i].new``;
+    slots ``[events[-1].slot, 32)`` carry ``events[-1].new``. ``events`` is
+    assumed sorted by ``change_slot_idx`` (the lookup builder ensures this).
+    """
+    slots = np.empty(_TWAP_SLOTS, dtype=np.float64)
+    first = events[0]
+    first_slot = int(first["change_slot_idx"])
+    slots[:first_slot] = float(first[f"old_{price_field}"])
+    for i, ev in enumerate(events):
+        current_slot = int(ev["change_slot_idx"])
+        current_new = float(ev[f"new_{price_field}"])
+        end_slot = (
+            int(events[i + 1]["change_slot_idx"])
+            if i + 1 < len(events)
+            else _TWAP_SLOTS
+        )
+        slots[current_slot:end_slot] = current_new
+    return slots
 
 
 def _build_exclusions_lookup(

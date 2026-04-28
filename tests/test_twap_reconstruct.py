@@ -574,6 +574,67 @@ def test_revision_preserves_single_event_behaviour_byte_identical() -> None:
         )
 
 
+def test_compute_panel_twap_multi_event_intraday_spike() -> None:
+    """Two events on the same day (intraday_spike shape) must be honoured by
+    compute_panel_twap, matching reconstruct_slots + compute_daily_twap."""
+    panel = _minimal_panel_row(output_price=100.0, input_price=20.0)
+    events = pd.DataFrame(
+        [
+            _make_event(slot=10, old_out=100.0, new_out=125.0),
+            _make_event(slot=13, old_out=125.0, new_out=100.0),
+        ]
+    )
+    out = compute_panel_twap(panel, events)
+    # Hand-computed: 10 slots @ 100 + 3 @ 125 + 19 @ 100 = (10*100 + 3*125 + 19*100) / 32
+    expected_out = (10 * 100.0 + 3 * 125.0 + 19 * 100.0) / 32
+    assert abs(float(out["twap_output_usd_mtok"].iloc[0]) - expected_out) < 1e-12
+    expected_in = (10 * 20.0 + 3 * 25.0 + 19 * 20.0) / 32
+    assert abs(float(out["twap_input_usd_mtok"].iloc[0]) - expected_in) < 1e-12
+
+
+def test_compute_panel_twap_multi_event_with_exclusions() -> None:
+    """Multi-event day with slot exclusions: TWAP averages over surviving slots."""
+    panel = _minimal_panel_row(output_price=100.0, input_price=20.0)
+    events = pd.DataFrame(
+        [
+            _make_event(slot=10, old_out=100.0, new_out=125.0),
+            _make_event(slot=13, old_out=125.0, new_out=100.0),
+        ]
+    )
+    # Exclude the spike window slots [10, 11, 12].
+    exclusions = pd.DataFrame(
+        {
+            "contributor_id": ["c"] * 3,
+            "constituent_id": ["m"] * 3,
+            "date": [pd.Timestamp("2025-01-01")] * 3,
+            "slot_idx": [10, 11, 12],
+        }
+    )
+    out = compute_panel_twap(panel, events, excluded_slots_df=exclusions)
+    # Surviving 29 slots: 10 @ 100 (slots 0..9) + 19 @ 100 (slots 13..31) = all 100
+    assert abs(float(out["twap_output_usd_mtok"].iloc[0]) - 100.0) < 1e-12
+
+
+def test_compute_panel_twap_multi_event_byte_identical_to_reconstruct() -> None:
+    """compute_panel_twap and reconstruct_slots+compute_daily_twap agree on
+    every multi-event configuration to floating-point tolerance."""
+    panel = _minimal_panel_row()
+    events = pd.DataFrame(
+        [
+            _make_event(slot=5, old_out=10.0, new_out=20.0),
+            _make_event(slot=15, old_out=20.0, new_out=30.0),
+            _make_event(slot=25, old_out=30.0, new_out=40.0),
+        ]
+    )
+    out = compute_panel_twap(panel, events)
+    slots = reconstruct_slots(
+        "c", "m", pd.Timestamp("2025-01-01"), panel, events,
+        price_field="output_price_usd_mtok",
+    )
+    expected = compute_daily_twap(slots)
+    assert abs(float(out["twap_output_usd_mtok"].iloc[0]) - expected) < 1e-12
+
+
 def test_revision_preserves_twap_identity_byte_identical() -> None:
     """Second byte-identical check: reconstruct + compute_daily_twap on every
     event day still matches the panel's stored TWAP to 1e-12. This is the

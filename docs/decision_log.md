@@ -579,3 +579,100 @@ For each provider P with revenue R(t) on `as_of_date`:
 - Either path is a v1.3+ methodology refinement, not an MVP shim.
 
 **Methodology section**: 3.3.2 (three-tier volume hierarchy, Tier B implementation specifics — MVP scope per the May 2026 decision and the prior choice clarified for v0.1 here).
+
+## 2026-04-29 — Phase 6 slot-level quality gate parameters
+
+**Decision**: `apply_slot_level_gate` runs Tier A only with deviation_pct=0.15, trailing_window_days=5, current-day excluded from the rolling mean (shift before rolling), gate computed against the (contributor, constituent) 5-day trailing average of posted output prices indexed by `observation_date` (panel-recorded calendar days, not 5 actual calendar days — equivalent for daily-cadence Phase 2 panels). Insufficient-history rows (fewer than 5 prior panel days) are skipped without firing.
+
+**Context**: Methodology Section 4.2.2 specifies "any [slot] price deviation exceeding 15% from the constituent's 5-day trailing average ... is excluded from that day's TWAP." The methodology does not specify (a) whether the trailing window is calendar days or panel-recorded days, (b) whether current-day-self is included in the trailing average, or (c) what to do with rows whose history is shorter than 5 days.
+
+**Alternatives considered**:
+- **Calendar-day rolling with NaN-fill on missing panel days** — most literal. Rejected because Phase 2 panels are daily-cadence with no gaps; the implementations are equivalent here, but panel-day rolling avoids a future production-data assumption (continuous calendar coverage) the MVP doesn't need.
+- **Include current day in trailing mean** — biases the threshold toward "today is normal" by definition; today's outlier slot would influence its own threshold. Rejected.
+- **Apply gate from day 1 with a bootstrap (e.g. registry baseline as prior)** — adds complexity, requires a baseline-prior decision per constituent, and mixes synthetic-prior contamination into early-period firings. Rejected — first 5 days simply don't get gated, accepted limitation.
+
+**Rationale**: shift(1).rolling(5, min_periods=5) is the canonical "trailing average excluding self" pandas idiom; it preserves the methodology's "vs trailing average" semantic without ambiguity. First-5-days exclusion is a known acceptance criterion in project_plan Phase 6 ("First 5 days of each (contributor, constituent) series: gate not applied"). Documented here so future readers don't trip on the absence of firings on early-period rows.
+
+**Impact**: Slot-level gate fires only on Tier A rows with ≥5 prior panel days. Tier B/C rows are unprocessed (no slot dimension by construction). Boundary behaviour: a 14% deviation passes (`abs(dev) > 0.15` is the firing condition, not `>=`), 16% fires.
+
+**Tier A scope clarification**: The gate operates only on Tier A panel rows. Tier B is derived from quarterly revenue with no slot dimension; Tier C is OpenRouter aggregate with no slot dimension. Both rely on tier haircuts (0.9 / 0.8) as confidence discounts and structural defenses (revenue disclosure for B, third-party-source for C) for manipulation resistance, not slot-level gating. Section 4.2.2 doesn't explicitly state tier scope; the gate's mechanics — comparing 32 reconstructed intraday slots — are only well-defined for Tier A panel data.
+
+**Phase 10 obligation**: Phase 10 should report Tier A vs Tier B vs Tier C contribution percentages per index. If Tier B/C dominate (per the cross-tier magnitude finding in the 2026-04-29 priority fall-through entry), the absence of slot-level gating on the dominant tier is a methodology gap worth surfacing.
+
+**v1.3+ enhancement path**: If real Tier C data evolves to provide intraday granularity (per-minute or per-hour rankings updates from OpenRouter), Section 4.2.2 should be revisited for whether the gate extends to Tier C. Tier B is unlikely to ever have intraday data given its quarterly revenue derivation.
+
+**Methodology section**: 4.2.2 (data quality checks).
+
+## 2026-04-29 — Phase 6 continuity check: Tier A flag-only at 25%
+
+**Decision**: `apply_continuity_check` adds a `requires_verification` boolean column flagging Tier A rows whose day-over-day posted output price changes by more than 25% from the prior panel-recorded day's posted price. The flag is informational; the row is included in TWAP and aggregation regardless of flag state.
+
+**Context**: Methodology Section 4.1 specifies: "price changes exceeding 25% from the prior observation trigger a manual verification step before the update is incorporated." Strict reading would block the update pending review. CLAUDE.md's working-summary states v0.1 behaviour as "flag and log, include anyway unless also failing 5-day gate."
+
+**Alternatives considered**:
+- **Block until manual verification** — production-correct per Section 4.1, but the MVP has no Index Committee or Data Governance Officer; "verification" has no actor. Rejected.
+- **Block + auto-clear after N days** — adds time-window logic the methodology doesn't authorise. Rejected.
+- **Flag + include** (chosen) — preserves the methodology's signal (flag is recorded, downstream readers see which rows would have triggered verification) without inventing an unauthorised auto-clear mechanism. The slot-level gate provides the operative outlier defence; the continuity flag is a secondary diagnostic.
+
+**Rationale**: The slot-level gate (15% threshold against 5-day trailing average) is a narrower test than the continuity check (25% day-over-day). A row that fails continuity but not the slot gate is a directionally-large but plausibly-real move; flagging it without blocking allows v0.1 backtests to run while preserving the audit trail for v1.3+ verification-workflow design.
+
+**Impact**: `requires_verification` column added downstream. Tier B/C rows always False (continuity check is Tier A semantic). v1.3+ may convert this to a blocking check once governance is implemented.
+
+**Methodology section**: 4.1 (price continuity check).
+
+## 2026-04-29 — Phase 6 staleness rule: v0.1 operational extension at 3 days
+
+**Decision**: `apply_staleness_rule` adds an `is_stale` boolean column flagging Tier A rows whose posted output price has not changed across the prior `max_stale_days` panel-recorded rows (default 3). With max_stale_days=3, a row is stale iff today's price equals each of the prior 3 panel rows for the same (contributor, constituent) — equivalently, the 4th-or-later consecutive same-price panel day.
+
+**Context**: Methodology v1.2 does not specify a staleness rule. CLAUDE.md's working summary lists `staleness_max_days: 3` as a v0.1 operational extension (config/index_config.yaml). The motivation is detection of contributor blackouts and frozen-price scenarios (Phase 3 scenario 3 stale_quote) where a contributor stops updating but continues to submit identical prices.
+
+**Alternatives considered**:
+- **Omit staleness rule entirely until v1.3 methodology adds it** — leaves scenario 3 with no detection layer in v0.1. Rejected.
+- **Stricter rule (max_stale_days=2)** — a 3-day stale prior is normal for low-activity efficiency-tier models; over-fires. Rejected.
+- **Looser rule (max_stale_days=7)** — undetectable scenario 3 across the Phase 10 28-day stale_quote window without staleness firings. Rejected.
+- **3-day default** (chosen) — aligns with the suspension threshold (3 consecutive days) and matches realistic enterprise pricing-update cadence (most posted prices change less often than weekly).
+
+**Rationale**: Staleness is a Tier A operational diagnostic, not a methodology test. The v1.3 methodology revision should consider whether staleness graduates to canonical (with a stated threshold) or remains operational. For v0.1 the rule is documented here so the Phase 10 stale_quote scenario has detection coverage and the v1.3 conversation has prior art.
+
+**Impact**: `is_stale` column added downstream. Tier B/C always False (staleness is per-contributor-cadence, doesn't apply to revenue-derived or rankings-derived rows). Flagged for methodology v1.3 inclusion.
+
+**Methodology section**: not in v1.2; v0.1 operational extension.
+
+## 2026-04-29 — Phase 6 suspension counter: 3 consecutive day-level fires, sticky
+
+**Decision**: `compute_consecutive_day_suspensions` emits one row per (contributor, constituent) pair on the first calendar date when that pair accumulates 3 consecutive panel-recorded days each carrying ≥1 slot-level gate firing. Suspension is sticky — only the first crossing date is recorded; downstream consumers treat the constituent as suspended from that date forward.
+
+**Context**: Methodology Section 4.2.2 specifies "Three consecutive intervals failing this check triggers human review of the constituent." The literal reading is 15-minute intervals (3 × 15min = 45 minutes within one day). The MVP has no human reviewer; the literal-interval rule has no actor and would over-fire on any genuine intraday move.
+
+**Alternatives considered**:
+- **Literal 3-consecutive-15-minute-slot rule** — fires on any 3-slot run; without an Index Committee to action the trigger, becomes a noise channel. Rejected.
+- **3 consecutive 15-min slots within one day, suspending automatically** — aggressive auto-suspension; a single legitimate price move (slot 17, 18, 19 all 15%+ deviations) would suspend a constituent until reset. Rejected — methodology authorises HUMAN review, not auto-suspension, and v0.1 cannot execute the human step.
+- **3 consecutive panel days with any-slot-fires, sticky** (chosen) — translates the methodology's "consecutive failures requires review" intent to the day-level cadence v0.1 actually runs at. The threshold (3) is preserved; the unit shifts from intervals to days. Sticky semantics avoid suspend/unsuspend churn that an auto-rearm rule would create.
+
+**Rationale**: This is a v0.1 simplification, not a methodology revision. The methodology's intent — repeated quality failures should trigger investigation — is preserved at a unit appropriate to a daily-fix MVP without an Index Committee. Phase 10 Scenario 4 (correlated_blackout) tests this rule's behaviour under realistic blackout patterns. v1.3+ should clarify whether the "3 consecutive" rule operates on intervals (production-only, requires reviewer) or days (operationally executable in automation).
+
+**Impact**: Suspension rows feed downstream aggregation as a "do not include this constituent's price in tier median or weight from this date forward" signal. Phase 7 implements the consumption side. Sticky semantics: a suspended constituent does not re-enter the index without explicit operational unsuspend (out of scope for v0.1).
+
+**Threat coverage gap**: The canonical 45-minute window (3 × 15-min slots) catches sustained intraday manipulation; the v0.1 day-level window catches sustained inter-day patterns. A manipulator pushing 15%+ for 1 hour intraday is caught by canonical, not v0.1; a manipulator running a 1-hour-per-day pattern for 3 days is caught by v0.1, not canonical. The two readings have meaningfully different threat surfaces, which is why v1.3 should specify which (or both) is the canonical rule.
+
+**Phase 10 sensitivity test**: Run Scenario 1 (fat_finger 1-slot spike) and Scenario 6 (sustained_manipulation 60-day) under both rules. If 45-minute rule catches scenarios that 3-day rule misses (or vice versa), the methodology gap has empirical evidence.
+
+**Methodology section**: 4.2.2 (data quality checks — adapted from interval-cadence to day-cadence for v0.1).
+
+## 2026-04-29 — compute_panel_twap multi-event reconstruction
+
+**Decision**: `tprr.twap.reconstruct.compute_panel_twap` upgraded to honour multiple change events per (contributor, constituent, date), mirroring the segmentation logic of the public `reconstruct_slots` function. The internal `_build_event_lookup` now stores a list of event records per key (sorted by `change_slot_idx`); `compute_panel_twap` builds the 32-slot price array by walking those events the same way `reconstruct_slots` does.
+
+**Context**: The pre-revision `_build_event_lookup` stored at most one event per key; later events overwrote earlier ones on the same day. Phase 2 panels never exercised the multi-event path (the Phase 2b generator dedupes by key), but Phase 3 outlier-injection scenarios (fat_finger, intraday_spike) emit two events per day. Phase 6 testing of those scenarios end-to-end through compute_panel_twap requires multi-event support.
+
+**Alternatives considered**:
+- **Defer until Phase 7 aggregation surfaces the bug** — accepts a known incorrect-output region of the input space without test coverage. Rejected; the docstring already committed to the revision and the helper logic is already proven correct in `reconstruct_slots`.
+- **Implement separately in compute_panel_twap with a different code path** — duplicates the segmentation logic and risks divergence. Rejected.
+- **Mirror `reconstruct_slots` segmentation** (chosen) — single conceptual model for multi-event reconstruction, applied in both the per-row public API and the bulk panel pipeline. Verified byte-identical on Phase 2 single-event panels (`test_revision_preserves_single_event_behaviour_byte_identical` and the new `test_compute_panel_twap_multi_event_byte_identical_to_reconstruct`).
+
+**Rationale**: Bug fix, not a methodology change. Brings the bulk panel-TWAP path into alignment with the canonical per-row reconstructor. No change to computed index values on existing Phase 2 panels; correct behaviour now extends to Phase 3 multi-event scenario panels feeding Phase 7.
+
+**Impact**: Phase 7 aggregation can run end-to-end against scenario 1 (fat_finger) and scenario 9 (intraday_spike) panels without silent overwrite of the second event. No methodology section change.
+
+**Methodology section**: 4.2.1 (TWAP daily fix — implementation correctness).
+
