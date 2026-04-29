@@ -772,3 +772,29 @@ where c iterates over the constituent's contributors with strictly-positive volu
 
 **Methodology section**: 3.3.4 (derived indices)
 
+## 2026-04-30 — Phase 7 Batch C empirical: cross-tier magnitude cascade manifests within single-seed backtest
+
+**Observation**: On the clean Phase 2 panel with seed 42 over a 366-day backtest (2025-01-01 to 2026-01-01), the Tier weight share distribution transitions from 100% Tier A at first valid fix to 99.9-100% Tier B at base_date across all 8 indices (TPRR_F/S/E/FPR/SER/B_F/B_S/B_E). The transition occurs through 68 pair-level suspensions cascading Tier A constituents below the min-3 threshold into Tier B fall-through, with zero tier-level suspensions firing.
+
+**Significance**: This empirically confirms the cross-tier magnitude finding projected in DL 2026-04-29 (priority fall-through entry, ~66,000:1 Tier B:A ratio). Under realistic operational conditions (gate firings, sustained suspensions), the literal-canon application of Section 3.3.2 produces an index dominated by Tier B (revenue-derived) volumes, not Tier A (panel-sum) volumes, despite Tier A being the highest-confidence source by methodology design.
+
+**Cascade mechanics**:
+- Pair-level: 68 (contributor, constituent) pairs hit the 3-consecutive-day suspension trigger over 365 days. Average ~73% of covered pairs experience suspension over the backtest.
+- Constituent-level: pair suspensions reduce active-pair counts below the min-3 Tier A threshold, forcing constituents into Tier B fall-through.
+- Tier-level: no tier suspended (insufficient_constituents); Tier B fall-through maintained ≥3 active constituents per tier throughout.
+
+**Phase 10 obligations**:
+- Multi-seed runs: characterize whether the 68 pair-suspension count and 365-day timeline are seed-42 specific or robust across seeds
+- 3-day suspension rule sensitivity: compare 3-consecutive-day rule against 5-day and 7-day variants; quantify how much aggregation behavior depends on this threshold
+- Gate threshold sensitivity: 15% canonical vs 20% / 25% variants; characterize how much aggregation behavior depends on the gate threshold
+- Cross-tier magnitude: report Tier weight share over time as a primary finding, not just spot-check at first fix and base date
+
+**Phase 11 writeup material**: This is the central methodology finding of the v0.1 validation. Three options for narrative framing:
+1. "Methodology working as designed under stress conditions" — the cascade is the three-tier hierarchy doing its job
+2. "v0.1 mock panel produces unrealistic gate-firing patterns" — Phase 2 generator calibration is too noisy, real production data would behave differently
+3. "Section 3.3.2 has a structural property that needs v1.3 specification" — the cross-tier magnitude gap is a load-bearing methodology gap requiring formal resolution
+
+The right framing depends on Phase 10 multi-seed and threshold sensitivity results. Phase 11 should present the empirical observation, the three readings, and the v1.3 specification gap as a unified narrative.
+
+**Methodology section**: 3.3.2 (three-tier hierarchy), 4.2.2 (gate parameters), 4.2.4 (min_constituents_per_tier)
+

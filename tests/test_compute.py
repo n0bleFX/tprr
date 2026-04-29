@@ -1,0 +1,781 @@
+"""Tests for tprr.index.compute — Phase 7 end-to-end pipeline + suspension cascade."""
+
+from __future__ import annotations
+
+from datetime import date, timedelta
+from typing import Any
+
+import pandas as pd
+import pytest
+
+from tprr.config import (
+    IndexConfig,
+    ModelMetadata,
+    ModelRegistry,
+    TierBRevenueConfig,
+    TierBRevenueEntry,
+)
+from tprr.index.aggregation import SuspensionReason
+from tprr.index.compute import _drop_fully_excluded_rows, run_full_pipeline
+from tprr.index.weights import TierBVolumeFn
+from tprr.schema import AttestationTier, Tier
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+def _registry_three_tiers() -> ModelRegistry:
+    """3 F + 3 S + 3 E constituents, distinct providers."""
+    return ModelRegistry(
+        models=[
+            ModelMetadata(
+                constituent_id=cid,
+                tier=tier,
+                provider=cid.split("/")[0],
+                canonical_name=cid,
+                baseline_input_price_usd_mtok=baseline_in,
+                baseline_output_price_usd_mtok=baseline_out,
+            )
+            for cid, tier, baseline_in, baseline_out in [
+                ("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0),
+                ("anthropic/claude-opus-4-7", Tier.TPRR_F, 14.0, 70.0),
+                ("google/gemini-3-pro", Tier.TPRR_F, 5.0, 30.0),
+                ("openai/gpt-5-mini", Tier.TPRR_S, 0.5, 4.0),
+                ("anthropic/claude-haiku-4-5", Tier.TPRR_S, 1.0, 5.0),
+                ("google/gemini-2-flash", Tier.TPRR_S, 0.3, 2.5),
+                ("google/gemini-flash-lite", Tier.TPRR_E, 0.1, 0.4),
+                ("openai/gpt-5-nano", Tier.TPRR_E, 0.15, 0.6),
+                ("deepseek/deepseek-v3-2", Tier.TPRR_E, 0.25, 1.0),
+            ]
+        ]
+    )
+
+
+def _empty_tier_b_config() -> TierBRevenueConfig:
+    return TierBRevenueConfig(entries=[])
+
+
+def _tier_b_config_one_provider(provider: str = "openai") -> TierBRevenueConfig:
+    return TierBRevenueConfig(
+        entries=[
+            TierBRevenueEntry(
+                provider=provider,
+                period="2025-Q1",
+                amount_usd=1_000_000_000.0,
+                source="test",
+            ),
+        ]
+    )
+
+
+def _stub_tier_b_volume_fn(value: float = 0.0) -> TierBVolumeFn:
+    def _fn(_provider: str, _constituent_id: str, _as_of_date: date) -> float:
+        return value
+
+    return _fn
+
+
+def _empty_change_events() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "event_date",
+            "contributor_id",
+            "constituent_id",
+            "change_slot_idx",
+            "old_input_price_usd_mtok",
+            "new_input_price_usd_mtok",
+            "old_output_price_usd_mtok",
+            "new_output_price_usd_mtok",
+            "reason",
+        ]
+    )
+
+
+def _row(
+    *,
+    cid: str,
+    contrib: str,
+    d: date,
+    twap_out: float,
+    twap_in: float,
+    volume: float,
+    tier: Tier,
+    attestation: AttestationTier = AttestationTier.A,
+) -> dict[str, Any]:
+    ts = pd.Timestamp(d)
+    return {
+        "observation_date": ts,
+        "constituent_id": cid,
+        "contributor_id": contrib,
+        "tier_code": tier.value,
+        "attestation_tier": attestation.value,
+        "input_price_usd_mtok": float(twap_in),
+        "output_price_usd_mtok": float(twap_out),
+        "volume_mtok_7d": float(volume),
+        "twap_output_usd_mtok": float(twap_out),
+        "twap_input_usd_mtok": float(twap_in),
+        "source": "test",
+        "submitted_at": ts,
+        "notes": "",
+    }
+
+
+def _multi_day_clean_panel(
+    n_days: int = 10,
+    *,
+    start: date = date(2025, 1, 1),
+) -> pd.DataFrame:
+    """3 F + 3 S + 3 E constituents x 3 contributors x n_days, all Tier A."""
+    rows: list[dict[str, Any]] = []
+    f_set = [
+        ("openai/gpt-5-pro", 75.0, 15.0),
+        ("anthropic/claude-opus-4-7", 70.0, 14.0),
+        ("google/gemini-3-pro", 30.0, 5.0),
+    ]
+    s_set = [
+        ("openai/gpt-5-mini", 4.0, 0.5),
+        ("anthropic/claude-haiku-4-5", 5.0, 1.0),
+        ("google/gemini-2-flash", 2.5, 0.3),
+    ]
+    e_set = [
+        ("google/gemini-flash-lite", 0.4, 0.1),
+        ("openai/gpt-5-nano", 0.6, 0.15),
+        ("deepseek/deepseek-v3-2", 1.0, 0.25),
+    ]
+    for offset in range(n_days):
+        d = start + timedelta(days=offset)
+        for tier_set, tier in [(f_set, Tier.TPRR_F), (s_set, Tier.TPRR_S), (e_set, Tier.TPRR_E)]:
+            for cid, p_out, p_in in tier_set:
+                for contrib in ["c1", "c2", "c3"]:
+                    rows.append(
+                        _row(
+                            cid=cid,
+                            contrib=contrib,
+                            d=d,
+                            twap_out=p_out,
+                            twap_in=p_in,
+                            volume=100.0,
+                            tier=tier,
+                        )
+                    )
+    return pd.DataFrame(rows)
+
+
+def _config(base_date: date = date(2025, 1, 1)) -> IndexConfig:
+    return IndexConfig(base_date=base_date)
+
+
+# ---------------------------------------------------------------------------
+# Clean-panel pipeline (no gate firings, no suspensions)
+# ---------------------------------------------------------------------------
+
+
+def test_run_full_pipeline_clean_panel_no_suspensions() -> None:
+    """On a constant-price panel with no events, the gate cannot fire (no
+    deviations) and no pairs suspend. All 8 indices compute end-to-end."""
+    panel = _multi_day_clean_panel(n_days=10)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    assert result.excluded_slots.empty
+    assert result.suspended_pairs.empty
+    expected_codes = {
+        "TPRR_F", "TPRR_S", "TPRR_E",
+        "TPRR_FPR", "TPRR_SER",
+        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+    }
+    assert set(result.indices.keys()) == expected_codes
+    for df in result.indices.values():
+        assert len(df) == 10
+        assert (~df["suspended"]).all()
+        anchor_row = df[df["as_of_date"] == pd.Timestamp(date(2025, 1, 1))]
+        assert float(anchor_row["index_level"].iloc[0]) == pytest.approx(100.0)
+
+
+# ---------------------------------------------------------------------------
+# Per-pair granularity
+# ---------------------------------------------------------------------------
+
+
+def test_pair_suspension_granular_only_targeted_pair_drops() -> None:
+    """A (contributor, constituent) suspension drops only that exact pair —
+    same contributor on a different constituent stays active."""
+    from tprr.index.aggregation import compute_tier_index
+
+    d = date(2025, 1, 1)
+    panel = _multi_day_clean_panel(n_days=1, start=d)
+
+    # Suspend contrib c1 on openai/gpt-5-pro only
+    susp = pd.DataFrame(
+        {
+            "contributor_id": ["c1"],
+            "constituent_id": ["openai/gpt-5-pro"],
+            "suspension_date": [pd.Timestamp(d)],
+        }
+    )
+    result = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp,
+    )
+    # gpt-5-pro retains 2 contributors → still ≥ 3? No, 2 < 3, falls through.
+    # But Tier B is empty here → constituent excluded via TIER_DATA_UNAVAILABLE
+    # at the constituent level. The other two F constituents (3 contributors
+    # each) still resolve Tier A.
+    # 2 active F constituents → tier suspends with INSUFFICIENT_CONSTITUENTS.
+    assert result["suspended"]
+    assert (
+        result["suspension_reason"]
+        == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
+    )
+    # gpt-5-pro is NOT counted as active; the other 2 F constituents are.
+    assert result["n_constituents_active"] == 2
+
+    # Same suspension on a non-F-tier panel slice should not affect TPRR_S.
+    s_result = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_S,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp,
+    )
+    assert not s_result["suspended"]
+    assert s_result["n_constituents_a"] == 3  # all 3 S constituents intact
+
+
+# ---------------------------------------------------------------------------
+# Cascade through priority fall-through (Tier A → Tier B)
+# ---------------------------------------------------------------------------
+
+
+def test_pair_suspension_falls_through_to_tier_b() -> None:
+    """Pair suspension drops Tier A active count below 3 → constituent falls
+    through to Tier B (when available) per the priority hierarchy."""
+    from tprr.index.aggregation import compute_tier_index
+
+    d = date(2025, 1, 1)
+    rows: list[dict[str, Any]] = []
+    # gpt-5-pro: only 2 active contributors after suspension → falls through to B
+    for c in ["c1", "c2", "c3"]:
+        rows.append(
+            _row(
+                cid="openai/gpt-5-pro",
+                contrib=c,
+                d=d,
+                twap_out=80.0,
+                twap_in=15.0,
+                volume=100.0,
+                tier=Tier.TPRR_F,
+            )
+        )
+    # Tier B panel row for gpt-5-pro (derive_tier_b_volumes upstream emits these).
+    rows.append(
+        _row(
+            cid="openai/gpt-5-pro",
+            contrib="tier_b_derived:openai",
+            d=d,
+            twap_out=80.0,
+            twap_in=15.0,
+            volume=10_000_000.0,
+            tier=Tier.TPRR_F,
+            attestation=AttestationTier.B,
+        )
+    )
+    # Two more F-tier constituents with full Tier A coverage.
+    for cid, p_out in [("anthropic/claude-opus-4-7", 70.0), ("google/gemini-3-pro", 30.0)]:
+        for c in ["c1", "c2", "c3"]:
+            rows.append(
+                _row(
+                    cid=cid,
+                    contrib=c,
+                    d=d,
+                    twap_out=p_out,
+                    twap_in=p_out / 5.0,
+                    volume=100.0,
+                    tier=Tier.TPRR_F,
+                )
+            )
+    panel = pd.DataFrame(rows)
+
+    # Suspend c1 + c2 on gpt-5-pro → only c3 active → fewer than 3 Tier A
+    # contributors → fall through to Tier B.
+    susp = pd.DataFrame(
+        {
+            "contributor_id": ["c1", "c2"],
+            "constituent_id": ["openai/gpt-5-pro"] * 2,
+            "suspension_date": [pd.Timestamp(d)] * 2,
+        }
+    )
+    result = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_tier_b_config_one_provider("openai"),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(value=10_000_000.0),
+        suspended_pairs_df=susp,
+    )
+    assert not result["suspended"]
+    assert result["n_constituents_a"] == 2  # opus + gemini
+    assert result["n_constituents_b"] == 1  # gpt-5-pro fell through
+    assert result["tier_b_weight_share"] > 0
+
+
+# ---------------------------------------------------------------------------
+# Tier suspension when active-constituent count drops below 3
+# ---------------------------------------------------------------------------
+
+
+def test_tier_suspends_with_insufficient_constituents() -> None:
+    """When N-2 of N=3 F-tier constituents lose all their pairs, the tier
+    drops below the min-3 threshold and suspends."""
+    from tprr.index.aggregation import compute_tier_index
+
+    d = date(2025, 1, 1)
+    panel = _multi_day_clean_panel(n_days=1, start=d)
+    # Suspend ALL contributors for two of the three F constituents.
+    susp_rows = []
+    for cid in ["openai/gpt-5-pro", "anthropic/claude-opus-4-7"]:
+        for c in ["c1", "c2", "c3"]:
+            susp_rows.append(
+                {
+                    "contributor_id": c,
+                    "constituent_id": cid,
+                    "suspension_date": pd.Timestamp(d),
+                }
+            )
+    susp = pd.DataFrame(susp_rows)
+
+    result = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp,
+    )
+    assert result["suspended"]
+    assert (
+        result["suspension_reason"]
+        == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
+    )
+    # Only gemini-3-pro left in F.
+    assert result["n_constituents_active"] == 1
+
+
+def test_prior_raw_value_carried_forward_across_tier_suspension_days() -> None:
+    """Day 1 valid; day 2 suspended (pair suspensions force tier below min-3).
+    Day 2's IndexValue carries day 1's raw_value forward."""
+    from tprr.index.aggregation import run_tier_pipeline
+
+    panel = _multi_day_clean_panel(n_days=2, start=date(2025, 1, 1))
+    # Suspend ALL contributors for two F constituents starting day 2.
+    susp_rows = []
+    for cid in ["openai/gpt-5-pro", "anthropic/claude-opus-4-7"]:
+        for c in ["c1", "c2", "c3"]:
+            susp_rows.append(
+                {
+                    "contributor_id": c,
+                    "constituent_id": cid,
+                    "suspension_date": pd.Timestamp(date(2025, 1, 2)),
+                }
+            )
+    susp = pd.DataFrame(susp_rows)
+
+    out = run_tier_pipeline(
+        panel_df=panel,
+        tier=Tier.TPRR_F,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp,
+    )
+    assert len(out) == 2
+    day_1 = out.iloc[0]
+    day_2 = out.iloc[1]
+    assert not bool(day_1["suspended"])
+    assert bool(day_2["suspended"])
+    # Carries day 1's raw value forward.
+    assert float(day_2["raw_value_usd_mtok"]) == pytest.approx(
+        float(day_1["raw_value_usd_mtok"])
+    )
+
+
+# ---------------------------------------------------------------------------
+# tier_data_unavailable scenario
+# ---------------------------------------------------------------------------
+
+
+def test_tier_data_unavailable_when_no_path_resolves_for_any_constituent() -> None:
+    """A panel where every F constituent has <3 Tier A contributors AND no
+    Tier B revenue config AND no Tier C rankings → no constituent resolves
+    a tier path → tier suspends with TIER_DATA_UNAVAILABLE."""
+    from tprr.index.aggregation import compute_tier_index
+
+    d = date(2025, 1, 1)
+    rows: list[dict[str, Any]] = []
+    for cid, p_out in [
+        ("openai/gpt-5-pro", 75.0),
+        ("anthropic/claude-opus-4-7", 70.0),
+        ("google/gemini-3-pro", 30.0),
+    ]:
+        for c in ["c1", "c2"]:  # only 2 contributors → below min
+            rows.append(
+                _row(
+                    cid=cid,
+                    contrib=c,
+                    d=d,
+                    twap_out=p_out,
+                    twap_in=p_out / 5.0,
+                    volume=100.0,
+                    tier=Tier.TPRR_F,
+                )
+            )
+    panel = pd.DataFrame(rows)
+    result = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    assert result["suspended"]
+    assert (
+        result["suspension_reason"]
+        == SuspensionReason.TIER_DATA_UNAVAILABLE.value
+    )
+
+
+# ---------------------------------------------------------------------------
+# _drop_fully_excluded_rows helper
+# ---------------------------------------------------------------------------
+
+
+def test_drop_fully_excluded_rows_removes_all_32_keys_only() -> None:
+    """Keys with 32 fired slots are dropped from both panel and exclusions;
+    keys with fewer firings stay intact."""
+    panel = pd.DataFrame(
+        [
+            _row(cid="x/y", contrib="c1", d=date(2025, 1, 1),
+                 twap_out=10.0, twap_in=2.0, volume=1.0, tier=Tier.TPRR_F),
+            _row(cid="x/y", contrib="c2", d=date(2025, 1, 1),
+                 twap_out=10.0, twap_in=2.0, volume=1.0, tier=Tier.TPRR_F),
+        ]
+    )
+    excluded = pd.DataFrame(
+        {
+            "contributor_id": ["c1"] * 32 + ["c2"] * 16,
+            "constituent_id": ["x/y"] * 48,
+            "date": [pd.Timestamp(date(2025, 1, 1))] * 48,
+            "slot_idx": list(range(32)) + list(range(16)),
+        }
+    )
+    panel_out, excl_out = _drop_fully_excluded_rows(panel, excluded)
+    # c1 (all 32) dropped. c2 (16 only) kept.
+    assert (panel_out["contributor_id"] == "c2").all()
+    assert len(panel_out) == 1
+    # Exclusions for c1 dropped. Exclusions for c2 kept.
+    assert (excl_out["contributor_id"] == "c2").all()
+    assert len(excl_out) == 16
+
+
+def test_drop_fully_excluded_rows_empty_exclusions_returns_inputs_unchanged() -> None:
+    panel = _multi_day_clean_panel(n_days=1)
+    panel_out, excl_out = _drop_fully_excluded_rows(panel, pd.DataFrame())
+    assert panel_out is panel
+    assert excl_out.empty
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: full-day exclusions percolate to suspension counter
+# ---------------------------------------------------------------------------
+
+
+def test_full_day_exclusions_drive_suspension_after_3_consecutive_days() -> None:
+    """Three consecutive days of full-day gate firings on one (contributor,
+    constituent) → compute_consecutive_day_suspensions emits a suspension
+    on day 3 → that pair is dropped from the active set on day 3+ aggregation."""
+    # Build a panel where one contributor's price diverges sharply from the
+    # 5-day trailing average for 3 consecutive days starting on day 6.
+    rows: list[dict[str, Any]] = []
+    n_warmup = 5
+    n_fire_days = 3
+    n_days_total = n_warmup + n_fire_days
+    f_set = [
+        ("openai/gpt-5-pro", 75.0, 15.0),
+        ("anthropic/claude-opus-4-7", 70.0, 14.0),
+        ("google/gemini-3-pro", 30.0, 5.0),
+    ]
+    for offset in range(n_days_total):
+        d = date(2025, 1, 1) + timedelta(days=offset)
+        for cid, p_out, p_in in f_set:
+            for contrib in ["c1", "c2", "c3"]:
+                # Inject c1 x gpt-5-pro at 200% of normal on the fire days.
+                if (
+                    offset >= n_warmup
+                    and contrib == "c1"
+                    and cid == "openai/gpt-5-pro"
+                ):
+                    p_o, p_i = p_out * 2.0, p_in * 2.0
+                else:
+                    p_o, p_i = p_out, p_in
+                rows.append(
+                    _row(
+                        cid=cid,
+                        contrib=contrib,
+                        d=d,
+                        twap_out=p_o,
+                        twap_in=p_i,
+                        volume=100.0,
+                        tier=Tier.TPRR_F,
+                    )
+                )
+    panel = pd.DataFrame(rows)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    # Day 8 (the third consecutive-fire day) should trigger suspension on the
+    # (c1, openai/gpt-5-pro) pair.
+    assert not result.suspended_pairs.empty
+    assert (
+        ("c1", "openai/gpt-5-pro")
+        in zip(
+            result.suspended_pairs["contributor_id"],
+            result.suspended_pairs["constituent_id"],
+            strict=True,
+        )
+    )
+
+
+def test_run_full_pipeline_propagates_suspensions_into_aggregation() -> None:
+    """Same scenario as above; verify the F index after day 8 reflects c1's
+    suspension by either continuing with 2 c-on-gpt-5-pro contributors (still
+    ≥ Tier A min if min were 2 — but it's 3, so falls through to Tier
+    A failing → Tier B unavailable → constituent excluded)."""
+    rows: list[dict[str, Any]] = []
+    f_set = [
+        ("openai/gpt-5-pro", 75.0, 15.0),
+        ("anthropic/claude-opus-4-7", 70.0, 14.0),
+        ("google/gemini-3-pro", 30.0, 5.0),
+    ]
+    n_warmup = 5
+    n_fire_days = 3
+    for offset in range(n_warmup + n_fire_days + 1):
+        d = date(2025, 1, 1) + timedelta(days=offset)
+        for cid, p_out, p_in in f_set:
+            for contrib in ["c1", "c2", "c3"]:
+                if (
+                    offset >= n_warmup
+                    and offset < n_warmup + n_fire_days
+                    and contrib == "c1"
+                    and cid == "openai/gpt-5-pro"
+                ):
+                    p_o, p_i = p_out * 2.0, p_in * 2.0
+                else:
+                    p_o, p_i = p_out, p_in
+                rows.append(
+                    _row(
+                        cid=cid,
+                        contrib=contrib,
+                        d=d,
+                        twap_out=p_o,
+                        twap_in=p_i,
+                        volume=100.0,
+                        tier=Tier.TPRR_F,
+                    )
+                )
+    panel = pd.DataFrame(rows)
+
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    f_df = result.indices["TPRR_F"]
+    # Day after suspension lands: gpt-5-pro now has 2 active contributors
+    # → falls below Tier A min-3 → no Tier B → constituent excluded.
+    # Tier still has 2 active constituents (opus, gemini) — below min-3 →
+    # tier suspends with INSUFFICIENT_CONSTITUENTS.
+    last_day = f_df.iloc[-1]
+    assert bool(last_day["suspended"])
+    assert (
+        last_day["suspension_reason"]
+        == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
+    )
+
+
+# ---------------------------------------------------------------------------
+# Empty inputs
+# ---------------------------------------------------------------------------
+
+
+def test_e_tier_constituents_without_tier_b_revenue_excluded_on_suspension() -> None:
+    """E-tier constituents whose providers lack Tier B revenue config
+    (xiaomi/mimo-v2-pro and meta/llama-4-70b-hosted per DL 2026-04-28
+    "Tier B revenue config: 6 providers, Meta and Xiaomi excluded as
+    Tier-A-only") have no fall-through path when their Tier A pairs
+    suspend. Other 4 E constituents continue to participate via Tier A
+    or Tier B as the priority hierarchy dictates. Tier itself stays
+    active because 4 ≥ min_constituents_per_tier (3).
+    """
+    from tprr.index.aggregation import compute_tier_index
+
+    d = date(2025, 1, 1)
+
+    # Registry: full 6-constituent E tier per the v0.1 model_registry
+    e_registry = ModelRegistry(
+        models=[
+            ModelMetadata(
+                constituent_id=cid,
+                tier=Tier.TPRR_E,
+                provider=cid.split("/")[0],
+                canonical_name=cid,
+                baseline_input_price_usd_mtok=p_in,
+                baseline_output_price_usd_mtok=p_out,
+            )
+            for cid, p_in, p_out in [
+                ("google/gemini-flash-lite", 0.10, 0.40),
+                ("openai/gpt-5-nano", 0.15, 0.60),
+                ("deepseek/deepseek-v3-2", 0.25, 1.00),
+                ("alibaba/qwen-3-6-plus", 0.20, 0.80),
+                ("xiaomi/mimo-v2-pro", 0.30, 1.10),
+                ("meta/llama-4-70b-hosted", 0.60, 0.80),
+            ]
+        ]
+    )
+
+    # Tier B revenue: 4 providers (DL 2026-04-28 — meta and xiaomi excluded).
+    tier_b_config = TierBRevenueConfig(
+        entries=[
+            TierBRevenueEntry(
+                provider=p,
+                period="2025-Q1",
+                amount_usd=1_000_000_000.0,
+                source="test",
+            )
+            for p in ("google", "openai", "deepseek", "alibaba")
+        ]
+    )
+
+    # Panel: each of 6 E constituents with 3 Tier A contributors.
+    rows: list[dict[str, Any]] = []
+    for cid, p_out, p_in in [
+        ("google/gemini-flash-lite", 0.40, 0.10),
+        ("openai/gpt-5-nano", 0.60, 0.15),
+        ("deepseek/deepseek-v3-2", 1.00, 0.25),
+        ("alibaba/qwen-3-6-plus", 0.80, 0.20),
+        ("xiaomi/mimo-v2-pro", 1.10, 0.30),
+        ("meta/llama-4-70b-hosted", 0.80, 0.60),
+    ]:
+        for c in ["c1", "c2", "c3"]:
+            rows.append(
+                _row(
+                    cid=cid,
+                    contrib=c,
+                    d=d,
+                    twap_out=p_out,
+                    twap_in=p_in,
+                    volume=100.0,
+                    tier=Tier.TPRR_E,
+                )
+            )
+    panel = pd.DataFrame(rows)
+
+    # Suspend ALL Tier A pairs for mimo and llama.
+    susp_rows = []
+    for cid in ("xiaomi/mimo-v2-pro", "meta/llama-4-70b-hosted"):
+        for c in ("c1", "c2", "c3"):
+            susp_rows.append(
+                {
+                    "contributor_id": c,
+                    "constituent_id": cid,
+                    "suspension_date": pd.Timestamp(d),
+                }
+            )
+    susp = pd.DataFrame(susp_rows)
+
+    result = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_E,
+        config=_config(date(2025, 1, 1)),
+        registry=e_registry,
+        tier_b_config=tier_b_config,
+        tier_b_volume_fn=_stub_tier_b_volume_fn(value=10_000_000.0),
+        suspended_pairs_df=susp,
+    )
+
+    # Tier remains active (4 surviving constituents ≥ min-3).
+    assert not result["suspended"]
+    assert result["suspension_reason"] == ""
+
+    # mimo and llama excluded; other 4 active.
+    assert result["n_constituents_active"] == 4
+    # All 4 surviving constituents have intact Tier A — they route via Tier A,
+    # not Tier B (Tier B is the fallback only when Tier A min-3 fails).
+    assert result["n_constituents_a"] == 4
+    assert result["n_constituents_b"] == 0
+    assert result["n_constituents_c"] == 0
+    # n_constituents counts unique constituent_ids surviving the suspended-
+    # pair drop. mimo and llama lost all their pairs → 0 panel rows for them
+    # post-drop → not counted. The 4 surviving constituents remain.
+    assert result["n_constituents"] == 4
+
+
+def test_run_full_pipeline_empty_panel() -> None:
+    """An empty panel should produce empty IndexValueDFs across the board,
+    no exclusions, no suspended pairs."""
+    result = run_full_pipeline(
+        panel_df=pd.DataFrame(
+            columns=[
+                "observation_date",
+                "constituent_id",
+                "contributor_id",
+                "tier_code",
+                "attestation_tier",
+                "input_price_usd_mtok",
+                "output_price_usd_mtok",
+                "volume_mtok_7d",
+                "twap_output_usd_mtok",
+                "twap_input_usd_mtok",
+                "source",
+                "submitted_at",
+                "notes",
+            ]
+        ),
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    assert result.excluded_slots.empty
+    assert result.suspended_pairs.empty
+    for code in (
+        "TPRR_F", "TPRR_S", "TPRR_E",
+        "TPRR_FPR", "TPRR_SER",
+        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+    ):
+        assert result.indices[code].empty

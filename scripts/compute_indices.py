@@ -29,7 +29,6 @@ from __future__ import annotations
 import argparse
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 import pandas as pd
 
@@ -39,8 +38,7 @@ from tprr.config import (
     load_model_registry,
     load_tier_b_revenue,
 )
-from tprr.index.aggregation import compute_tier_index, rebase_index_level
-from tprr.index.derived import compute_fpr, compute_ser, compute_tprr_b_indices
+from tprr.index.compute import run_full_pipeline
 from tprr.index.tier_b import derive_tier_b_volumes
 from tprr.index.weights import TierBVolumeFn
 from tprr.reference.openrouter import (
@@ -49,8 +47,6 @@ from tprr.reference.openrouter import (
     fetch_rankings,
     normalise_models_to_panel,
 )
-from tprr.schema import Tier
-from tprr.twap.reconstruct import compute_panel_twap
 
 
 def parse_args() -> argparse.Namespace:
@@ -141,6 +137,11 @@ def _tier_b_volume_fn_factory(
     return _fn
 
 
+def ordering_label(config: object) -> str:
+    """Render the configured ordering for the report header."""
+    return getattr(config, "default_ordering", "twap_then_weight")
+
+
 def compose_panel_for_date(
     *,
     tier_a_panel: pd.DataFrame,
@@ -217,83 +218,47 @@ def main() -> int:
     tier_b_volume_fn = _tier_b_volume_fn_factory(tier_b_by_date)
 
     print(
-        f"\nRunning core indices (TPRR_F/S/E) + derived (FPR/SER) from "
-        f"{start} to {end} (TWAP-then-weight)",
+        f"\nComposing multi-tier panel for {start} -> {end}", flush=True,
+    )
+    composed_per_date: list[pd.DataFrame] = []
+    for ts in days:
+        composed_per_date.append(
+            compose_panel_for_date(
+                tier_a_panel=tier_a_panel,
+                tier_c_panel=tier_c_panel,
+                tier_b_panel=tier_b_by_date[ts],
+                as_of_date=ts.date(),
+            )
+        )
+    full_panel = pd.concat(composed_per_date, ignore_index=True)
+    print(
+        f"  composed panel: {len(full_panel):,} rows across "
+        f"{len(days)} days x 3 attestation tiers",
+        flush=True,
+    )
+
+    print(
+        f"\nRunning end-to-end pipeline: gate -> suspensions -> TWAP -> "
+        f"aggregation -> derived -> B series ({ordering_label(config)})",
         flush=True,
     )
     print("=" * 90, flush=True)
-    prior_raw_value: dict[str, float | None] = {
-        "TPRR_F": None,
-        "TPRR_S": None,
-        "TPRR_E": None,
-    }
-    rows_per_index: dict[str, list[dict[str, Any]]] = {
-        "TPRR_F": [],
-        "TPRR_S": [],
-        "TPRR_E": [],
-    }
-    for ts in days:
-        d = ts.date()
-        composed = compose_panel_for_date(
-            tier_a_panel=tier_a_panel,
-            tier_c_panel=tier_c_panel,
-            tier_b_panel=tier_b_by_date[ts],
-            as_of_date=d,
-        )
-        composed_with_twap = compute_panel_twap(composed, change_events)
-        for tier in (Tier.TPRR_F, Tier.TPRR_S, Tier.TPRR_E):
-            result = compute_tier_index(
-                panel_day_df=composed_with_twap,
-                tier=tier,
-                config=config,
-                registry=registry,
-                tier_b_config=tier_b_config,
-                tier_b_volume_fn=tier_b_volume_fn,
-                prior_raw_value=prior_raw_value[tier.value],
-            )
-            if not result["suspended"]:
-                prior_raw_value[tier.value] = float(result["raw_value_usd_mtok"])
-            rows_per_index[tier.value].append(result)
 
-    rebased: dict[str, pd.DataFrame] = {}
-    anchors: dict[str, date | None] = {}
-    for code, rows in rows_per_index.items():
-        df = pd.DataFrame(rows)
-        df["as_of_date"] = pd.to_datetime(df["as_of_date"]).astype("datetime64[ns]")
-        df_rebased, anchor = rebase_index_level(df, base_date=config.base_date)
-        rebased[code] = df_rebased
-        anchors[code] = anchor
-
-    fpr_df, anchors["TPRR_FPR"] = compute_fpr(rebased["TPRR_F"], rebased["TPRR_S"], config)
-    ser_df, anchors["TPRR_SER"] = compute_ser(rebased["TPRR_S"], rebased["TPRR_E"], config)
-    rebased["TPRR_FPR"] = fpr_df
-    rebased["TPRR_SER"] = ser_df
-
-    # Blended TPRR_B series. The driver re-walks the date range with the
-    # blended price column; reusing rows_per_index is not possible since
-    # the per-row TWAPs are output-only. We recompose per-date and feed
-    # the multi-tier panel into compute_tprr_b_indices.
-    composed_panels: list[pd.DataFrame] = []
-    for ts in days:
-        d = ts.date()
-        composed = compose_panel_for_date(
-            tier_a_panel=tier_a_panel,
-            tier_c_panel=tier_c_panel,
-            tier_b_panel=tier_b_by_date[ts],
-            as_of_date=d,
-        )
-        composed_panels.append(compute_panel_twap(composed, change_events))
-    full_panel = pd.concat(composed_panels, ignore_index=True)
-    b_result = compute_tprr_b_indices(
+    pipeline = run_full_pipeline(
         panel_df=full_panel,
+        change_events_df=change_events,
         config=config,
         registry=registry,
         tier_b_config=tier_b_config,
         tier_b_volume_fn=tier_b_volume_fn,
     )
-    for b_code, b_df in b_result.indices.items():
-        rebased[b_code] = b_df
-        anchors[b_code] = b_result.rebase_anchors[b_code]
+    rebased = pipeline.indices
+    anchors = pipeline.rebase_anchors
+    print(
+        f"  quality gate: {len(pipeline.excluded_slots):,} slot exclusions  |  "
+        f"suspended pairs: {len(pipeline.suspended_pairs):,}",
+        flush=True,
+    )
 
     print("\nFirst valid fix per index:")
     print("-" * 90)
@@ -329,8 +294,24 @@ def main() -> int:
         print(
             f"  {code:10s}  {susp_str}  raw={float(r['raw_value_usd_mtok']):>12.4f}  "
             f"index_level={float(r['index_level']):>10.4f}  "
+            f"n=A{int(r['n_constituents_a'])}/B{int(r['n_constituents_b'])}/C{int(r['n_constituents_c'])}  "
+            f"w=A{float(r['tier_a_weight_share']):.3f}/B{float(r['tier_b_weight_share']):.3f}/C{float(r['tier_c_weight_share']):.3f}  "
             f"reason={r['suspension_reason'] or '-'}"
         )
+
+    # Suspension-day diagnostics
+    print("\nSuspension diagnostics:")
+    print("-" * 90)
+    for code, df in rebased.items():
+        if df.empty:
+            continue
+        n_susp = int(df["suspended"].sum())
+        if n_susp == 0:
+            print(f"  {code:10s}  no suspended days in range")
+            continue
+        reasons = df[df["suspended"]]["suspension_reason"].value_counts()
+        breakdown = ", ".join(f"{r}={c}" for r, c in reasons.items())
+        print(f"  {code:10s}  {n_susp} suspended days  ({breakdown})")
     return 0
 
 
