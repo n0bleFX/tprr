@@ -883,7 +883,7 @@ Implement src/tprr/index/derived.py per project_plan.md Phase 8.
 
 - compute_fpr(indices_df) — TPRR_F / TPRR_S per date (raw values, not rebased)
 - compute_ser(indices_df) — TPRR_S / TPRR_E per date (raw values)
-- compute_tprr_b(panel_df, change_events_df, tier_b_df, openrouter_df, config) — runs the full dual-weighted aggregation but using blended price (0.25 × twap_output + 0.75 × twap_input) in place of twap_output. Produces TPRR_B_F, TPRR_B_S, TPRR_B_E.
+- compute_tprr_b(panel_df, change_events_df, tier_b_df, openrouter_df, config) — runs the full dual-weighted aggregation but using blended price (twap_input × 0.25 + twap_output × 0.75) in place of twap_output. Produces TPRR_B_F, TPRR_B_S, TPRR_B_E.
   - Rebased to 100 at base_date (matches core index convention)
 
 Update scripts/compute_indices.py to compute derived indices after core.

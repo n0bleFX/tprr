@@ -444,7 +444,7 @@ Before coding: use prompt M.1 / 7.0 to confirm pipeline order and handle ambigui
   - `compute_fpr(indices_df)` — F / S
   - `compute_ser(indices_df)` — S / E
   - `compute_tprr_b(panel_df, change_events_df, config) -> indices_df`
-    - Blended price per constituent: `0.25 × P_out + 0.75 × P_in` (daily TWAPs)
+    - Blended price per constituent: `P_in × 0.25 + P_out × 0.75` (daily TWAPs)
     - Runs dual-weighted aggregation on blended
     - Produces `TPRR_B_F`, `TPRR_B_S`, `TPRR_B_E`
 - Update `scripts/compute_indices.py` to run derived after core

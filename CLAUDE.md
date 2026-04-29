@@ -31,7 +31,7 @@ Three derived series:
 
 - **TPRR-FPR** = F / S (Frontier Premium Ratio)
 - **TPRR-SER** = S / E (Standard Efficiency Ratio)
-- **TPRR-B** — blended analytics: `0.25 × P_out + 0.75 × P_in` (informational only, never for derivative settlement)
+- **TPRR-B** — blended analytics: `P_in × 0.25 + P_out × 0.75` (informational only, never for derivative settlement)
 
 ### Isn't
 
