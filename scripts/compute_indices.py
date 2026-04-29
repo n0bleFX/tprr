@@ -4,8 +4,9 @@ Batch A: TPRR_F only, TWAP-then-weight, clean panel.
 Batch B: all 3 core tiers (F/S/E) + derived (FPR, SER), rebased to 100
   on the configured base_date.
 Batch B': adds the blended TPRR_B series (B_F/B_S/B_E) using
-  P_blended_i = 0.25 x P_out + 0.75 x P_in per methodology Section
-  3.3.4. Same dual-weighted aggregation, same rebase convention.
+  P_blended_i = P_in x 0.25 + P_out x 0.75 per methodology Section
+  3.3.4 (output-heavy; decision log 2026-04-30 "Phase 7 Batch B'-fix").
+  Same dual-weighted aggregation, same rebase convention.
 
 Composes the multi-tier panel (Tier A from disk + Tier B derived per-date
 + Tier C from OpenRouter), runs Phase 2c TWAP reconstruction, then Phase

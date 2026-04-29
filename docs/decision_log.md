@@ -818,3 +818,49 @@ The right framing depends on Phase 10 multi-seed and threshold sensitivity resul
 
 **Methodology section**: 3.3.4 (derived indices). Section 3.3.4 doesn't specify tier weight share for ratios; this entry resolves the ambiguity.
 
+## 2026-04-30 — Phase 7 Batch E — weight-then-TWAP slot-level implementation choices for Phase 10 comparison
+
+**Decision**: The weight-then-TWAP alternate ordering implementation makes four slot-level operational choices that the canonical methodology doesn't specify (because canonical TWAP-then-weight doesn't require slot-level operations). These choices are implementation infrastructure for Phase 10 sensitivity analysis only and do not constitute a methodology change.
+
+**Choices**:
+
+1. Slot-level volume weights use daily volumes (volume_mtok_7d applied at every slot within a day). Volumes are daily by schema construction; the methodology's volume term is a confidence weight, not an intraday market-microstructure signal. Pro-rata slot synthesis is mathematically equivalent (constant scaling cancels in the weighted-average ratio).
+
+2. Tier selection uses daily metadata (volume + revenue config + contributor count over the day). Tier classification is an attestation-confidence assignment, not a per-observation signal. Slot-level tier flapping would not be a tier classification but noise.
+
+3. Slot-level suspension semantics: if fewer than 3 active constituents at slot t, that slot is excluded from the daily TWAP. If all 32 slots fail → daily index suspended with INSUFFICIENT_CONSTITUENTS. Slot-level relaxation of the min-3 threshold would make weight-then-TWAP a less rigorous version of TWAP-then-weight, defeating the comparison.
+
+4. Per-constituent slot-level price collapse uses volume-weighted average across slot-t-surviving contributors, with daily volumes. Symmetric extension of DL 2026-04-30 (contributor-to-constituent collapse). Different rules at slot vs daily granularity would introduce methodology asymmetry between the two orderings without principled basis.
+
+**Important property of weight-then-TWAP under these choices**: weight-then-TWAP can produce more suspended days than TWAP-then-weight on the same panel. TWAP-then-weight checks min-3 once per day after slot averaging; weight-then-TWAP checks min-3 32 times per day before slot averaging. A constituent with sparse intraday coverage (some slots have <3 contributors but daily TWAP across all 32 slots has ≥3) survives under TWAP-then-weight but may suspend under weight-then-TWAP. This is intentional and is exactly the kind of difference Phase 10 should surface.
+
+**Phase 10 obligation**: Run TWAP-then-weight vs weight-then-TWAP on identical panels (clean panel + 5 scenario panels) and report:
+- Index value differences at first-valid-fix and base_date
+- Suspension rate differences
+- Tier weight share trajectory differences
+- Whether the orderings agree on indicative scenario findings (e.g., does weight-then-TWAP also surface the cross-tier magnitude cascade?)
+
+If results are substantively different, the methodology should specify which ordering is canonical (currently TWAP-then-weight per DL 2026-04-23 with weight-then-TWAP queued for comparison).
+
+**Methodology section**: 3.3.1 (dual-weighted aggregation — implementation infrastructure)
+
+## 2026-04-30 — Phase 7 Batch B'-fix: correct TPRR_B blended formula to output-heavy per methodology Section 3.3.4
+
+**Decision**: TPRR_B blended price formula corrected from the inverted P_blended = 0.25 × P_out + 0.75 × P_in (input-heavy) to the canonical P_blended = P_in × 0.25 + P_out × 0.75 (output-heavy) per methodology Section 3.3.4. Affects src/tprr/index/derived.py (Batch B' code), src/tprr/index/aggregation.py (Batch E code), and associated tests.
+
+**Context**: The implementation error originated in the Phase 7 Batch B' prompt (committed at 68403d7) and was carried forward into the Batch E weight-then-TWAP slot reconstruction (uncommitted at fix time). Methodology Section 3.3.4 has been correct throughout; implementation drifted from spec at the prompt-drafting stage.
+
+**Empirical impact**:
+- Pre-fix B/X ratios at first-valid-fix: F=0.41, S=0.37, E=0.50
+- Post-fix B/X ratios at first-valid-fix: F~0.80, S~0.80, E~0.83
+- B_F first-valid-fix raw value pre-fix: $23.30/Mtok; post-fix: ~$45-46/Mtok
+- All 8 indices continue to rebase to 100.000 on 2026-01-01
+
+**Methodology rationale**: Output token pricing is where capability differentiation and provider price competition manifest most clearly in AI inference markets. Output prices are 4-5× higher than input prices for most providers, so a methodologically meaningful blended index that tracks "spend-weighted price dynamics" naturally weights output more heavily. Section 3.3.4's 0.75 output / 0.25 input weighting reflects this economic reality.
+
+**Process note**: The error was detected during user review of Batch E's _build_slot_arrays_for_pair blended-price reconstruction. The B'-Batch eyeball check at 68403d7 showed B/X ratios "clustering around 0.4" which matched the inverted formula's structural prediction (a model with input ~5× cheaper than output yields blended/output ratio of 0.4 under input-heavy weighting). The matching ratio gave false confidence in the implementation. Discipline lesson: empirical eyeball checks should validate against the methodology document directly, not against the implementation's own predictions.
+
+**Phase 11 writeup**: Worth mentioning in the Phase 11 process retrospective as an example of how prompt-stage errors can pass implementation review when they're internally self-consistent. The build's defense against this class of error is the methodology document itself; cross-referencing against the canonical doc at each batch is the corrective discipline.
+
+**Methodology section**: 3.3.4 (TPRR_B blended series — formula correction)
+

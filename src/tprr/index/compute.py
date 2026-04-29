@@ -176,6 +176,8 @@ def run_full_pipeline(
             ordering=ordering,
             version=version,
             decisions_out=decisions,
+            change_events_df=change_events_df,
+            excluded_slots_df=exclusions_filtered,
         )
         rebased, anchor = rebase_index_level(
             tier_indices, base_date=config.base_date
@@ -205,6 +207,8 @@ def run_full_pipeline(
         suspended_pairs_df=suspended_pairs,
         ordering=ordering,
         version=version,
+        change_events_df=change_events_df,
+        excluded_slots_df=exclusions_filtered,
     )
     for code, df in b_result.indices.items():
         indices[code] = df

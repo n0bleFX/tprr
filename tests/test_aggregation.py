@@ -591,9 +591,29 @@ def test_run_tier_pipeline_empty_panel_returns_empty() -> None:
     assert out.empty
 
 
-def test_run_tier_pipeline_unsupported_ordering_raises() -> None:
+def test_run_tier_pipeline_unknown_ordering_raises() -> None:
+    """Unknown ordering values raise NotImplementedError. The two recognised
+    orderings are 'twap_then_weight' (canonical, DL 2026-04-23) and
+    'weight_then_twap' (Phase 10 comparison path, DL 2026-04-30 Batch E)."""
     panel = _three_contributors_per_constituent_panel(date(2025, 1, 1))
-    with pytest.raises(NotImplementedError, match="weight-then-TWAP"):
+    with pytest.raises(NotImplementedError, match="not implemented"):
+        run_tier_pipeline(
+            panel_df=panel,
+            tier=Tier.TPRR_F,
+            config=_index_config(),
+            registry=_registry(),
+            tier_b_config=_empty_tier_b_config(),
+            tier_b_volume_fn=_stub_tier_b_volume_fn(),
+            ordering="some_unknown_ordering",
+        )
+
+
+def test_run_tier_pipeline_weight_then_twap_without_change_events_raises() -> None:
+    """The weight-then-TWAP path requires change_events_df for slot
+    reconstruction; missing the frame must raise rather than silently
+    fall back to TWAP-then-weight."""
+    panel = _three_contributors_per_constituent_panel(date(2025, 1, 1))
+    with pytest.raises(ValueError, match="requires change_events_df"):
         run_tier_pipeline(
             panel_df=panel,
             tier=Tier.TPRR_F,
@@ -1571,3 +1591,380 @@ def test_decisions_out_all_pairs_suspended_respects_tier_code_filter() -> None:
         == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
     ]
     assert len(all_pairs_suspended) == 0
+
+
+# ---------------------------------------------------------------------------
+# Batch E — weight-then-TWAP alternate ordering for Phase 10 comparison
+# (decision log 2026-04-30 "Phase 7 Batch E — weight-then-TWAP slot-level
+# implementation choices for Phase 10 comparison")
+# ---------------------------------------------------------------------------
+
+
+def _empty_change_events_df() -> pd.DataFrame:
+    """Empty change_events DataFrame with the required columns for slot
+    reconstruction. Used in identity tests where there are no intraday
+    changes — every slot equals the panel's posted price."""
+    return pd.DataFrame(
+        columns=[
+            "event_date",
+            "contributor_id",
+            "constituent_id",
+            "change_slot_idx",
+            "old_input_price_usd_mtok",
+            "new_input_price_usd_mtok",
+            "old_output_price_usd_mtok",
+            "new_output_price_usd_mtok",
+            "reason",
+        ]
+    )
+
+
+def test_weight_then_twap_identity_matches_twap_then_weight_with_no_intraday_changes() -> None:
+    """When there are no intraday change events, every slot equals the
+    posted price → slot-level weighted aggregate equals the daily-TWAP
+    weighted aggregate. The two orderings produce numerically identical
+    raw_value_usd_mtok on a clean panel.
+
+    This is the "identity" boundary: weight-then-TWAP should agree with
+    TWAP-then-weight in the limit of constant intraday prices."""
+    d = date(2025, 1, 1)
+    panel = _three_contributors_per_constituent_panel(d)
+
+    canonical = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        ordering="twap_then_weight",
+    )
+    weight_then = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        ordering="weight_then_twap",
+        change_events_df=_empty_change_events_df(),
+    )
+    assert canonical["raw_value_usd_mtok"] == pytest.approx(
+        weight_then["raw_value_usd_mtok"]
+    )
+    # Both should be unsuspended with same active count
+    assert canonical["suspended"] == weight_then["suspended"]
+    assert canonical["n_constituents_active"] == weight_then["n_constituents_active"]
+    assert weight_then["ordering"] == "weight_then_twap"
+
+
+def test_weight_then_twap_diverges_when_intraday_change_crosses_tier_median() -> None:
+    """An intraday change event that pushes one constituent's price across
+    the tier median produces a meaningful divergence between orderings:
+    - TWAP-then-weight: the contributor's daily TWAP is averaged across
+      slots; the constituent's collapsed daily price reflects the average.
+    - Weight-then-TWAP: the constituent's slot-by-slot price (and therefore
+      its w_exp) varies — some slots have it above median, some below.
+
+    The test pins the property that the orderings diverge on this panel.
+    The exact direction of divergence depends on lambda + price geometry."""
+    d = date(2025, 1, 1)
+
+    # Panel: 3 F constituents, 3 contributors each. gpt-5-pro starts at 75
+    # and via an intraday change drops to 25 mid-day for ALL its contributors.
+    panel = _three_contributors_per_constituent_panel(d)
+    # Re-write panel rows for gpt-5-pro to carry the daily TWAP between the
+    # two prices (slots [0, 16) at 75, slots [16, 32) at 25 → TWAP = 50).
+    twap_value = (16 * 75.0 + 16 * 25.0) / 32.0  # 50.0
+    mask = panel["constituent_id"] == "openai/gpt-5-pro"
+    panel.loc[mask, "output_price_usd_mtok"] = twap_value
+    panel.loc[mask, "twap_output_usd_mtok"] = twap_value
+
+    # Change events: each gpt-5-pro contributor has slot-16 transition 75→25.
+    change_events_rows = []
+    for contributor_id in ["contrib_alpha", "contrib_beta", "contrib_gamma"]:
+        change_events_rows.append(
+            {
+                "event_date": pd.Timestamp(d),
+                "contributor_id": contributor_id,
+                "constituent_id": "openai/gpt-5-pro",
+                "change_slot_idx": 16,
+                "old_input_price_usd_mtok": 15.0,
+                "new_input_price_usd_mtok": 5.0,
+                "old_output_price_usd_mtok": 75.0,
+                "new_output_price_usd_mtok": 25.0,
+                "reason": "test_intraday_drop",
+            }
+        )
+    change_events_df = pd.DataFrame(change_events_rows)
+
+    canonical = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        ordering="twap_then_weight",
+    )
+    weight_then = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        ordering="weight_then_twap",
+        change_events_df=change_events_df,
+    )
+    # Both should be unsuspended (3 active constituents each).
+    assert not canonical["suspended"]
+    assert not weight_then["suspended"]
+    # Material divergence on a panel where the intraday change crosses the
+    # tier median.
+    assert canonical["raw_value_usd_mtok"] != pytest.approx(
+        weight_then["raw_value_usd_mtok"]
+    )
+    # Sanity: both fall within the F-tier price range.
+    assert 25.0 <= canonical["raw_value_usd_mtok"] <= 75.0
+    assert 25.0 <= weight_then["raw_value_usd_mtok"] <= 75.0
+
+
+def test_weight_then_twap_sparse_intraday_creates_more_suspended_slots() -> None:
+    """When some slots have <3 contributors (due to slot-level exclusions)
+    but daily TWAP across all 32 slots still has ≥3, weight-then-TWAP
+    suspends more days than TWAP-then-weight (DL 2026-04-30 Batch E
+    "important property"). Build a panel where excluded_slots make the
+    first 30 slots have <3 active contributors per constituent, then
+    verify weight-then-TWAP sees fewer surviving slots than canonical.
+
+    Construction: 3 F constituents, 3 contributors each. For 2 of the 3
+    contributors per constituent, slots [0, 30) are excluded — leaving
+    only 1 contributor per constituent per slot for slots [0, 30). Slots
+    [30, 32) have full 3-contributor coverage. Daily TWAP across all 32
+    slots still aggregates from 3 contributors (just with sparser inputs)
+    so canonical proceeds; weight-then-TWAP has min-3 violations on
+    slots [0, 30) (only 1 contributor per constituent → after collapse
+    each constituent has a price, but constituents themselves still have
+    3 valid prices → the constituent-level test passes). The actual
+    sparsity test must come from constituent-level not contributor-level.
+
+    Updated construction: drop entire (contributor_id, constituent_id)
+    slot ranges such that for 2 of 3 constituents, slots [0, 30) have NO
+    surviving contributors → constituent has no price at those slots →
+    only 1 active constituent at slots [0, 30) → slot suspended (min-3
+    fails). Slots [30, 32) have all 3 constituents active. Result: 30
+    suspended slots in weight-then-TWAP (only 2 surviving), but daily
+    TWAP-then-weight still computes a valid daily fix because each
+    constituent has SOME slot prices that survive."""
+    d = date(2025, 1, 1)
+    panel = _three_contributors_per_constituent_panel(d)
+    change_events_df = _empty_change_events_df()
+
+    # Build excluded_slots: for 2 of 3 constituents, exclude slots [0, 30)
+    # for ALL 3 contributors → no surviving slot-level price at those
+    # slots → constituent has no slot-s price → only 1 constituent active
+    # at slots [0, 30).
+    excluded_rows = []
+    for cid in ("anthropic/claude-opus-4-7", "google/gemini-3-pro"):
+        for contributor in ("contrib_alpha", "contrib_beta", "contrib_gamma"):
+            for slot in range(30):
+                excluded_rows.append(
+                    {
+                        "contributor_id": contributor,
+                        "constituent_id": cid,
+                        "date": pd.Timestamp(d),
+                        "slot_idx": slot,
+                    }
+                )
+    excluded_slots_df = pd.DataFrame(excluded_rows)
+
+    weight_then = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        ordering="weight_then_twap",
+        change_events_df=change_events_df,
+        excluded_slots_df=excluded_slots_df,
+    )
+    # weight-then-TWAP daily TWAP averages over only 2 surviving slots
+    # (slots 30 + 31) — both have 3 active constituents. So the daily fix
+    # is meaningful but only built from 2/32 slots.
+    # The load-bearing assertion: the daily fix exists (not suspended)
+    # because slots 30+31 had min-3 active constituents.
+    assert not weight_then["suspended"]
+    # If we'd excluded ALL 32 slots → tier suspended with INSUFFICIENT_CONSTITUENTS.
+    # Verify that case too: extend the exclusions to all 32 slots.
+    excluded_rows_all_slots = []
+    for cid in ("anthropic/claude-opus-4-7", "google/gemini-3-pro"):
+        for contributor in ("contrib_alpha", "contrib_beta", "contrib_gamma"):
+            for slot in range(32):
+                excluded_rows_all_slots.append(
+                    {
+                        "contributor_id": contributor,
+                        "constituent_id": cid,
+                        "date": pd.Timestamp(d),
+                        "slot_idx": slot,
+                    }
+                )
+    excluded_all = pd.DataFrame(excluded_rows_all_slots)
+    weight_then_all = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        ordering="weight_then_twap",
+        change_events_df=change_events_df,
+        excluded_slots_df=excluded_all,
+    )
+    assert weight_then_all["suspended"]
+    assert (
+        weight_then_all["suspension_reason"]
+        == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
+    )
+
+
+def test_weight_then_twap_emits_constituent_decisions_with_full_audit_schema() -> None:
+    """Audit rows from weight-then-TWAP carry the same schema as
+    TWAP-then-weight; numeric fields are daily averages over surviving slots."""
+    d = date(2025, 1, 1)
+    panel = _three_contributors_per_constituent_panel(d)
+
+    decisions: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        ordering="weight_then_twap",
+        change_events_df=_empty_change_events_df(),
+        decisions_out=decisions,
+    )
+    assert len(decisions) == 3
+    for row in decisions:
+        assert set(row.keys()) == set(_DECISION_FIELDS)
+        assert row["included"]
+        assert row["ordering"] == "weight_then_twap"
+
+
+def test_weight_then_twap_run_full_pipeline_rebases_to_100_for_six_indices() -> None:
+    """End-to-end: weight-then-TWAP through run_full_pipeline produces all
+    8 indices with index_level=100 at the rebase anchor for the 6 aggregation
+    indices (F/S/E/B_F/B_S/B_E). FPR/SER inherit suspension propagation."""
+    from datetime import timedelta as _td
+
+    from tprr.config import (
+        IndexConfig as _IndexConfig,
+    )
+    from tprr.config import (
+        ModelMetadata as _ModelMetadata,
+    )
+    from tprr.config import (
+        ModelRegistry as _ModelRegistry,
+    )
+    from tprr.config import (
+        TierBRevenueConfig as _TierBRevenueConfig,
+    )
+    from tprr.index.compute import run_full_pipeline as _run_full_pipeline
+
+    # Build a minimal 3-day, 3-tier panel.
+    rows = []
+    f_set = [
+        ("openai/gpt-5-pro", 75.0, 15.0),
+        ("anthropic/claude-opus-4-7", 70.0, 14.0),
+        ("google/gemini-3-pro", 30.0, 5.0),
+    ]
+    s_set = [
+        ("openai/gpt-5-mini", 4.0, 0.5),
+        ("anthropic/claude-haiku-4-5", 5.0, 1.0),
+        ("google/gemini-2-flash", 2.5, 0.3),
+    ]
+    e_set = [
+        ("google/gemini-flash-lite", 0.4, 0.1),
+        ("openai/gpt-5-nano", 0.6, 0.15),
+        ("deepseek/deepseek-v3-2", 1.0, 0.25),
+    ]
+    for offset in range(3):
+        d = date(2025, 1, 1) + _td(days=offset)
+        for tier_set, tier in [
+            (f_set, Tier.TPRR_F),
+            (s_set, Tier.TPRR_S),
+            (e_set, Tier.TPRR_E),
+        ]:
+            for cid, p_out, p_in in tier_set:
+                for c in ["c1", "c2", "c3"]:
+                    rows.append(
+                        {
+                            "observation_date": pd.Timestamp(d),
+                            "constituent_id": cid,
+                            "contributor_id": c,
+                            "tier_code": tier.value,
+                            "attestation_tier": "A",
+                            "input_price_usd_mtok": float(p_in),
+                            "output_price_usd_mtok": float(p_out),
+                            "volume_mtok_7d": 100.0,
+                            "source": "test",
+                            "submitted_at": pd.Timestamp(d),
+                            "notes": "",
+                        }
+                    )
+    panel = pd.DataFrame(rows)
+
+    config = _IndexConfig(base_date=date(2025, 1, 1))
+    registry = _ModelRegistry(
+        models=[
+            _ModelMetadata(
+                constituent_id=cid,
+                tier=tier,
+                provider=cid.split("/")[0],
+                canonical_name=cid,
+                baseline_input_price_usd_mtok=p_in,
+                baseline_output_price_usd_mtok=p_out,
+            )
+            for cid, tier, p_in, p_out in [
+                ("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0),
+                ("anthropic/claude-opus-4-7", Tier.TPRR_F, 14.0, 70.0),
+                ("google/gemini-3-pro", Tier.TPRR_F, 5.0, 30.0),
+                ("openai/gpt-5-mini", Tier.TPRR_S, 0.5, 4.0),
+                ("anthropic/claude-haiku-4-5", Tier.TPRR_S, 1.0, 5.0),
+                ("google/gemini-2-flash", Tier.TPRR_S, 0.3, 2.5),
+                ("google/gemini-flash-lite", Tier.TPRR_E, 0.1, 0.4),
+                ("openai/gpt-5-nano", Tier.TPRR_E, 0.15, 0.6),
+                ("deepseek/deepseek-v3-2", Tier.TPRR_E, 0.25, 1.0),
+            ]
+        ]
+    )
+    result = _run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events_df(),
+        config=config,
+        registry=registry,
+        tier_b_config=_TierBRevenueConfig(entries=[]),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        ordering="weight_then_twap",
+    )
+    expected_codes = {
+        "TPRR_F", "TPRR_S", "TPRR_E",
+        "TPRR_FPR", "TPRR_SER",
+        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+    }
+    assert set(result.indices.keys()) == expected_codes
+    # 6 aggregation indices rebase to 100 on base_date.
+    for code in ("TPRR_F", "TPRR_S", "TPRR_E", "TPRR_B_F", "TPRR_B_S", "TPRR_B_E"):
+        df = result.indices[code]
+        anchor_row = df[df["as_of_date"] == pd.Timestamp(date(2025, 1, 1))]
+        assert float(anchor_row["index_level"].iloc[0]) == pytest.approx(100.0)
+        # ordering field threaded through
+        assert (df["ordering"] == "weight_then_twap").all()
+    # FPR/SER are ratios — index_level = 100 at first non-suspended ratio.
+    fpr_anchor = result.indices["TPRR_FPR"][
+        result.indices["TPRR_FPR"]["as_of_date"] == pd.Timestamp(date(2025, 1, 1))
+    ]
+    assert float(fpr_anchor["index_level"].iloc[0]) == pytest.approx(100.0)

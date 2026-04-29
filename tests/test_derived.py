@@ -377,7 +377,9 @@ def _stub_tier_b_volume_fn() -> TierBVolumeFn:
 
 
 def test_add_blended_twap_column_applies_methodology_weights() -> None:
-    """Per-row blended price = 0.25 x output + 0.75 x input."""
+    """Per-row blended price = 0.75 x output + 0.25 x input (output-heavy
+    per methodology Section 3.3.4; decision log 2026-04-30 'Phase 7 Batch
+    B'-fix' corrects the prior inverted weighting)."""
     df = pd.DataFrame(
         [
             {"twap_output_usd_mtok": 100.0, "twap_input_usd_mtok": 20.0},
@@ -385,13 +387,13 @@ def test_add_blended_twap_column_applies_methodology_weights() -> None:
         ]
     )
     out = add_blended_twap_column(df)
-    # Row 0: 0.25 x 100 + 0.75 x 20 = 25 + 15 = 40
-    # Row 1: 0.25 x 50  + 0.75 x 10 = 12.5 + 7.5 = 20
-    assert out.iloc[0][BLENDED_PRICE_COLUMN] == pytest.approx(40.0)
-    assert out.iloc[1][BLENDED_PRICE_COLUMN] == pytest.approx(20.0)
+    # Row 0: 0.75 x 100 + 0.25 x 20 = 75 + 5 = 80
+    # Row 1: 0.75 x 50  + 0.25 x 10 = 37.5 + 2.5 = 40
+    assert out.iloc[0][BLENDED_PRICE_COLUMN] == pytest.approx(80.0)
+    assert out.iloc[1][BLENDED_PRICE_COLUMN] == pytest.approx(40.0)
     # Methodology weight constants are exposed
-    assert BLENDED_OUTPUT_WEIGHT == 0.25
-    assert BLENDED_INPUT_WEIGHT == 0.75
+    assert BLENDED_OUTPUT_WEIGHT == 0.75
+    assert BLENDED_INPUT_WEIGHT == 0.25
 
 
 def test_add_blended_twap_column_empty_returns_empty_with_column() -> None:

@@ -46,8 +46,8 @@ from tprr.schema import Tier
 INDEX_CODE_FPR = "TPRR_FPR"
 INDEX_CODE_SER = "TPRR_SER"
 
-BLENDED_OUTPUT_WEIGHT = 0.25
-BLENDED_INPUT_WEIGHT = 0.75
+BLENDED_OUTPUT_WEIGHT = 0.75
+BLENDED_INPUT_WEIGHT = 0.25
 BLENDED_PRICE_COLUMN = "twap_blended_usd_mtok"
 
 TIER_TO_BLENDED_CODE: dict[Tier, str] = {
@@ -232,10 +232,12 @@ def _ratio_row(
 
 
 def add_blended_twap_column(panel_df: pd.DataFrame) -> pd.DataFrame:
-    """Append ``twap_blended_usd_mtok = 0.25 x out + 0.75 x in`` to a panel.
+    """Append ``twap_blended_usd_mtok = 0.75 x out + 0.25 x in`` to a panel.
 
-    Methodology Section 3.3.4 specifies the blended price applied at the
-    constituent level. Computing the blend per (contributor, constituent,
+    Methodology Section 3.3.4 specifies the output-heavy blended price
+    ``[P_in x 0.25 + P_out x 0.75]`` applied at the constituent level
+    (decision log 2026-04-30 "Phase 7 Batch B'-fix" corrects the prior
+    inverted weighting). Computing the blend per (contributor, constituent,
     date) before the volume-weighted constituent-level collapse is
     mathematically equivalent to collapsing output and input separately
     then blending — both produce the same constituent-level blended price
@@ -269,6 +271,8 @@ def compute_tprr_b_indices(
     *,
     ordering: str = "twap_then_weight",
     version: str = "v0_1",
+    change_events_df: pd.DataFrame | None = None,
+    excluded_slots_df: pd.DataFrame | None = None,
 ) -> CoreIndexResults:
     """Compute the blended TPRR_B_F / TPRR_B_S / TPRR_B_E series.
 
@@ -306,6 +310,8 @@ def compute_tprr_b_indices(
             version=version,
             price_field=BLENDED_PRICE_COLUMN,
             decisions_out=tier_decisions,
+            change_events_df=change_events_df,
+            excluded_slots_df=excluded_slots_df,
         )
         # Rewrite index_code from "TPRR_F" → "TPRR_B_F" etc. on both the
         # IndexValueDF rows and the per-constituent audit rows.
