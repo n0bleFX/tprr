@@ -159,9 +159,9 @@ Separately from the core TPRR indices, Noble publishes TPRR-B: a blended analyti
 
 TPRR-B is calculated using the following blended price formula:
 
-**TPRR-Bᵢ(t) \= \[P\_out × 0.25 \+ P\_in × 0.75\]**
+**TPRR-Bᵢ(t) \= \[P\_in × 0.25 \+ P\_out × 0.75\]**
 
-The 25:75 output/input weighting reflects the observed average token consumption ratio across Noble's founding contributor dataset. The ratio is reviewed quarterly by the Index Committee. As contributor data matures, Noble may publish workload-specific TPRR-B variants (e.g. RAG workloads vs. agentic workflows) as supplementary analytics series.
+The 25:75 input/output weighting reflects the observed average token consumption ratio across Noble's founding contributor dataset. The ratio is reviewed quarterly by the Index Committee. As contributor data matures, Noble may publish workload-specific TPRR-B variants (e.g. RAG workloads vs. agentic workflows) as supplementary analytics series.
 
 | *TPRR-B is published for benchmarking and total cost intelligence purposes only. All Noble derivative instruments — inference swaps, caps, floors, forwards, and currency-hedged structures — reference the output-only TPRR indices (TPRR-F, TPRR-S, TPRR-E). This separation eliminates basis risk between hedge performance and the provider-driven pricing risk that derivatives are designed to transfer.* |
 | :---- |
