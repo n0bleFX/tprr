@@ -327,3 +327,61 @@ def test_index_value_df_rejects_missing_n_constituents_a() -> None:
     df = _valid_index_value_df().drop(columns=["n_constituents_a"])
     with pytest.raises(ValueError, match="missing required columns"):
         IndexValueDF.validate(df)
+
+
+# ---------------------------------------------------------------------------
+# NULLABLE_COLUMNS — Batch D opt-in null tolerance
+# ---------------------------------------------------------------------------
+
+
+def test_index_value_df_rejects_null_in_non_nullable_column() -> None:
+    """A required column NOT in NULLABLE_COLUMNS still rejects NaN.
+
+    Verifies the opt-in nullability mechanism: ``n_constituents_a`` is not
+    in ``IndexValueDF.NULLABLE_COLUMNS`` and so a null value must still
+    raise. (Setting an integer column to None coerces it to a float
+    column with NaN, which also exercises the dtype check downstream;
+    the null check fires first.)
+    """
+    df = _valid_index_value_df()
+    df["n_constituents_a"] = df["n_constituents_a"].astype(float)
+    df.loc[0, "n_constituents_a"] = None
+    with pytest.raises(ValueError, match="contains null values"):
+        IndexValueDF.validate(df)
+
+
+def test_index_value_df_accepts_null_in_nullable_column_for_ratio_rows() -> None:
+    """Tier weight share columns are listed in NULLABLE_COLUMNS so ratio
+    rows (TPRR_FPR / TPRR_SER) carrying NaN tier shares validate cleanly
+    per decision log 2026-04-30 'Phase 7 Batch D — FPR/SER tier weight
+    share semantics: NaN per ratio symmetry'."""
+    df = _valid_index_value_df()
+    df.loc[0, "tier_a_weight_share"] = float("nan")
+    df.loc[0, "tier_b_weight_share"] = float("nan")
+    df.loc[0, "tier_c_weight_share"] = float("nan")
+    out = IndexValueDF.validate(df)
+    assert out is df
+
+
+def test_index_value_df_still_rejects_null_in_required_non_nullable_columns() -> None:
+    """Nullability is opt-in per column, not blanket. Verify that
+    ``raw_value_usd_mtok`` (also a float column, NOT in NULLABLE_COLUMNS)
+    still rejects NaN — guards against accidental relaxation of the
+    null-rejection contract during refactors."""
+    df = _valid_index_value_df()
+    df.loc[0, "raw_value_usd_mtok"] = float("nan")
+    with pytest.raises(ValueError, match="contains null values"):
+        IndexValueDF.validate(df)
+
+
+def test_index_value_df_default_nullable_columns_is_empty_for_other_validators() -> None:
+    """The base default ``NULLABLE_COLUMNS = ()`` is preserved on the
+    PanelObservationDF and ChangeEventDF subclasses — only IndexValueDF
+    opted into nullability so far. Locks the opt-in semantic."""
+    assert PanelObservationDF.NULLABLE_COLUMNS == ()
+    assert ChangeEventDF.NULLABLE_COLUMNS == ()
+    assert set(IndexValueDF.NULLABLE_COLUMNS) == {
+        "tier_a_weight_share",
+        "tier_b_weight_share",
+        "tier_c_weight_share",
+    }

@@ -148,26 +148,38 @@ def _check_dtype_family(
 
 
 class _DFValidator:
-    """Base class for column / dtype / non-null DataFrame validators."""
+    """Base class for column / dtype / non-null DataFrame validators.
+
+    Nullability is opt-in per column via ``NULLABLE_COLUMNS``. The default
+    contract rejects nulls in every required column; subclasses must
+    explicitly enumerate columns where NaN carries semantic meaning (e.g.
+    ``IndexValueDF.NULLABLE_COLUMNS = ("tier_a_weight_share", ...)`` for
+    derived ratio rows where tier shares are not applicable). Keeping this
+    opt-in prevents accidental relaxation of the validator's null-rejection
+    contract during refactors.
+    """
 
     SCHEMA_NAME: ClassVar[str] = ""
     REQUIRED_COLUMNS: ClassVar[dict[str, str]] = {}
+    NULLABLE_COLUMNS: ClassVar[tuple[str, ...]] = ()
 
     @classmethod
     def validate(cls, df: pd.DataFrame) -> pd.DataFrame:
         """Validate ``df`` matches the schema. Returns ``df`` on success.
 
-        Checks: required columns present, no nulls in any required column,
-        each required column belongs to the expected dtype family. Extra
-        columns beyond the schema are tolerated.
+        Checks: required columns present, each required column belongs to
+        the expected dtype family, and no nulls appear in any required
+        column EXCEPT those listed in ``NULLABLE_COLUMNS``. Extra columns
+        beyond the schema are tolerated.
         """
         missing = set(cls.REQUIRED_COLUMNS) - set(df.columns)
         if missing:
             raise ValueError(
                 f"{cls.SCHEMA_NAME}: missing required columns: {sorted(missing)}"
             )
+        nullable = set(cls.NULLABLE_COLUMNS)
         for col, family in cls.REQUIRED_COLUMNS.items():
-            if df[col].isna().any():
+            if col not in nullable and df[col].isna().any():
                 raise ValueError(
                     f"{cls.SCHEMA_NAME}: column '{col}' contains null values"
                 )
@@ -212,7 +224,15 @@ class ChangeEventDF(_DFValidator):
 
 
 class IndexValueDF(_DFValidator):
-    """DataFrame validator for IndexValue rows."""
+    """DataFrame validator for IndexValue rows.
+
+    ``tier_a/b/c_weight_share`` are nullable per decision log 2026-04-30
+    "Phase 7 Batch D — FPR/SER tier weight share semantics: NaN per ratio
+    symmetry": derived ratio rows (TPRR_FPR, TPRR_SER) carry NaN in these
+    columns because tier weight share is a property of constituent
+    aggregations, not ratios of aggregations. Constituent-aggregation rows
+    (F/S/E/B_F/B_S/B_E) populate the columns with finite floats.
+    """
 
     SCHEMA_NAME: ClassVar[str] = "IndexValueDF"
     REQUIRED_COLUMNS: ClassVar[dict[str, str]] = {
@@ -235,3 +255,8 @@ class IndexValueDF(_DFValidator):
         "suspension_reason": "string",
         "notes": "string",
     }
+    NULLABLE_COLUMNS: ClassVar[tuple[str, ...]] = (
+        "tier_a_weight_share",
+        "tier_b_weight_share",
+        "tier_c_weight_share",
+    )

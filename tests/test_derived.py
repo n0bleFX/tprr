@@ -487,3 +487,111 @@ def test_compute_tprr_b_indices_empty_panel_emits_empty_dfs() -> None:
     for code in ("TPRR_B_F", "TPRR_B_S", "TPRR_B_E"):
         assert result.indices[code].empty
         assert result.rebase_anchors[code] is None
+
+
+# ---------------------------------------------------------------------------
+# Batch D — FPR/SER tier weight share semantics: NaN per ratio symmetry
+# (decision log 2026-04-30)
+# ---------------------------------------------------------------------------
+
+
+def test_fpr_tier_weight_shares_are_nan_on_every_row() -> None:
+    """Ratio rows have no tier mix — tier_*_weight_share are NaN regardless
+    of suspension state."""
+    f = pd.DataFrame(
+        [
+            _idx_row(as_of_date=date(2026, 1, 1), index_code="TPRR_F", raw_value=56.0),
+            _idx_row(
+                as_of_date=date(2026, 1, 2),
+                index_code="TPRR_F",
+                raw_value=float("nan"),
+                suspended=True,
+                suspension_reason="insufficient_constituents",
+            ),
+            _idx_row(as_of_date=date(2026, 1, 3), index_code="TPRR_F", raw_value=58.0),
+        ]
+    )
+    fpr_df, _ = compute_fpr(f, _s_df_clean(), _config())
+    for col in ("tier_a_weight_share", "tier_b_weight_share", "tier_c_weight_share"):
+        assert fpr_df[col].isna().all(), (
+            f"FPR column {col!r} should be NaN on every row, got {fpr_df[col].tolist()}"
+        )
+
+
+def test_ser_tier_weight_shares_are_nan_on_every_row() -> None:
+    """Mirror of test_fpr_tier_weight_shares_are_nan_on_every_row for SER."""
+    e = pd.DataFrame(
+        [
+            _idx_row(as_of_date=date(2026, 1, 1), index_code="TPRR_E", raw_value=0.4),
+            _idx_row(
+                as_of_date=date(2026, 1, 2),
+                index_code="TPRR_E",
+                raw_value=float("nan"),
+                suspended=True,
+                suspension_reason="quality_gate_cascade",
+            ),
+            _idx_row(as_of_date=date(2026, 1, 3), index_code="TPRR_E", raw_value=0.5),
+        ]
+    )
+    ser_df, _ = compute_ser(_s_df_clean(), e, _config())
+    for col in ("tier_a_weight_share", "tier_b_weight_share", "tier_c_weight_share"):
+        assert ser_df[col].isna().all(), (
+            f"SER column {col!r} should be NaN on every row, got {ser_df[col].tolist()}"
+        )
+
+
+def test_compute_tprr_b_indices_constituent_decisions_index_code_rewritten() -> None:
+    """The B-series decisions carry index_code=TPRR_B_F/TPRR_B_S/TPRR_B_E
+    (rewritten from the underlying tier name) so consumers can join
+    decisions to IndexValueDF rows by index_code uniformly."""
+    config = IndexConfig(base_date=date(2025, 1, 1))
+    panel = _b_three_tier_panel(date(2025, 1, 1))
+    result = compute_tprr_b_indices(
+        panel_df=panel,
+        config=config,
+        registry=_b_three_tier_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    decisions = result.constituent_decisions
+    assert set(decisions["index_code"]) == {"TPRR_B_F", "TPRR_B_S", "TPRR_B_E"}
+    # 3 constituents per blended tier x 3 tiers = 9 rows.
+    assert len(decisions) == 9
+
+
+def test_core_indices_still_populate_tier_weight_shares() -> None:
+    """F/S/E and B_F/B_S/B_E (constituent aggregations) still populate
+    tier_*_weight_share with finite values — Batch D NaN treatment is
+    scoped to ratio rows only.
+
+    The all-Tier-A panel here yields tier_a_weight_share=1.0 and
+    tier_b/c_weight_share=0.0 on every row, but the load-bearing assertion
+    is finite-not-NaN."""
+    from tprr.index.aggregation import run_all_core_indices
+
+    config = IndexConfig(base_date=date(2025, 1, 1))
+    panel = _b_three_tier_panel(date(2025, 1, 1))
+    core = run_all_core_indices(
+        panel_df=panel,
+        config=config,
+        registry=_b_three_tier_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    blended = compute_tprr_b_indices(
+        panel_df=panel,
+        config=config,
+        registry=_b_three_tier_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    for code, df in {**core.indices, **blended.indices}.items():
+        for col in (
+            "tier_a_weight_share",
+            "tier_b_weight_share",
+            "tier_c_weight_share",
+        ):
+            assert df[col].notna().all(), (
+                f"{code} column {col!r} must be finite on every row (only "
+                f"FPR/SER carry NaN per Batch D); got {df[col].tolist()}"
+            )

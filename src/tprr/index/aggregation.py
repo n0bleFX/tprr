@@ -39,7 +39,7 @@ Subsequent batches:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from typing import Any
@@ -77,6 +77,105 @@ class SuspensionReason(StrEnum):
     combined w_vol x w_exp evaluated to zero. Defensive bucket; with
     strictly-positive volumes (Tier A activation rule) and the exponential
     weight ∈ (0, 1] this branch should not trigger in v0.1."""
+
+
+class ConstituentExclusionReason(StrEnum):
+    """Cause when a constituent decision row carries ``included=False``.
+
+    Empty string ``""`` is used for ``included=True`` rows; this enum
+    captures the closed set of exclusion reasons emitted by
+    ``compute_tier_index`` (Batch D — Q1 audit trail).
+    """
+
+    ALL_PAIRS_SUSPENDED = "all_pairs_suspended"
+    """Every (contributor, constituent) pair for this constituent was
+    in the suspended-pairs frame on this date — the constituent has no
+    surviving panel rows after the drop. Semantically distinct from
+    ``TIER_VOLUME_UNAVAILABLE`` (constituent has data, but no volume
+    tier resolves): this row signals a contributor-coverage failure at
+    the upstream suspension layer, not a tier-resolution failure.
+    Phase 10 sensitivity work distinguishes the two when characterising
+    cascade dynamics."""
+
+    TIER_VOLUME_UNAVAILABLE = "tier_volume_unavailable"
+    """``compute_tier_volume`` returned ``None`` — none of A/B/C
+    resolved for this (constituent, date)."""
+
+    SELECTED_TIER_NO_PRICE_ROWS = "selected_tier_no_price_rows"
+    """Tier resolved a volume but no panel price rows survived (e.g.
+    every Tier A contributor TWAP was excluded by upstream gating)."""
+
+    TIER_AGGREGATION_SUSPENDED = "tier_aggregation_suspended"
+    """Constituent computed normally, but the tier as a whole hit a
+    suspension condition (insufficient constituents, quality-gate
+    cascade) and so this constituent did not actually contribute to
+    the published index level. Distinct from per-constituent
+    exclusion: the constituent's data is real and queryable."""
+
+
+_DECISION_FIELDS = (
+    "as_of_date",
+    "index_code",
+    "version",
+    "ordering",
+    "constituent_id",
+    "included",
+    "exclusion_reason",
+    "selected_attestation_tier",
+    "raw_volume_mtok",
+    "constituent_price_usd_mtok",
+    "tier_median_price_usd_mtok",
+    "price_distance_from_median_pct",
+    "w_vol",
+    "w_exp",
+    "combined_weight",
+    "weight_share_within_tier",
+    "contributor_count",
+)
+
+
+def _decision_row(
+    *,
+    as_of_date: date | None,
+    index_code: str,
+    version: str,
+    ordering: str,
+    constituent_id: str,
+    included: bool,
+    exclusion_reason: str,
+    selected_attestation_tier: str = "",
+    raw_volume_mtok: float = float("nan"),
+    constituent_price_usd_mtok: float = float("nan"),
+    tier_median_price_usd_mtok: float = float("nan"),
+    price_distance_from_median_pct: float = float("nan"),
+    w_vol: float = float("nan"),
+    w_exp: float = float("nan"),
+    combined_weight: float = float("nan"),
+    weight_share_within_tier: float = float("nan"),
+    contributor_count: int = 0,
+) -> dict[str, Any]:
+    """Build one ConstituentDecisionDF row. NaN defaults match the audit
+    contract: every numeric field is populated when ``included=True`` and
+    selectively populated for exclusion paths (see ``compute_tier_index``)."""
+    return {
+        "as_of_date": as_of_date,
+        "index_code": index_code,
+        "version": version,
+        "ordering": ordering,
+        "constituent_id": constituent_id,
+        "included": included,
+        "exclusion_reason": exclusion_reason,
+        "selected_attestation_tier": selected_attestation_tier,
+        "raw_volume_mtok": float(raw_volume_mtok),
+        "constituent_price_usd_mtok": float(constituent_price_usd_mtok),
+        "tier_median_price_usd_mtok": float(tier_median_price_usd_mtok),
+        "price_distance_from_median_pct": float(price_distance_from_median_pct),
+        "w_vol": float(w_vol),
+        "w_exp": float(w_exp),
+        "combined_weight": float(combined_weight),
+        "weight_share_within_tier": float(weight_share_within_tier),
+        "contributor_count": int(contributor_count),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +226,7 @@ def compute_tier_index(
     prior_raw_value: float | None = None,
     version: str = "v0_1",
     price_field: str = "twap_output_usd_mtok",
+    decisions_out: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Compute one (tier, date) IndexValue row from a single-day panel slice.
 
@@ -143,6 +243,17 @@ def compute_tier_index(
     Returns one IndexValue-shape dict keyed for direct DataFrame
     construction. ``suspended=True`` rows carry ``raw_value_usd_mtok``
     set to ``prior_raw_value`` (or ``np.nan`` if no prior exists).
+
+    Per-constituent audit trail (Batch D — Q1, decision log 2026-04-30
+    Phase 7 Batch D): when ``decisions_out`` is provided, this function
+    appends one ConstituentDecisionDF-shape dict per constituent that
+    survived the suspended-pair drop, regardless of whether the
+    constituent was ultimately included in the index level. Excluded
+    rows carry ``exclusion_reason`` from the ``ConstituentExclusionReason``
+    closed set; included rows carry ``included=True`` with all numeric
+    fields populated. Phase 10 sensitivity sweeps consume this frame to
+    recompute λ-sensitive and haircut-sensitive aggregates without
+    re-running the full pipeline.
     """
     if ordering != "twap_then_weight":
         raise NotImplementedError(
@@ -171,6 +282,9 @@ def compute_tier_index(
 
     # 1. Filter to the tier under computation (panel-as-truth tier_code).
     tier_panel = panel_day_df[panel_day_df["tier_code"] == tier.value].copy()
+    pre_drop_constituents: set[str] = {
+        str(c) for c in tier_panel["constituent_id"].unique()
+    }
 
     # 2. Drop suspended (contributor, constituent) pairs effective on this date.
     if suspended_pairs_df is not None and not suspended_pairs_df.empty:
@@ -186,9 +300,51 @@ def compute_tier_index(
             )
             tier_panel = tier_panel[~keep_keys.isin(drop_keys)]
 
+    post_drop_constituents: set[str] = {
+        str(c) for c in tier_panel["constituent_id"].unique()
+    }
+    dropped_constituents = pre_drop_constituents - post_drop_constituents
+
     n_constituents_total = int(tier_panel["constituent_id"].nunique())
 
+    # 3. Per-constituent: tier selection + price collapse + w_vol.
+    # Buffer decisions locally so post-loop tier-level outcomes (suspension,
+    # quality-gate cascade, success) can backfill weight_share / w_exp /
+    # tier_median fields on every active row before we publish to
+    # ``decisions_out``.
+    pending_decisions: list[dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
+
+    # 3a. Constituents whose every (contributor, constituent) pair was in the
+    # suspended-pairs frame on this date never enter the per-constituent loop —
+    # they were dropped at step 2. Emit one ALL_PAIRS_SUSPENDED audit row per
+    # dropped constituent. Phase 10 distinguishes this signal from
+    # TIER_VOLUME_UNAVAILABLE: the former is a contributor-coverage failure,
+    # the latter a tier-resolution failure on a constituent that still had
+    # data after the drop. Both can co-occur on the same (date, tier) when
+    # tier_panel becomes empty after the drop — the tier-level
+    # TIER_DATA_UNAVAILABLE row and these per-constituent rows are not
+    # mutually exclusive.
+    for const_id in sorted(dropped_constituents):
+        pending_decisions.append(
+            _decision_row(
+                as_of_date=as_of_date_value,
+                index_code=tier.value,
+                version=version,
+                ordering=ordering,
+                constituent_id=const_id,
+                included=False,
+                exclusion_reason=ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value,
+                contributor_count=0,
+            )
+        )
+
+    def _publish(decisions: list[dict[str, Any]]) -> None:
+        if decisions_out is not None:
+            decisions_out.extend(decisions)
+
     if tier_panel.empty:
+        _publish(pending_decisions)
         return _suspended_row(
             tier=tier,
             as_of_date=as_of_date_value,
@@ -199,9 +355,6 @@ def compute_tier_index(
             n_constituents=n_constituents_total,
             prior_raw_value=prior_raw_value,
         )
-
-    # 3. Per-constituent: tier selection + price collapse + w_vol.
-    rows: list[dict[str, Any]] = []
     for constituent_id in tier_panel["constituent_id"].unique():
         const_id = str(constituent_id)
         sub = tier_panel[tier_panel["constituent_id"] == const_id]
@@ -215,6 +368,18 @@ def compute_tier_index(
             tier_b_volume_fn=tier_b_volume_fn,
         )
         if tier_result is None:
+            pending_decisions.append(
+                _decision_row(
+                    as_of_date=as_of_date_value,
+                    index_code=tier.value,
+                    version=version,
+                    ordering=ordering,
+                    constituent_id=const_id,
+                    included=False,
+                    exclusion_reason=ConstituentExclusionReason.TIER_VOLUME_UNAVAILABLE.value,
+                    contributor_count=int(sub["contributor_id"].nunique()),
+                )
+            )
             continue
 
         selected_tier, raw_volume = tier_result
@@ -232,9 +397,20 @@ def compute_tier_index(
             ]
 
         if price_rows.empty:
-            # Selected tier resolved a volume but the panel has no surviving
-            # price rows for that tier (e.g. all Tier A contributor TWAPs
-            # were excluded by upstream gating). Skip the constituent.
+            pending_decisions.append(
+                _decision_row(
+                    as_of_date=as_of_date_value,
+                    index_code=tier.value,
+                    version=version,
+                    ordering=ordering,
+                    constituent_id=const_id,
+                    included=False,
+                    exclusion_reason=ConstituentExclusionReason.SELECTED_TIER_NO_PRICE_ROWS.value,
+                    selected_attestation_tier=selected_tier.value,
+                    raw_volume_mtok=float(raw_volume),
+                    contributor_count=int(sub["contributor_id"].nunique()),
+                )
+            )
             continue
 
         constituent_price = collapse_constituent_price(
@@ -248,10 +424,14 @@ def compute_tier_index(
                 "price": constituent_price,
                 "raw_volume": raw_volume,
                 "w_vol": w_vol,
+                "contributor_count": int(price_rows["contributor_id"].nunique()),
             }
         )
 
     if not rows:
+        # Tier suspends with TIER_DATA_UNAVAILABLE; per-constituent exclusion
+        # decisions (if any) already buffered. No active-row decisions to add.
+        _publish(pending_decisions)
         return _suspended_row(
             tier=tier,
             as_of_date=as_of_date_value,
@@ -267,6 +447,28 @@ def compute_tier_index(
     n_active = len(constituents_df)
 
     if n_active < config.min_constituents_per_tier:
+        # Tier suspends — emit each "would-be-active" constituent as
+        # included=False with TIER_AGGREGATION_SUSPENDED. w_vol is real
+        # (computed); w_exp / weight / tier_median are NaN (the median
+        # cascade never ran).
+        for r in rows:
+            pending_decisions.append(
+                _decision_row(
+                    as_of_date=as_of_date_value,
+                    index_code=tier.value,
+                    version=version,
+                    ordering=ordering,
+                    constituent_id=str(r["constituent_id"]),
+                    included=False,
+                    exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
+                    selected_attestation_tier=str(r["selected_tier"]),
+                    raw_volume_mtok=float(r["raw_volume"]),
+                    constituent_price_usd_mtok=float(r["price"]),
+                    w_vol=float(r["w_vol"]),
+                    contributor_count=int(r["contributor_count"]),
+                )
+            )
+        _publish(pending_decisions)
         return _suspended_row(
             tier=tier,
             as_of_date=as_of_date_value,
@@ -295,6 +497,36 @@ def compute_tier_index(
     total_weight = float(constituents_df["weight"].sum())
 
     if total_weight <= 0:
+        # Quality-gate cascade — emit active constituents as included=False
+        # with TIER_AGGREGATION_SUSPENDED. All numeric fields populated except
+        # weight_share (no denominator).
+        for _, srs in constituents_df.iterrows():
+            distance_pct = (
+                abs(float(srs["price"]) - tier_median) / tier_median
+                if tier_median > 0
+                else float("nan")
+            )
+            pending_decisions.append(
+                _decision_row(
+                    as_of_date=as_of_date_value,
+                    index_code=tier.value,
+                    version=version,
+                    ordering=ordering,
+                    constituent_id=str(srs["constituent_id"]),
+                    included=False,
+                    exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
+                    selected_attestation_tier=str(srs["selected_tier"]),
+                    raw_volume_mtok=float(srs["raw_volume"]),
+                    constituent_price_usd_mtok=float(srs["price"]),
+                    tier_median_price_usd_mtok=tier_median,
+                    price_distance_from_median_pct=distance_pct,
+                    w_vol=float(srs["w_vol"]),
+                    w_exp=float(srs["w_exp"]),
+                    combined_weight=float(srs["weight"]),
+                    contributor_count=int(srs["contributor_count"]),
+                )
+            )
+        _publish(pending_decisions)
         return _suspended_row(
             tier=tier,
             as_of_date=as_of_date_value,
@@ -333,6 +565,36 @@ def compute_tier_index(
         ].sum()
         / total_weight
     )
+
+    # 8. Emit included=True decision rows with full instrumentation.
+    for _, srs in constituents_df.iterrows():
+        distance_pct = (
+            abs(float(srs["price"]) - tier_median) / tier_median
+            if tier_median > 0
+            else float("nan")
+        )
+        pending_decisions.append(
+            _decision_row(
+                as_of_date=as_of_date_value,
+                index_code=tier.value,
+                version=version,
+                ordering=ordering,
+                constituent_id=str(srs["constituent_id"]),
+                included=True,
+                exclusion_reason="",
+                selected_attestation_tier=str(srs["selected_tier"]),
+                raw_volume_mtok=float(srs["raw_volume"]),
+                constituent_price_usd_mtok=float(srs["price"]),
+                tier_median_price_usd_mtok=tier_median,
+                price_distance_from_median_pct=distance_pct,
+                w_vol=float(srs["w_vol"]),
+                w_exp=float(srs["w_exp"]),
+                combined_weight=float(srs["weight"]),
+                weight_share_within_tier=float(srs["weight"]) / total_weight,
+                contributor_count=int(srs["contributor_count"]),
+            )
+        )
+    _publish(pending_decisions)
 
     return {
         "as_of_date": as_of_date_value,
@@ -417,6 +679,7 @@ def run_tier_pipeline(
     ordering: str = "twap_then_weight",
     version: str = "v0_1",
     price_field: str = "twap_output_usd_mtok",
+    decisions_out: list[dict[str, Any]] | None = None,
 ) -> pd.DataFrame:
     """Run aggregation across every distinct date in ``panel_df`` for one tier.
 
@@ -429,6 +692,10 @@ def run_tier_pipeline(
 
     Output is an IndexValueDF-shape DataFrame (rebase to ``index_level``
     is delegated to ``rebase_index_level`` — caller decides anchor).
+
+    When ``decisions_out`` is provided, per-day per-constituent audit
+    rows are appended (one element per constituent per date — see
+    ``compute_tier_index`` for schema).
     """
     if panel_df.empty:
         return pd.DataFrame()
@@ -451,6 +718,7 @@ def run_tier_pipeline(
             prior_raw_value=prior_raw_value,
             version=version,
             price_field=price_field,
+            decisions_out=decisions_out,
         )
         rows.append(result)
         if not result["suspended"] and not np.isnan(result["raw_value_usd_mtok"]):
@@ -458,6 +726,25 @@ def run_tier_pipeline(
 
     out = pd.DataFrame(rows)
     out["as_of_date"] = pd.to_datetime(out["as_of_date"]).astype("datetime64[ns]")
+    return out
+
+
+def _decisions_list_to_df(decisions: list[dict[str, Any]]) -> pd.DataFrame:
+    """Convert an accumulated decisions list into a ConstituentDecisionDF.
+
+    Empty input returns a DataFrame with the audit-trail columns present
+    but no rows — keeps the schema contract uniform for downstream
+    consumers (Phase 9/10) and avoids ``KeyError`` on ``df.columns``.
+    """
+    if not decisions:
+        empty: dict[str, list[Any]] = {col: [] for col in _DECISION_FIELDS}
+        out = pd.DataFrame(empty)
+    else:
+        out = pd.DataFrame(decisions)
+    if "as_of_date" in out.columns and not out.empty:
+        out["as_of_date"] = pd.to_datetime(out["as_of_date"]).astype("datetime64[ns]")
+    elif "as_of_date" in out.columns:
+        out["as_of_date"] = out["as_of_date"].astype("datetime64[ns]")
     return out
 
 
@@ -514,10 +801,73 @@ class CoreIndexResults:
     to its IndexValueDF-shape DataFrame with ``index_level`` populated by
     rebase. ``rebase_anchors`` maps ``index_code`` to the anchor date used
     (or ``None`` if no eligible anchor existed at or after ``base_date``).
+    ``constituent_decisions`` is the per-(date, index_code, constituent_id)
+    audit DataFrame produced by Batch D Q1; empty when no constituents
+    surfaced through any tier.
     """
 
     indices: dict[str, pd.DataFrame]
     rebase_anchors: dict[str, date | None]
+    constituent_decisions: pd.DataFrame = field(default_factory=pd.DataFrame)
+
+
+def build_rebase_metadata_df(
+    indices: dict[str, pd.DataFrame],
+    rebase_anchors: dict[str, date | None],
+    base_date: date,
+) -> pd.DataFrame:
+    """Per-index rebase metadata DataFrame for Phase 9/10 consumption.
+
+    Columns:
+
+    - ``index_code``: str — TPRR_F/S/E/FPR/SER/B_F/B_S/B_E
+    - ``base_date``: date — ``IndexConfig.base_date`` driving this run
+    - ``anchor_date``: ``date | None`` — actual rebase anchor (the first
+      non-suspended row at-or-after ``base_date`` with positive finite
+      ``raw_value_usd_mtok``; ``None`` when no eligible anchor exists)
+    - ``anchor_raw_value``: float — ``raw_value_usd_mtok`` at the anchor
+      row (``NaN`` when ``anchor_date is None``)
+    - ``n_pre_anchor_suspended_days``: int — count of rows with
+      ``suspended=True`` and ``as_of_date < anchor_date``. When
+      ``anchor_date`` is ``None`` (un-rebasable index), holds the total
+      suspended-row count for the index — no anchor was reached, so every
+      suspended day counts as "pre-anchor" in the limit.
+
+    Companion to ``FullPipelineResults.rebase_anchors`` (the dict): the
+    dict stays as a quick lookup; this DataFrame is the structured artefact
+    Phase 10 sweeps over when comparing parameter realisations.
+    """
+    rows: list[dict[str, Any]] = []
+    for code, df in indices.items():
+        anchor = rebase_anchors.get(code)
+        if anchor is None:
+            anchor_raw_value = float("nan")
+            n_pre = (
+                int(df["suspended"].sum())
+                if not df.empty and "suspended" in df.columns
+                else 0
+            )
+        else:
+            anchor_ts = pd.Timestamp(anchor)
+            anchor_rows = df[df["as_of_date"] == anchor_ts]
+            anchor_raw_value = (
+                float(anchor_rows.iloc[0]["raw_value_usd_mtok"])
+                if not anchor_rows.empty
+                else float("nan")
+            )
+            n_pre = int(
+                df[(df["as_of_date"] < anchor_ts) & df["suspended"]].shape[0]
+            )
+        rows.append(
+            {
+                "index_code": code,
+                "base_date": base_date,
+                "anchor_date": anchor,
+                "anchor_raw_value": anchor_raw_value,
+                "n_pre_anchor_suspended_days": n_pre,
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def run_all_core_indices(
@@ -535,10 +885,13 @@ def run_all_core_indices(
 
     Each tier runs independently. Per-tier rebase anchor is computed from
     that tier's own indices_df — different tiers may have different
-    anchors when ``base_date`` itself is suspended for some tier.
+    anchors when ``base_date`` itself is suspended for some tier. Per-
+    constituent audit rows are accumulated across all three tiers and
+    returned in ``CoreIndexResults.constituent_decisions``.
     """
     indices: dict[str, pd.DataFrame] = {}
     anchors: dict[str, date | None] = {}
+    decisions: list[dict[str, Any]] = []
     for tier in (Tier.TPRR_F, Tier.TPRR_S, Tier.TPRR_E):
         tier_indices = run_tier_pipeline(
             panel_df=panel_df,
@@ -550,10 +903,15 @@ def run_all_core_indices(
             suspended_pairs_df=suspended_pairs_df,
             ordering=ordering,
             version=version,
+            decisions_out=decisions,
         )
         rebased, anchor = rebase_index_level(
             tier_indices, base_date=config.base_date
         )
         indices[tier.value] = rebased
         anchors[tier.value] = anchor
-    return CoreIndexResults(indices=indices, rebase_anchors=anchors)
+    return CoreIndexResults(
+        indices=indices,
+        rebase_anchors=anchors,
+        constituent_decisions=_decisions_list_to_df(decisions),
+    )

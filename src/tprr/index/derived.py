@@ -196,11 +196,13 @@ def _ratio_row(
 ) -> dict[str, Any]:
     """Construct one IndexValueDF-shape row for a derived ratio index.
 
-    ``n_constituents*`` and ``tier_*_weight_share`` fields are populated
-    from the numerator (the ratio inherits Frontier's tier mix for FPR,
-    Standard's for SER). Phase 9/10 consumers reading derived rows for
-    tier-share information should treat these as the numerator's mix,
-    not the ratio's — there's no well-defined "tier mix of a ratio."
+    ``n_constituents*`` are populated from the numerator (the ratio
+    inherits the numerator's count). ``tier_*_weight_share`` are NaN per
+    decision log 2026-04-30 "Phase 7 Batch D — FPR/SER tier weight share
+    semantics: NaN per ratio symmetry": tier weight share is a property
+    of constituent aggregations, not ratios of aggregations. Phase 9/10
+    consumers needing tier-mix context for a ratio row must join against
+    the underlying tier index rows.
     """
     return {
         "as_of_date": rec["as_of_date"],
@@ -215,9 +217,9 @@ def _ratio_row(
         "n_constituents_a": int(rec["n_constituents_a_num"]),
         "n_constituents_b": int(rec["n_constituents_b_num"]),
         "n_constituents_c": int(rec["n_constituents_c_num"]),
-        "tier_a_weight_share": float(rec["tier_a_weight_share_num"]),
-        "tier_b_weight_share": float(rec["tier_b_weight_share_num"]),
-        "tier_c_weight_share": float(rec["tier_c_weight_share_num"]),
+        "tier_a_weight_share": float("nan"),
+        "tier_b_weight_share": float("nan"),
+        "tier_c_weight_share": float("nan"),
         "suspended": suspended,
         "suspension_reason": suspension_reason,
         "notes": "",
@@ -280,12 +282,18 @@ def compute_tprr_b_indices(
     Returns a ``CoreIndexResults`` keyed by ``TPRR_B_F`` / ``TPRR_B_S`` /
     ``TPRR_B_E``. Per-tier rebase anchors fall through the same way the
     core indices' anchors do (decision log Q4 lock 2026-04-29).
+    Per-constituent audit rows are accumulated across the three blended
+    tiers with ``index_code`` rewritten to the ``TPRR_B_*`` form.
     """
+    from tprr.index.aggregation import _decisions_list_to_df
+
     panel_blended = add_blended_twap_column(panel_df)
 
     indices: dict[str, pd.DataFrame] = {}
     anchors: dict[str, date | None] = {}
+    all_decisions: list[dict[str, Any]] = []
     for tier, b_code in TIER_TO_BLENDED_CODE.items():
+        tier_decisions: list[dict[str, Any]] = []
         tier_indices = run_tier_pipeline(
             panel_df=panel_blended,
             tier=tier,
@@ -297,12 +305,21 @@ def compute_tprr_b_indices(
             ordering=ordering,
             version=version,
             price_field=BLENDED_PRICE_COLUMN,
+            decisions_out=tier_decisions,
         )
-        # Rewrite index_code from "TPRR_F" → "TPRR_B_F" etc.
+        # Rewrite index_code from "TPRR_F" → "TPRR_B_F" etc. on both the
+        # IndexValueDF rows and the per-constituent audit rows.
         if not tier_indices.empty:
             tier_indices = tier_indices.copy()
             tier_indices["index_code"] = b_code
+        for d in tier_decisions:
+            d["index_code"] = b_code
+        all_decisions.extend(tier_decisions)
         rebased, anchor = rebase_index_level(tier_indices, base_date=config.base_date)
         indices[b_code] = rebased
         anchors[b_code] = anchor
-    return CoreIndexResults(indices=indices, rebase_anchors=anchors)
+    return CoreIndexResults(
+        indices=indices,
+        rebase_anchors=anchors,
+        constituent_decisions=_decisions_list_to_df(all_decisions),
+    )

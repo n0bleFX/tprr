@@ -798,3 +798,23 @@ The right framing depends on Phase 10 multi-seed and threshold sensitivity resul
 
 **Methodology section**: 3.3.2 (three-tier hierarchy), 4.2.2 (gate parameters), 4.2.4 (min_constituents_per_tier)
 
+## 2026-04-30 — Phase 7 Batch D — FPR/SER tier weight share semantics: NaN per ratio symmetry
+
+**Decision**: TPRR_FPR and TPRR_SER ratio indices set tier_a_weight_share, tier_b_weight_share, tier_c_weight_share to NaN. The fields are not applicable to ratio indices.
+
+**Context**: The IndexValue schema (Phase 7 Batch A additions) defines tier weight share fields for constituent-aggregation outputs. FPR (TPRR_F / TPRR_S) and SER (TPRR_S / TPRR_E) are ratios of tier indices, not constituent aggregations. The current Batch B implementation inherits tier weight share from the numerator (FPR uses TPRR_F's share, SER uses TPRR_S's share). This is asymmetric in a way the methodology doesn't justify.
+
+**Alternatives considered**:
+- Numerator-only (current Batch B implementation): asymmetric privileging of one side of the ratio. Misleading for any analyst querying ratio rows for tier-mix context.
+- n_active-weighted average across numerator + denominator: synthesizes a "tier mix of the union of constituents driving this ratio" statistic that doesn't appear in the methodology. Defensible as a constructed concept but adds methodological surface area.
+- NaN (chosen): tier weight share is a property of constituent aggregations. Ratios of aggregations don't have a tier mix in any well-defined sense. Phase 9/10 consumers query underlying F/S/E rows for tier-mix context.
+
+**Rationale**: The methodology's tier weight share field is implicitly defined as a property of the dual-weighted aggregation formula (Section 3.3.1). FPR/SER are post-hoc ratios computed from already-aggregated indices — they have no constituents in their formula and therefore no tier mix. NaN with documentation is the methodologically clean choice. Phase 9 visualization and Phase 10 sensitivity work that need tier-mix context for ratio rows must join against the underlying tier index rows.
+
+**Impact**:
+- IndexValueDF rows with index_code="TPRR_FPR" or index_code="TPRR_SER" carry NaN in tier_a/b/c_weight_share columns
+- Phase 9 chart code handles NaN tier shares as "not applicable" (semantically distinct from "tier has zero share")
+- Phase 10 sensitivity analyses on ratio indices join to underlying tier index rows for tier-mix context
+
+**Methodology section**: 3.3.4 (derived indices). Section 3.3.4 doesn't specify tier weight share for ratios; this entry resolves the ambiguity.
+

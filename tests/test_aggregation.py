@@ -27,9 +27,12 @@ from tprr.config import (
     TierBRevenueEntry,
 )
 from tprr.index.aggregation import (
+    _DECISION_FIELDS,
+    ConstituentExclusionReason,
     SuspensionReason,
     collapse_constituent_price,
     compute_tier_index,
+    exponential_weight,
     run_tier_pipeline,
 )
 from tprr.index.weights import TierBVolumeFn
@@ -850,3 +853,721 @@ def test_run_all_core_indices_per_tier_anchor_when_one_tier_suspended() -> None:
     assert result.rebase_anchors["TPRR_F"] == date(2025, 1, 1)
     assert result.rebase_anchors["TPRR_E"] == date(2025, 1, 1)
     assert result.rebase_anchors["TPRR_S"] == date(2025, 1, 2)
+
+
+# ---------------------------------------------------------------------------
+# build_rebase_metadata_df (Batch D — Q2)
+# ---------------------------------------------------------------------------
+
+
+def test_build_rebase_metadata_df_columns_match_spec() -> None:
+    """Schema check: every required column appears with one row per index_code."""
+    from tprr.index.aggregation import build_rebase_metadata_df
+
+    indices = {
+        "TPRR_F": pd.DataFrame(
+            [
+                _index_value_df_row(as_of_date=date(2025, 12, 31), raw_value=50.0),
+                _index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=60.0),
+            ]
+        ),
+    }
+    metadata = build_rebase_metadata_df(
+        indices=indices,
+        rebase_anchors={"TPRR_F": date(2026, 1, 1)},
+        base_date=date(2026, 1, 1),
+    )
+    expected_cols = {
+        "index_code",
+        "base_date",
+        "anchor_date",
+        "anchor_raw_value",
+        "n_pre_anchor_suspended_days",
+    }
+    assert set(metadata.columns) == expected_cols
+    assert len(metadata) == 1
+    assert (metadata["index_code"] == "TPRR_F").all()
+
+
+def test_build_rebase_metadata_df_anchor_date_matches_index_level_100_row() -> None:
+    """anchor_date equals the date where index_level hits the rebase target,
+    and anchor_raw_value matches that row's raw_value_usd_mtok."""
+    from tprr.index.aggregation import (
+        build_rebase_metadata_df,
+        rebase_index_level,
+    )
+
+    df = pd.DataFrame(
+        [
+            _index_value_df_row(as_of_date=date(2025, 12, 31), raw_value=50.0),
+            _index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=60.0),
+            _index_value_df_row(as_of_date=date(2026, 1, 2), raw_value=63.0),
+        ]
+    )
+    rebased, anchor = rebase_index_level(df, base_date=date(2026, 1, 1))
+    metadata = build_rebase_metadata_df(
+        indices={"TPRR_F": rebased},
+        rebase_anchors={"TPRR_F": anchor},
+        base_date=date(2026, 1, 1),
+    )
+    row = metadata.iloc[0]
+    # The anchor row in the rebased DF should have index_level == 100.
+    anchor_row_in_df = rebased[rebased["as_of_date"] == pd.Timestamp(row["anchor_date"])]
+    assert float(anchor_row_in_df["index_level"].iloc[0]) == pytest.approx(100.0)
+    # anchor_raw_value matches the raw_value at that date.
+    assert float(row["anchor_raw_value"]) == pytest.approx(60.0)
+
+
+def test_build_rebase_metadata_df_n_pre_anchor_suspended_days_counts_correctly() -> None:
+    """Counts rows strictly before anchor_date with suspended=True. Suspended
+    rows on or after the anchor are NOT counted; non-suspended pre-anchor rows
+    are NOT counted."""
+    from tprr.index.aggregation import build_rebase_metadata_df
+
+    df = pd.DataFrame(
+        [
+            # Pre-anchor: 2 suspended, 1 not suspended → 2 counted
+            _index_value_df_row(
+                as_of_date=date(2025, 12, 28),
+                raw_value=float("nan"),
+                suspended=True,
+                suspension_reason="insufficient_constituents",
+            ),
+            _index_value_df_row(
+                as_of_date=date(2025, 12, 29),
+                raw_value=50.0,
+                suspended=False,
+            ),
+            _index_value_df_row(
+                as_of_date=date(2025, 12, 30),
+                raw_value=float("nan"),
+                suspended=True,
+                suspension_reason="tier_data_unavailable",
+            ),
+            # On anchor: not counted as pre-anchor
+            _index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=60.0),
+            # Post-anchor suspended row: NOT counted
+            _index_value_df_row(
+                as_of_date=date(2026, 1, 2),
+                raw_value=float("nan"),
+                suspended=True,
+                suspension_reason="quality_gate_cascade",
+            ),
+        ]
+    )
+    metadata = build_rebase_metadata_df(
+        indices={"TPRR_F": df},
+        rebase_anchors={"TPRR_F": date(2026, 1, 1)},
+        base_date=date(2026, 1, 1),
+    )
+    assert int(metadata.iloc[0]["n_pre_anchor_suspended_days"]) == 2
+
+
+def test_build_rebase_metadata_df_no_anchor_emits_nan_anchor_value() -> None:
+    """When rebase produced no anchor, anchor_date is None, anchor_raw_value
+    is NaN, n_pre_anchor_suspended_days holds the total suspended-row count
+    (no anchor was reached, all suspended rows are pre-anchor in the limit)."""
+    from tprr.index.aggregation import build_rebase_metadata_df
+
+    df = pd.DataFrame(
+        [
+            _index_value_df_row(
+                as_of_date=date(2026, 1, 1),
+                raw_value=float("nan"),
+                suspended=True,
+                suspension_reason="insufficient_constituents",
+            ),
+            _index_value_df_row(
+                as_of_date=date(2026, 1, 2),
+                raw_value=float("nan"),
+                suspended=True,
+                suspension_reason="insufficient_constituents",
+            ),
+        ]
+    )
+    metadata = build_rebase_metadata_df(
+        indices={"TPRR_F": df},
+        rebase_anchors={"TPRR_F": None},
+        base_date=date(2026, 1, 1),
+    )
+    row = metadata.iloc[0]
+    assert row["anchor_date"] is None
+    assert np.isnan(float(row["anchor_raw_value"]))
+    assert int(row["n_pre_anchor_suspended_days"]) == 2
+
+
+def test_build_rebase_metadata_df_every_index_represented() -> None:
+    """One row per index_code, regardless of suspension state — Phase 10
+    sweeps need every index in the metadata frame for joinability."""
+    from tprr.index.aggregation import build_rebase_metadata_df
+
+    indices = {
+        "TPRR_F": pd.DataFrame(
+            [_index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=60.0)]
+        ),
+        "TPRR_S": pd.DataFrame(
+            [
+                _index_value_df_row(
+                    as_of_date=date(2026, 1, 1),
+                    raw_value=float("nan"),
+                    suspended=True,
+                    suspension_reason="insufficient_constituents",
+                )
+            ]
+        ),
+        "TPRR_E": pd.DataFrame(),
+    }
+    anchors: dict[str, date | None] = {
+        "TPRR_F": date(2026, 1, 1),
+        "TPRR_S": None,
+        "TPRR_E": None,
+    }
+    metadata = build_rebase_metadata_df(
+        indices=indices,
+        rebase_anchors=anchors,
+        base_date=date(2026, 1, 1),
+    )
+    assert set(metadata["index_code"]) == {"TPRR_F", "TPRR_S", "TPRR_E"}
+    assert (metadata["base_date"] == date(2026, 1, 1)).all()
+
+
+# ---------------------------------------------------------------------------
+# ConstituentDecisionDF — Batch D Q1 audit trail
+# ---------------------------------------------------------------------------
+
+
+def _registry_three_full_tiers() -> ModelRegistry:
+    """3F + 3S + 3E so run_all_core_indices touches every tier."""
+    return ModelRegistry(
+        models=[
+            ModelMetadata(
+                constituent_id=cid,
+                tier=tier,
+                provider=cid.split("/")[0],
+                canonical_name=cid,
+                baseline_input_price_usd_mtok=p_in,
+                baseline_output_price_usd_mtok=p_out,
+            )
+            for cid, tier, p_in, p_out in [
+                ("openai/gpt-5-pro", Tier.TPRR_F, 15.0, 75.0),
+                ("anthropic/claude-opus-4-7", Tier.TPRR_F, 14.0, 70.0),
+                ("google/gemini-3-pro", Tier.TPRR_F, 5.0, 30.0),
+                ("openai/gpt-5-mini", Tier.TPRR_S, 0.5, 4.0),
+                ("anthropic/claude-haiku-4-5", Tier.TPRR_S, 1.0, 5.0),
+                ("google/gemini-2-flash", Tier.TPRR_S, 0.3, 2.5),
+                ("google/gemini-flash-lite", Tier.TPRR_E, 0.1, 0.4),
+                ("openai/gpt-5-nano", Tier.TPRR_E, 0.15, 0.6),
+                ("deepseek/deepseek-v3-2", Tier.TPRR_E, 0.25, 1.0),
+            ]
+        ]
+    )
+
+
+def test_decisions_out_emits_one_row_per_active_constituent() -> None:
+    """Clean panel with 3 F constituents → 3 decision rows, all included=True."""
+    d = date(2025, 1, 1)
+    panel = _three_contributors_per_constituent_panel(d)
+    decisions: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        decisions_out=decisions,
+    )
+    assert len(decisions) == 3
+    assert all(d["included"] for d in decisions)
+    assert all(d["exclusion_reason"] == "" for d in decisions)
+    constituent_ids = {d["constituent_id"] for d in decisions}
+    assert constituent_ids == {
+        "openai/gpt-5-pro",
+        "anthropic/claude-opus-4-7",
+        "google/gemini-3-pro",
+    }
+
+
+def test_decisions_out_schema_matches_decision_fields() -> None:
+    """Every emitted decision row carries the full closed-set schema."""
+    d = date(2025, 1, 1)
+    panel = _three_contributors_per_constituent_panel(d)
+    decisions: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        decisions_out=decisions,
+    )
+    for row in decisions:
+        assert set(row.keys()) == set(_DECISION_FIELDS)
+
+
+def test_decisions_out_included_rows_populate_all_numeric_fields() -> None:
+    """Active constituents have non-NaN numeric fields including
+    weight_share_within_tier (which sums to 1.0 across active rows)."""
+    d = date(2025, 1, 1)
+    panel = _three_contributors_per_constituent_panel(d)
+    decisions: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        decisions_out=decisions,
+    )
+    numeric_fields = (
+        "raw_volume_mtok",
+        "constituent_price_usd_mtok",
+        "tier_median_price_usd_mtok",
+        "price_distance_from_median_pct",
+        "w_vol",
+        "w_exp",
+        "combined_weight",
+        "weight_share_within_tier",
+    )
+    for row in decisions:
+        for field_name in numeric_fields:
+            assert not np.isnan(row[field_name]), (
+                f"included row should populate {field_name!r}"
+            )
+        assert row["contributor_count"] > 0
+    # weight_share_within_tier sums to 1.0 within the (date, index_code) group.
+    total_share = sum(d["weight_share_within_tier"] for d in decisions)
+    assert total_share == pytest.approx(1.0)
+
+
+def test_decisions_out_tier_volume_unavailable_emits_excluded_row() -> None:
+    """A constituent that fails compute_tier_volume (all 3 tiers fail) emits
+    an excluded row with exclusion_reason=TIER_VOLUME_UNAVAILABLE. NaN
+    numerics, but constituent_id and contributor_count are populated.
+
+    Construction: 3 healthy F constituents (so the tier survives min-3) +
+    a 4th constituent (gpt-5-pro) with a Tier A row at volume_mtok_7d=0
+    (fails strict-positive Tier A activation), and provider has no Tier B
+    revenue config and no Tier C row → all 3 tiers fail → exclusion.
+    The other 3 constituents stay active with included=True."""
+    d = date(2025, 1, 1)
+    # Extend registry with a 4th F constituent so min-3 holds after gpt-5-pro drops.
+    registry = ModelRegistry(
+        models=[
+            *_registry().models,
+            ModelMetadata(
+                constituent_id="meta/llama-4-405b",
+                tier=Tier.TPRR_F,
+                provider="meta",
+                canonical_name="Llama 4 405B",
+                baseline_input_price_usd_mtok=10.0,
+                baseline_output_price_usd_mtok=50.0,
+            ),
+        ]
+    )
+    rows = []
+    # 3 healthy F constituents (opus, gemini, llama)
+    for cid, price in [
+        ("anthropic/claude-opus-4-7", 70.0),
+        ("google/gemini-3-pro", 30.0),
+        ("meta/llama-4-405b", 50.0),
+    ]:
+        for c in ["c1", "c2", "c3"]:
+            rows.append(
+                _row(
+                    constituent_id=cid,
+                    contributor_id=c,
+                    observation_date=d,
+                    attestation_tier=AttestationTier.A,
+                    volume_mtok_7d=100.0,
+                    twap_output=price,
+                )
+            )
+    # gpt-5-pro: 1 contributor with zero volume → Tier A fails (need ≥3 with
+    # vol>0), no Tier B revenue config → no Tier C row → excluded.
+    rows.append(
+        _row(
+            constituent_id="openai/gpt-5-pro",
+            contributor_id="c1",
+            observation_date=d,
+            attestation_tier=AttestationTier.A,
+            volume_mtok_7d=0.0,
+            twap_output=80.0,
+        )
+    )
+    panel = pd.DataFrame(rows)
+    decisions: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=registry,
+        tier_b_config=_empty_tier_b_config(),  # no Tier B for openai
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        decisions_out=decisions,
+    )
+    excluded = [d for d in decisions if not d["included"]]
+    assert len(excluded) == 1
+    assert excluded[0]["constituent_id"] == "openai/gpt-5-pro"
+    assert (
+        excluded[0]["exclusion_reason"]
+        == ConstituentExclusionReason.TIER_VOLUME_UNAVAILABLE.value
+    )
+    assert excluded[0]["selected_attestation_tier"] == ""
+    assert np.isnan(excluded[0]["raw_volume_mtok"])
+    assert np.isnan(excluded[0]["w_vol"])
+    # The other 3 constituents are included.
+    included = [d for d in decisions if d["included"]]
+    assert len(included) == 3
+
+
+def test_decisions_out_tier_aggregation_suspended_when_min_3_fails() -> None:
+    """Two active constituents → tier suspends (INSUFFICIENT_CONSTITUENTS).
+    The two computed-but-unused constituents emit excluded rows with
+    exclusion_reason=TIER_AGGREGATION_SUSPENDED. w_vol is real (computed);
+    w_exp / weight / median fields are NaN (the cascade never ran)."""
+    d = date(2025, 1, 1)
+    rows = []
+    for cid, price in [
+        ("openai/gpt-5-pro", 75.0),
+        ("google/gemini-3-pro", 30.0),
+    ]:
+        for c in ["c1", "c2", "c3"]:
+            rows.append(
+                _row(
+                    constituent_id=cid,
+                    contributor_id=c,
+                    observation_date=d,
+                    attestation_tier=AttestationTier.A,
+                    volume_mtok_7d=100.0,
+                    twap_output=price,
+                )
+            )
+    panel = pd.DataFrame(rows)
+    decisions: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        decisions_out=decisions,
+    )
+    assert len(decisions) == 2
+    for row in decisions:
+        assert not row["included"]
+        assert (
+            row["exclusion_reason"]
+            == ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value
+        )
+        # w_vol was computed before suspension decision.
+        assert not np.isnan(row["w_vol"])
+        assert not np.isnan(row["constituent_price_usd_mtok"])
+        # median + w_exp + weight cascade never ran.
+        assert np.isnan(row["tier_median_price_usd_mtok"])
+        assert np.isnan(row["w_exp"])
+        assert np.isnan(row["weight_share_within_tier"])
+
+
+def test_decisions_out_lambda_recomputability() -> None:
+    """Phase 10 λ-sweep: the decisions DataFrame must be sufficient to
+    recompute w_exp at a different λ without re-running the full pipeline.
+    Confirm that recomputed weights match a fresh pipeline run with the
+    new λ within float tolerance."""
+    d = date(2025, 1, 1)
+    panel = _three_contributors_per_constituent_panel(d)
+
+    # Run #1 at λ=3, capture decisions
+    config_a = IndexConfig(lambda_=3.0)
+    decisions_a: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=config_a,
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        decisions_out=decisions_a,
+    )
+
+    # Run #2 at λ=5, capture decisions (the "ground truth" for λ=5)
+    config_b = IndexConfig(lambda_=5.0)
+    decisions_b: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=config_b,
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        decisions_out=decisions_b,
+    )
+
+    # Recompute λ=5 weights from λ=3's decisions: w_exp = exp(-λ * |distance|)
+    # since price_distance_from_median_pct = |p - median| / median.
+    by_id_a = {d["constituent_id"]: d for d in decisions_a}
+    by_id_b = {d["constituent_id"]: d for d in decisions_b}
+    for cid, row_a in by_id_a.items():
+        recomputed_w_exp = exponential_weight(
+            row_a["constituent_price_usd_mtok"],
+            row_a["tier_median_price_usd_mtok"],
+            5.0,
+        )
+        assert recomputed_w_exp == pytest.approx(by_id_b[cid]["w_exp"])
+
+
+def test_run_tier_pipeline_decisions_out_accumulates_across_dates() -> None:
+    """The multi-day driver appends decisions across dates into the same list."""
+    panel_d1 = _three_contributors_per_constituent_panel(date(2025, 1, 1))
+    panel_d2 = _three_contributors_per_constituent_panel(date(2025, 1, 2))
+    panel = pd.concat([panel_d1, panel_d2], ignore_index=True)
+
+    decisions: list[dict[str, Any]] = []
+    run_tier_pipeline(
+        panel_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        decisions_out=decisions,
+    )
+    # 3 constituents x 2 days = 6 rows
+    assert len(decisions) == 6
+    dates = {d["as_of_date"] for d in decisions}
+    assert dates == {date(2025, 1, 1), date(2025, 1, 2)}
+
+
+def test_run_all_core_indices_constituent_decisions_covers_all_three_tiers() -> None:
+    """run_all_core_indices' constituent_decisions DataFrame contains rows for
+    F + S + E tiers — total 9 constituents on a clean single-day panel."""
+    from tprr.index.aggregation import run_all_core_indices
+
+    config = IndexConfig(base_date=date(2025, 1, 1))
+    panel = _three_tier_panel(date(2025, 1, 1))
+    result = run_all_core_indices(
+        panel_df=panel,
+        config=config,
+        registry=_registry_three_full_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    decisions = result.constituent_decisions
+    assert set(decisions["index_code"]) == {"TPRR_F", "TPRR_S", "TPRR_E"}
+    assert len(decisions) == 9  # 3 constituents per tier x 3 tiers
+    assert decisions["included"].all()
+
+
+def test_run_all_core_indices_constituent_decisions_schema() -> None:
+    """The DataFrame produced by run_all_core_indices carries every field
+    in _DECISION_FIELDS."""
+    from tprr.index.aggregation import run_all_core_indices
+
+    config = IndexConfig(base_date=date(2025, 1, 1))
+    panel = _three_tier_panel(date(2025, 1, 1))
+    result = run_all_core_indices(
+        panel_df=panel,
+        config=config,
+        registry=_registry_three_full_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    assert set(result.constituent_decisions.columns) == set(_DECISION_FIELDS)
+
+
+def test_decisions_list_to_df_empty_input_returns_empty_with_schema() -> None:
+    """An empty decisions list yields an empty DataFrame with all schema
+    columns present — keeps downstream consumer code uniform."""
+    from tprr.index.aggregation import _decisions_list_to_df
+
+    out = _decisions_list_to_df([])
+    assert out.empty
+    assert set(out.columns) == set(_DECISION_FIELDS)
+
+
+def test_decisions_out_all_pairs_suspended_emits_excluded_row() -> None:
+    """When every (contributor, constituent) pair for a constituent is
+    suspended, that constituent disappears from the per-constituent loop.
+    Audit trail emits an ALL_PAIRS_SUSPENDED decision row with NaN
+    numerics and contributor_count=0."""
+    d = date(2025, 1, 1)
+    panel = _three_contributors_per_constituent_panel(d)
+
+    # Suspend ALL three contributor pairs for openai/gpt-5-pro effective today.
+    susp = pd.DataFrame(
+        {
+            "contributor_id": ["contrib_alpha", "contrib_beta", "contrib_gamma"],
+            "constituent_id": ["openai/gpt-5-pro"] * 3,
+            "suspension_date": [pd.Timestamp(d)] * 3,
+        }
+    )
+
+    decisions: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp,
+        decisions_out=decisions,
+    )
+
+    all_pairs_suspended = [
+        x
+        for x in decisions
+        if x["exclusion_reason"]
+        == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
+    ]
+    assert len(all_pairs_suspended) == 1
+    row = all_pairs_suspended[0]
+    assert row["constituent_id"] == "openai/gpt-5-pro"
+    assert not row["included"]
+    assert row["selected_attestation_tier"] == ""
+    assert row["contributor_count"] == 0
+    for f in (
+        "raw_volume_mtok",
+        "constituent_price_usd_mtok",
+        "tier_median_price_usd_mtok",
+        "price_distance_from_median_pct",
+        "w_vol",
+        "w_exp",
+        "combined_weight",
+        "weight_share_within_tier",
+    ):
+        assert np.isnan(row[f]), f"ALL_PAIRS_SUSPENDED row {f!r} should be NaN"
+
+
+def test_decisions_out_all_pairs_suspended_co_fires_with_tier_data_unavailable() -> None:
+    """When EVERY constituent in a tier loses all its pairs, the tier itself
+    suspends with TIER_DATA_UNAVAILABLE AND each affected constituent gets
+    an ALL_PAIRS_SUSPENDED audit row. The two signals are not mutually
+    exclusive — they describe the same event from different levels."""
+    d = date(2025, 1, 1)
+    panel = _three_contributors_per_constituent_panel(d)
+
+    # Suspend EVERY contributor pair for EVERY F constituent on this date.
+    susp_rows = []
+    for cid in (
+        "openai/gpt-5-pro",
+        "anthropic/claude-opus-4-7",
+        "google/gemini-3-pro",
+    ):
+        for c in ("contrib_alpha", "contrib_beta", "contrib_gamma"):
+            susp_rows.append(
+                {
+                    "contributor_id": c,
+                    "constituent_id": cid,
+                    "suspension_date": pd.Timestamp(d),
+                }
+            )
+    susp = pd.DataFrame(susp_rows)
+
+    decisions: list[dict[str, Any]] = []
+    result = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp,
+        decisions_out=decisions,
+    )
+    # Tier-level: TIER_DATA_UNAVAILABLE.
+    assert result["suspended"]
+    assert (
+        result["suspension_reason"]
+        == SuspensionReason.TIER_DATA_UNAVAILABLE.value
+    )
+    # Per-constituent: 3 ALL_PAIRS_SUSPENDED rows (one per F constituent).
+    all_pairs_suspended = [
+        x
+        for x in decisions
+        if x["exclusion_reason"]
+        == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
+    ]
+    assert len(all_pairs_suspended) == 3
+    suspended_constituents = {x["constituent_id"] for x in all_pairs_suspended}
+    assert suspended_constituents == {
+        "openai/gpt-5-pro",
+        "anthropic/claude-opus-4-7",
+        "google/gemini-3-pro",
+    }
+
+
+def test_decisions_out_all_pairs_suspended_respects_tier_code_filter() -> None:
+    """A constituent in a different tier whose pairs are suspended on this
+    date does NOT contribute an ALL_PAIRS_SUSPENDED row to a tier under
+    computation that doesn't include it. Ensures the pre-drop snapshot
+    runs after the tier_code filter."""
+    d = date(2025, 1, 1)
+    rows: list[dict[str, Any]] = []
+    # F-tier panel — 3 healthy F constituents
+    for cid, price in [
+        ("openai/gpt-5-pro", 75.0),
+        ("anthropic/claude-opus-4-7", 70.0),
+        ("google/gemini-3-pro", 30.0),
+    ]:
+        for c in ["c1", "c2", "c3"]:
+            rows.append(
+                _row(
+                    constituent_id=cid,
+                    contributor_id=c,
+                    observation_date=d,
+                    attestation_tier=AttestationTier.A,
+                    volume_mtok_7d=100.0,
+                    twap_output=price,
+                )
+            )
+    # An S-tier constituent — its pairs will be suspended, but the S
+    # constituent must NOT show up in the F-tier audit.
+    rows.append(
+        _row(
+            constituent_id="openai/gpt-5-mini",
+            contributor_id="contrib_alpha",
+            observation_date=d,
+            attestation_tier=AttestationTier.A,
+            volume_mtok_7d=500.0,
+            twap_output=4.0,
+            tier_code=Tier.TPRR_S,
+        )
+    )
+    panel = pd.DataFrame(rows)
+
+    susp = pd.DataFrame(
+        {
+            "contributor_id": ["contrib_alpha"],
+            "constituent_id": ["openai/gpt-5-mini"],
+            "suspension_date": [pd.Timestamp(d)],
+        }
+    )
+
+    decisions: list[dict[str, Any]] = []
+    compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_index_config(),
+        registry=_registry(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp,
+        decisions_out=decisions,
+    )
+
+    # The S-tier constituent must not appear in the F audit at all.
+    constituent_ids = {x["constituent_id"] for x in decisions}
+    assert "openai/gpt-5-mini" not in constituent_ids
+    # No ALL_PAIRS_SUSPENDED rows on the F tier — no F constituent fully
+    # suspended.
+    all_pairs_suspended = [
+        x
+        for x in decisions
+        if x["exclusion_reason"]
+        == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
+    ]
+    assert len(all_pairs_suspended) == 0

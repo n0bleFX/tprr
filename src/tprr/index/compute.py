@@ -34,12 +34,14 @@ suspension stays sticky.
 from __future__ import annotations
 
 from datetime import date
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import pandas as pd
 
 from tprr.config import IndexConfig, ModelRegistry, TierBRevenueConfig
 from tprr.index.aggregation import (
+    _decisions_list_to_df,
+    build_rebase_metadata_df,
     rebase_index_level,
     run_tier_pipeline,
 )
@@ -64,6 +66,20 @@ class FullPipelineResults(NamedTuple):
     IndexValueDF-shape DataFrame.
     ``rebase_anchors``: per-index anchor date (``None`` if no eligible
     anchor existed at or after ``config.base_date``).
+    ``rebase_metadata_df``: structured DataFrame with one row per
+    ``index_code`` carrying ``(base_date, anchor_date, anchor_raw_value,
+    n_pre_anchor_suspended_days)``. Built by ``build_rebase_metadata_df``;
+    the dict above stays as a quick lookup, this frame is the artefact
+    Phase 10 sweeps load and compare across parameter realisations
+    (decision log 2026-04-30 Phase 7 Batch D — Q2).
+    ``constituent_decisions``: per-(date, index_code, constituent_id)
+    audit DataFrame for the 6 constituent-aggregation indices
+    (TPRR_F/S/E + TPRR_B_F/B_S/B_E). FPR/SER do not contribute rows
+    (they are ratios, not constituent aggregations). Schema documented
+    in ``tprr.index.aggregation._DECISION_FIELDS``. Phase 10 sensitivity
+    sweeps consume this frame to recompute λ-sensitive and haircut-
+    sensitive aggregates without re-running the full pipeline (decision
+    log 2026-04-30 Phase 7 Batch D — Q1).
     ``excluded_slots``: the slot-level gate's output for traceability.
     ``suspended_pairs``: the (contributor, constituent, suspension_date)
     DataFrame consumed by aggregation, for traceability.
@@ -71,6 +87,8 @@ class FullPipelineResults(NamedTuple):
 
     indices: dict[str, pd.DataFrame]
     rebase_anchors: dict[str, date | None]
+    rebase_metadata_df: pd.DataFrame
+    constituent_decisions: pd.DataFrame
     excluded_slots: pd.DataFrame
     suspended_pairs: pd.DataFrame
 
@@ -144,6 +162,7 @@ def run_full_pipeline(
 
     indices: dict[str, pd.DataFrame] = {}
     anchors: dict[str, date | None] = {}
+    decisions: list[dict[str, Any]] = []
 
     for tier in (Tier.TPRR_F, Tier.TPRR_S, Tier.TPRR_E):
         tier_indices = run_tier_pipeline(
@@ -156,6 +175,7 @@ def run_full_pipeline(
             suspended_pairs_df=suspended_pairs,
             ordering=ordering,
             version=version,
+            decisions_out=decisions,
         )
         rebased, anchor = rebase_index_level(
             tier_indices, base_date=config.base_date
@@ -189,10 +209,25 @@ def run_full_pipeline(
     for code, df in b_result.indices.items():
         indices[code] = df
         anchors[code] = b_result.rebase_anchors[code]
+    # Merge B-series per-constituent decisions into the same accumulator.
+    if not b_result.constituent_decisions.empty:
+        b_records: list[dict[str, Any]] = [
+            {str(k): v for k, v in rec.items()}
+            for rec in b_result.constituent_decisions.to_dict("records")
+        ]
+        decisions.extend(b_records)
+
+    rebase_metadata_df = build_rebase_metadata_df(
+        indices=indices,
+        rebase_anchors=anchors,
+        base_date=config.base_date,
+    )
 
     return FullPipelineResults(
         indices=indices,
         rebase_anchors=anchors,
+        rebase_metadata_df=rebase_metadata_df,
+        constituent_decisions=_decisions_list_to_df(decisions),
         excluded_slots=excluded_slots,
         suspended_pairs=suspended_pairs,
     )

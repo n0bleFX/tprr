@@ -779,3 +779,309 @@ def test_run_full_pipeline_empty_panel() -> None:
         "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
     ):
         assert result.indices[code].empty
+
+
+# ---------------------------------------------------------------------------
+# Batch D — rebase_metadata_df on FullPipelineResults (Q2)
+# ---------------------------------------------------------------------------
+
+
+def test_run_full_pipeline_rebase_metadata_df_covers_every_index() -> None:
+    """Every index_code in result.indices appears as a row in
+    rebase_metadata_df, with base_date threading through from config."""
+    panel = _multi_day_clean_panel(n_days=10)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    metadata = result.rebase_metadata_df
+    assert set(metadata.columns) == {
+        "index_code",
+        "base_date",
+        "anchor_date",
+        "anchor_raw_value",
+        "n_pre_anchor_suspended_days",
+    }
+    assert set(metadata["index_code"]) == set(result.indices.keys())
+    assert (metadata["base_date"] == date(2025, 1, 1)).all()
+
+
+def test_run_full_pipeline_rebase_metadata_anchor_matches_index_level_100() -> None:
+    """For each index, the anchor_date in metadata corresponds to the row
+    where index_level == 100 in the IndexValueDF — verifies the metadata
+    is consistent with the rebase actually applied."""
+    panel = _multi_day_clean_panel(n_days=10)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    metadata = result.rebase_metadata_df
+    for _, row in metadata.iterrows():
+        code = str(row["index_code"])
+        anchor = row["anchor_date"]
+        if anchor is None:
+            continue
+        df = result.indices[code]
+        anchor_row = df[df["as_of_date"] == pd.Timestamp(anchor)]
+        assert not anchor_row.empty, f"{code} anchor {anchor} not in IndexValueDF"
+        assert float(anchor_row["index_level"].iloc[0]) == pytest.approx(100.0)
+        assert float(row["anchor_raw_value"]) == pytest.approx(
+            float(anchor_row["raw_value_usd_mtok"].iloc[0])
+        )
+
+
+def test_run_full_pipeline_rebase_metadata_dict_and_df_agree() -> None:
+    """The rebase_anchors dict and rebase_metadata_df anchor_date column
+    carry the same values — the dict stays as a quick lookup, the DF as
+    the structured artefact, and they must not drift."""
+    panel = _multi_day_clean_panel(n_days=10)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    metadata = result.rebase_metadata_df
+    for _, row in metadata.iterrows():
+        code = str(row["index_code"])
+        assert result.rebase_anchors[code] == row["anchor_date"]
+
+
+def test_run_full_pipeline_rebase_metadata_n_pre_anchor_counts_pre_base_suspensions() -> None:
+    """Set base_date past the start of the panel; verify that suspended
+    days strictly before the anchor count up correctly. We engineer a panel
+    where the first 5 days are too short for the gate's 5-day warmup so
+    everything is active, then days 6-10 are clean too — so n_pre is 0 for
+    every index. The load-bearing assertion is type/dtype; the engineered
+    suspension test below covers the count."""
+    panel = _multi_day_clean_panel(n_days=10, start=date(2025, 1, 1))
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        # Anchor on the LAST day of the panel — earlier days are non-suspended
+        # but pre-anchor; n_pre_anchor counts ONLY suspended pre-anchor days.
+        config=_config(date(2025, 1, 10)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    metadata = result.rebase_metadata_df
+    for _, row in metadata.iterrows():
+        # No suspensions on the clean panel → n_pre_anchor must be 0
+        assert int(row["n_pre_anchor_suspended_days"]) == 0
+
+
+def test_run_full_pipeline_rebase_metadata_no_anchor_when_index_is_empty() -> None:
+    """Empty panel → every index is empty → every metadata row carries
+    anchor_date=None, anchor_raw_value=NaN, n_pre_anchor_suspended_days=0."""
+    result = run_full_pipeline(
+        panel_df=pd.DataFrame(
+            columns=[
+                "observation_date",
+                "constituent_id",
+                "contributor_id",
+                "tier_code",
+                "attestation_tier",
+                "input_price_usd_mtok",
+                "output_price_usd_mtok",
+                "volume_mtok_7d",
+                "twap_output_usd_mtok",
+                "twap_input_usd_mtok",
+                "source",
+                "submitted_at",
+                "notes",
+            ]
+        ),
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    metadata = result.rebase_metadata_df
+    assert len(metadata) == len(result.indices)
+    for _, row in metadata.iterrows():
+        assert row["anchor_date"] is None
+        import math
+        assert math.isnan(float(row["anchor_raw_value"]))
+        assert int(row["n_pre_anchor_suspended_days"]) == 0
+
+
+# ---------------------------------------------------------------------------
+# Batch D — ConstituentDecisionDF on FullPipelineResults (Q1)
+# ---------------------------------------------------------------------------
+
+
+def test_run_full_pipeline_constituent_decisions_covers_all_six_aggregation_indices() -> None:
+    """ConstituentDecisionDF includes rows for F/S/E + B_F/B_S/B_E. FPR/SER
+    are ratios, not constituent aggregations, so they don't contribute rows."""
+    panel = _multi_day_clean_panel(n_days=2)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    decisions = result.constituent_decisions
+    expected_codes = {
+        "TPRR_F", "TPRR_S", "TPRR_E",
+        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+    }
+    assert set(decisions["index_code"]) == expected_codes
+    # No FPR/SER rows
+    assert "TPRR_FPR" not in decisions["index_code"].unique()
+    assert "TPRR_SER" not in decisions["index_code"].unique()
+
+
+def test_run_full_pipeline_constituent_decisions_count_matches_active_constituents() -> None:
+    """3 F + 3 S + 3 E constituents x 2 days x 2 index families (core + B)
+    = 36 rows on a clean panel. All included=True."""
+    panel = _multi_day_clean_panel(n_days=2)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    decisions = result.constituent_decisions
+    assert len(decisions) == 36
+    assert decisions["included"].all()
+
+
+def test_run_full_pipeline_constituent_decisions_weight_shares_sum_to_one_per_group() -> None:
+    """Within each (date, index_code) group, weight_share_within_tier sums
+    to 1.0 across included rows."""
+    panel = _multi_day_clean_panel(n_days=2)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    decisions = result.constituent_decisions
+    included = decisions[decisions["included"]]
+    grouped_sum = included.groupby(["as_of_date", "index_code"])[
+        "weight_share_within_tier"
+    ].sum()
+    import numpy as np
+    assert np.allclose(grouped_sum.to_numpy(), 1.0)
+
+
+def test_run_full_pipeline_constituent_decisions_propagates_pair_suspension_cascade() -> None:
+    """A 3-day spike on (c1, gpt-5-pro) suspends the pair. After the
+    suspension takes effect, gpt-5-pro loses a contributor → fewer
+    Tier A contributors → tier suspends. The decisions DataFrame on the
+    suspension day shows the surviving 2 F constituents as
+    TIER_AGGREGATION_SUSPENDED (not included)."""
+    rows: list[dict[str, Any]] = []
+    f_set = [
+        ("openai/gpt-5-pro", 75.0, 15.0),
+        ("anthropic/claude-opus-4-7", 70.0, 14.0),
+        ("google/gemini-3-pro", 30.0, 5.0),
+    ]
+    n_warmup = 5
+    n_fire_days = 3
+    for offset in range(n_warmup + n_fire_days + 1):
+        d = date(2025, 1, 1) + timedelta(days=offset)
+        for cid, p_out, p_in in f_set:
+            for contrib in ["c1", "c2", "c3"]:
+                if (
+                    offset >= n_warmup
+                    and offset < n_warmup + n_fire_days
+                    and contrib == "c1"
+                    and cid == "openai/gpt-5-pro"
+                ):
+                    p_o, p_i = p_out * 2.0, p_in * 2.0
+                else:
+                    p_o, p_i = p_out, p_in
+                rows.append(
+                    _row(
+                        cid=cid,
+                        contrib=contrib,
+                        d=d,
+                        twap_out=p_o,
+                        twap_in=p_i,
+                        volume=100.0,
+                        tier=Tier.TPRR_F,
+                    )
+                )
+    panel = pd.DataFrame(rows)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    decisions = result.constituent_decisions
+    # On the last day (when c1 has been suspended), the F-tier suspends and
+    # the surviving 2 active constituents emit excluded rows.
+    last_day = pd.Timestamp(date(2025, 1, 1) + timedelta(days=n_warmup + n_fire_days))
+    f_last = decisions[
+        (decisions["index_code"] == "TPRR_F")
+        & (decisions["as_of_date"] == last_day)
+    ]
+    # opus + gemini survived (gpt-5-pro lost a contributor → tier_volume_unavailable).
+    excluded = f_last[~f_last["included"]]
+    assert len(excluded) > 0
+    suspended_rows = excluded[
+        excluded["exclusion_reason"] == "tier_aggregation_suspended"
+    ]
+    assert len(suspended_rows) == 2  # opus + gemini
+    suspended_constituent_ids = set(suspended_rows["constituent_id"])
+    assert suspended_constituent_ids == {
+        "anthropic/claude-opus-4-7",
+        "google/gemini-3-pro",
+    }
+
+
+def test_run_full_pipeline_constituent_decisions_empty_panel_returns_empty_df_with_schema() -> None:
+    """Empty panel → empty constituent_decisions DataFrame, but with the
+    full schema columns present so downstream consumers can iterate without
+    KeyError."""
+    from tprr.index.aggregation import _DECISION_FIELDS
+
+    result = run_full_pipeline(
+        panel_df=pd.DataFrame(
+            columns=[
+                "observation_date",
+                "constituent_id",
+                "contributor_id",
+                "tier_code",
+                "attestation_tier",
+                "input_price_usd_mtok",
+                "output_price_usd_mtok",
+                "volume_mtok_7d",
+                "twap_output_usd_mtok",
+                "twap_input_usd_mtok",
+                "source",
+                "submitted_at",
+                "notes",
+            ]
+        ),
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    decisions = result.constituent_decisions
+    assert decisions.empty
+    assert set(decisions.columns) == set(_DECISION_FIELDS)
