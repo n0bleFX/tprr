@@ -131,3 +131,218 @@ def build_index_level_subplot(
         row=row,
         col=col,
     )
+
+
+def build_ratio_subplot(
+    fig: go.Figure,
+    *,
+    row: int,
+    col: int,
+    indices_df: pd.DataFrame,
+    index_code: str,
+) -> None:
+    """Add a ratio time series for FPR or SER.
+
+    Structurally similar to ``build_index_level_subplot`` (line +
+    suspended markers) but with a y-axis label that names the dimension
+    explicitly: a ratio of two tier indices, not an index of constituent
+    prices. The distinction matters when the audience is reading both
+    level and ratio panels in the same dashboard — same colour family,
+    different semantic.
+
+    SER expansion (DL 2026-04-30 Phase 7 Batch B empirical observation)
+    is the headline backtest finding the ratio panels exist to surface;
+    a ~3x trajectory across the backtest reads cleanly on a rebased-100
+    axis.
+
+    ``indices_df`` is expected to be either ``FullPipelineResults.indices
+    ["TPRR_FPR"]`` or ``["TPRR_SER"]``. tier_*_weight_share columns are
+    NaN on ratio rows (DL 2026-04-30 Phase 7 Batch D — FPR/SER tier
+    weight share semantics: NaN per ratio symmetry); this builder does
+    not consume them.
+    """
+    if indices_df.empty:
+        return
+
+    colour = TIER_COLOURS.get(index_code, "#444444")
+
+    fig.add_trace(
+        go.Scatter(
+            x=indices_df["as_of_date"],
+            y=indices_df["index_level"],
+            mode="lines",
+            name=index_code,
+            line={"color": colour, "width": 1.5},
+            hovertemplate=(
+                f"<b>{index_code}</b><br>"
+                "Date: %{x|%Y-%m-%d}<br>"
+                "Ratio level: %{y:.2f}<br>"
+                "<extra></extra>"
+            ),
+        ),
+        row=row,
+        col=col,
+    )
+
+    suspended_df = indices_df[indices_df["suspended"]]
+    if not suspended_df.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=suspended_df["as_of_date"],
+                y=[0.0] * len(suspended_df),
+                mode="markers",
+                name=f"{index_code} suspended",
+                marker={
+                    "color": SUSPENDED_MARKER_COLOUR,
+                    "size": 5,
+                    "symbol": "x",
+                },
+                showlegend=False,
+                hovertemplate=(
+                    f"<b>{index_code} suspended</b><br>"
+                    "Date: %{x|%Y-%m-%d}<br>"
+                    "Reason: %{customdata}<br>"
+                    "<extra></extra>"
+                ),
+                customdata=suspended_df["suspension_reason"].to_list(),
+            ),
+            row=row,
+            col=col,
+        )
+
+    fig.update_xaxes(
+        title_text="",
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )
+    fig.update_yaxes(
+        title_text="Ratio (rebased to 100)",
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )
+
+
+BLENDED_REFERENCE_RATIO = 0.80
+
+
+def build_blended_overlay_subplot(
+    fig: go.Figure,
+    *,
+    row: int,
+    col: int,
+    core_df: pd.DataFrame,
+    blended_df: pd.DataFrame,
+    core_code: str,
+    blended_code: str,
+) -> None:
+    """Plot the per-day raw-value ratio ``B_X / X`` for one tier.
+
+    Both core and blended series are independently rebased to 100 on the
+    same anchor date, so plotting their index_levels overlaid would force
+    convergence at the anchor by construction — the formula's ~20%
+    blended-to-output gap would be invisible. Plotting the **raw-value
+    ratio** isolates the formula effect from the rebase: under the
+    methodology's output-heavy 0.75/0.25 weighting (Section 3.3.4), the
+    ratio sits near 0.80 on a panel where input prices run ~5x cheaper
+    than output, slowly varying as the input/output spread evolves.
+
+    A horizontal reference line at y=0.80 with annotation surfaces the
+    methodology baseline so analysts can read deviation directly.
+
+    On suspended days for either series, the ratio is NaN (no published
+    raw value). Inner-join on ``as_of_date`` keeps the ratio well-defined
+    only where both series produced a daily fix.
+    """
+    if core_df.empty or blended_df.empty:
+        return
+
+    merged = core_df[["as_of_date", "raw_value_usd_mtok", "suspended"]].merge(
+        blended_df[["as_of_date", "raw_value_usd_mtok", "suspended"]],
+        on="as_of_date",
+        suffixes=("_core", "_blended"),
+        how="inner",
+    ).sort_values("as_of_date").reset_index(drop=True)
+
+    if merged.empty:
+        return
+
+    # Mask suspended days on either side: ratio is undefined.
+    suspended_mask = merged["suspended_core"] | merged["suspended_blended"]
+    core_raw = merged["raw_value_usd_mtok_core"].astype(float)
+    blended_raw = merged["raw_value_usd_mtok_blended"].astype(float)
+    ratio = blended_raw / core_raw
+    ratio_masked = ratio.where(~suspended_mask & core_raw.gt(0))
+
+    blended_colour = TIER_COLOURS.get(blended_code, "#444444")
+
+    fig.add_trace(
+        go.Scatter(
+            x=merged["as_of_date"],
+            y=ratio_masked,
+            mode="lines",
+            name=f"{blended_code} / {core_code}",
+            line={"color": blended_colour, "width": 1.5},
+            customdata=list(
+                zip(
+                    blended_raw.tolist(),
+                    core_raw.tolist(),
+                    strict=True,
+                )
+            ),
+            hovertemplate=(
+                f"<b>{blended_code} / {core_code}</b><br>"
+                "Date: %{x|%Y-%m-%d}<br>"
+                f"{blended_code} raw: %{{customdata[0]:.4f}}<br>"
+                f"{core_code} raw: %{{customdata[1]:.4f}}<br>"
+                "Ratio: %{y:.4f}<br>"
+                "<extra></extra>"
+            ),
+        ),
+        row=row,
+        col=col,
+    )
+
+    # Horizontal reference line at y=0.80. Plotly's add_hline doesn't
+    # accept (row, col) for a subplot in older versions of make_subplots,
+    # so add it as a flat Scatter trace spanning the same x-range.
+    fig.add_trace(
+        go.Scatter(
+            x=[merged["as_of_date"].iloc[0], merged["as_of_date"].iloc[-1]],
+            y=[BLENDED_REFERENCE_RATIO, BLENDED_REFERENCE_RATIO],
+            mode="lines",
+            name=f"reference {BLENDED_REFERENCE_RATIO:.2f}",
+            line={"color": "#888888", "width": 1.0, "dash": "dot"},
+            showlegend=False,
+            hovertemplate=(
+                "Reference: %{y:.2f}<br>"
+                "(Section 3.3.4 expected with input/output ~1:5)<br>"
+                "<extra></extra>"
+            ),
+        ),
+        row=row,
+        col=col,
+    )
+
+    fig.update_xaxes(
+        title_text="",
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )
+    fig.update_yaxes(
+        title_text=f"{blended_code} / {core_code} (raw value ratio)",
+        range=[0.0, 1.2],
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )

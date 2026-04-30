@@ -864,3 +864,60 @@ If results are substantively different, the methodology should specify which ord
 
 **Methodology section**: 3.3.4 (TPRR_B blended series — formula correction)
 
+## 2026-04-30 — Phase 9 visual verification: post-cascade FPR/SER trajectories more dramatic than pre-cascade Batch B empirical entry
+
+**Observation**: Phase 9 dashboard rendering of the full seed-42 backtest surfaced that the FPR/SER trajectory endpoints in the post-cascade pipeline output (Batch C onwards) differ materially from the pre-cascade values recorded in the DL Phase 7 Batch B empirical entry.
+
+**Numbers**:
+- DL Batch B empirical (pre-cascade Batch C, Tier-A-only aggregation):
+  - FPR: 12.76 → 9.32 over the backtest (27% compression)
+  - SER: 5.36 → 17.23 over the backtest (3.2× expansion)
+- Post-cascade dashboard rendering (full pipeline at HEAD):
+  - FPR: 12.76 → 11.79 over the backtest (7.6% compression — much smaller)
+  - SER: 5.36 → 38.53 over the backtest (7.2× expansion — much larger)
+
+**Diagnosis**: Batch C's suspension cascade + Tier B fall-through changes the aggregation behaviour substantially for E-tier constituents. By base-date 2026-01-01, Tier B carries near-100% weight share for E-tier (per DL 2026-04-30 Phase 7 Batch C empirical entry). Tier B's revenue-derived volumes for E-tier produce different price aggregation than Tier-A-only computation, driving the post-cascade E-tier price significantly lower than pre-cascade. SER (S/E ratio) consequently expands more dramatically.
+
+For F-tier, the cascade also hits but Tier A coverage remains stronger (3/6 F-tier constituents survive in Tier A through base-date per Phase 7 Batch C report). F-tier price decline is therefore less dramatic than E-tier's, which means FPR (F/S) compresses less than the pre-cascade entry suggested.
+
+**Phase 11 narrative implications**:
+- "SER tripled" framing from the pre-cascade entry should be updated to "SER 7×'d" for accuracy
+- The cross-tier cascade affects F, S, and E asymmetrically — F-tier coverage is more robust than E-tier, which means the cascade transition produces a magnified S/E divergence rather than a uniform shift
+- This asymmetry is itself a methodology finding: the three-tier hierarchy + suspension cascade combination produces tier-specific price dynamics that aren't visible in pre-cascade aggregation. Section 3.3.2 priority fall-through interacts with cross-tier magnitude (DL 2026-04-29 entries) to produce these patterns.
+
+**Phase 10 obligation**: Multi-seed runs should report FPR and SER trajectories under the full pipeline. Verify whether the asymmetric F-vs-S-vs-E cascade pattern is robust across seeds or seed-42-specific. Phase 11 writeup positioning depends on the answer.
+
+**Methodology section**: 3.3.2 (priority fall-through), 3.3.4 (derived indices)
+
+## 2026-04-30 — Suspension reinstatement criteria: v1.3 specification gap, Phase 7G implementation queued
+
+**Decision**: v0.1 implements automated suspension (3 consecutive days of slot-level gate firings → (contributor, constituent) pair suspended) but NOT automated reinstatement. Once a pair suspends, it remains suspended for the remainder of the backtest. This is a v0.1 implementation choice that produces an unprincipled one-way ratchet (asymmetric exclusion-only criterion); v1.3 methodology should specify symmetric exclusion AND reinstatement criteria. Implementation is queued for Phase 7G between Phase 9 close and Phase 10 start.
+
+**Context**: DL 2026-04-29 Phase 6 suspension counter entry stated "Sticky semantics: a suspended constituent does not re-enter the index without explicit operational unsuspend (out of scope for v0.1)." The reasoning was that v0.1 has no Index Committee or Data Governance Officer to manually unsuspend, so the unsuspend mechanism was deferred. This deferral is methodologically incomplete: v0.1 implements automated exclusion (no Index Committee involvement), so symmetry requires automated reinstatement.
+
+**Empirical impact (the cascade finding)**: DL 2026-04-30 Phase 7 Batch C empirical entry documented that on the seed-42 clean panel, 68 (contributor, constituent) pairs suspended over 365 days, cascading Tier A constituents below the min-3 threshold and producing a 100% Tier A → 99-100% Tier B weight share transition by base_date. This monotonic decay is a direct consequence of one-way suspension. Real benchmark methodology (ICE Brent contributor reinstatement, ISDA reference-rate fallback frameworks) specifies bidirectional exclusion/reinstatement. The v0.1 cascade finding overstates how often real Tier A coverage would degrade because real coverage oscillates as contributors recover from temporary aberrations.
+
+**v1.3 specification proposal (Phase 7G implementation)**:
+- **Suspension trigger** (existing): 3 consecutive days with ≥1 slot-level gate firing on the (contributor, constituent) pair → suspended
+- **Reinstatement trigger** (new): N consecutive days of on-market behavior (NO slot-level gate firings) AFTER suspension → reinstated
+- **Asymmetric N**: reinstatement threshold MORE STRINGENT than suspension threshold. Default proposed: 10 days. Sensitivity sweeps in Phase 10 test 5/10/15/20-day variants.
+- **Per-pair counter**: each suspended pair maintains a "consecutive-on-market-days-since-suspension" counter. Counter increments each gate-clean day; resets to 0 on any gate firing; reinstatement triggers when counter reaches threshold.
+- **No backfill**: reinstated pair contributes from reinstatement date forward, not retroactively. Past suspension days remain suspension days.
+
+**Asymmetry rationale**: 3-day exclusion captures sustained data-quality issues; 10-day reinstatement captures sustained recovery. The asymmetry creates a stability bias — easier to leave than to return — that prevents pair behavior from oscillating in/out near the threshold. Real markets have similar asymmetric mechanisms (probationary periods, reduced-trust windows) for the same stability reason.
+
+**Phase 10 obligations**:
+- Compare cascade behavior under no-reinstatement (current v0.1) vs N-day reinstatement (3, 5, 10, 15, 20 day variants)
+- Multi-seed runs to characterize whether the asymmetric reinstatement parameter materially affects index trajectory (single-seed-42 result may be unrepresentative)
+- Document the parameter sensitivity in Phase 11 writeup
+
+**Phase 11 writeup positioning**: This is a v1.3 methodology specification gap surfaced by validation rigor. The cascade finding is itself substantive but its v0.1 magnitude is partially an artifact of one-way suspension. The Phase 11 narrative is strongest when it presents BOTH:
+1. The cascade observation under v0.1 (no reinstatement) — establishes that suspension cascades CAN produce Tier A → Tier B transitions
+2. The cascade observation under reinstatement (Phase 7G) — quantifies what the cascade looks like under bidirectional methodology
+
+This shows the validation work surfaced the gap AND delivered a specification proposal AND empirically tested it. That's complete methodology validation, not just observation.
+
+**Methodology section**: gap — should be addressed in Section 4.2.2 (manipulation resistance) or new sub-section 4.2.5 (reinstatement criteria)
+
+**Phase 7G implementation timing**: After Phase 9 dashboard close, before Phase 10 sensitivity sweep work begins. Approximately 2-hour implementation: extend src/tprr/index/quality.py to compute reinstatement-eligible dates per pair, modify suspension consumption logic in src/tprr/index/aggregation.py to honor reinstatement, add tests for symmetric exclude/reinstate behavior, re-run scripts/compute_indices.py to produce reinstatement-enabled baseline output for Phase 10 consumption.
+

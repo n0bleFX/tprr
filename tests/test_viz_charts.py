@@ -17,10 +17,13 @@ import pytest
 from plotly.subplots import make_subplots
 
 from tprr.viz.charts import (
+    BLENDED_REFERENCE_RATIO,
     GRID_COLOUR,
     SUSPENDED_MARKER_COLOUR,
     TIER_COLOURS,
+    build_blended_overlay_subplot,
     build_index_level_subplot,
+    build_ratio_subplot,
 )
 
 
@@ -249,3 +252,287 @@ def test_build_index_level_subplot_each_core_tier(index_code: str) -> None:
     )
     assert fig.data[0].name == index_code
     assert fig.data[0].line.color == TIER_COLOURS[index_code]
+
+
+# ---------------------------------------------------------------------------
+# build_ratio_subplot — Batch B
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("index_code", ["TPRR_FPR", "TPRR_SER"])
+def test_build_ratio_subplot_each_ratio_index(index_code: str) -> None:
+    fig = _empty_subplot_fig()
+    df = _three_day_indices_df(index_code=index_code)
+    build_ratio_subplot(
+        fig, row=1, col=1, indices_df=df, index_code=index_code
+    )
+    assert len(fig.data) == 1
+    assert fig.data[0].name == index_code
+    assert fig.data[0].line.color == TIER_COLOURS[index_code]
+
+
+def test_build_ratio_subplot_y_axis_label_says_ratio_not_index_level() -> None:
+    """The ratio axis label distinguishes ratio panels from level panels —
+    a ratio of two indices is dimensionally different from a constituent-
+    aggregation level."""
+    fig = _empty_subplot_fig()
+    df = _three_day_indices_df(index_code="TPRR_FPR")
+    build_ratio_subplot(
+        fig, row=1, col=1, indices_df=df, index_code="TPRR_FPR"
+    )
+    yaxis_text = fig.layout.yaxis.title.text
+    assert "Ratio" in yaxis_text
+    assert "Index level" not in yaxis_text
+
+
+def test_build_ratio_subplot_handles_empty_df_silently() -> None:
+    fig = _empty_subplot_fig()
+    build_ratio_subplot(
+        fig, row=1, col=1, indices_df=pd.DataFrame(), index_code="TPRR_FPR"
+    )
+    assert len(fig.data) == 0
+
+
+def test_build_ratio_subplot_marks_suspended_days() -> None:
+    fig = _empty_subplot_fig()
+    df = _three_day_indices_df(
+        index_code="TPRR_SER", suspended_dates=[date(2025, 12, 31)]
+    )
+    build_ratio_subplot(
+        fig, row=1, col=1, indices_df=df, index_code="TPRR_SER"
+    )
+    assert len(fig.data) == 2
+    _line, marker = fig.data
+    assert marker.marker.color == SUSPENDED_MARKER_COLOUR
+    assert marker.showlegend is False
+
+
+def test_build_ratio_subplot_hovertemplate_says_ratio_level() -> None:
+    """Hover label text reflects the ratio dimension, not 'Index level'."""
+    fig = _empty_subplot_fig()
+    df = _three_day_indices_df(index_code="TPRR_FPR")
+    build_ratio_subplot(
+        fig, row=1, col=1, indices_df=df, index_code="TPRR_FPR"
+    )
+    assert "Ratio level" in fig.data[0].hovertemplate
+
+
+# ---------------------------------------------------------------------------
+# build_blended_overlay_subplot — Batch B
+# ---------------------------------------------------------------------------
+
+
+def _build_paired_dfs(
+    *,
+    core_raw: list[float],
+    blended_raw: list[float],
+    suspended: list[bool] | None = None,
+    core_code: str = "TPRR_F",
+    blended_code: str = "TPRR_B_F",
+    n_days: int | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Build (core_df, blended_df) covering n_days at the given raw values.
+
+    Both DataFrames share the same dates so the inner-join in the overlay
+    builder produces n_days rows.
+    """
+    n = n_days if n_days is not None else max(len(core_raw), len(blended_raw))
+    suspended = suspended if suspended is not None else [False] * n
+    rows_core = []
+    rows_blend = []
+    for i in range(n):
+        d = date(2025, 12, 30) + pd.Timedelta(days=i)
+        d = d.date() if hasattr(d, "date") else d
+        rows_core.append(
+            _index_value_row(
+                as_of_date=d,
+                index_code=core_code,
+                index_level=100.0,
+                raw_value=core_raw[i],
+                suspended=suspended[i],
+            )
+        )
+        rows_blend.append(
+            _index_value_row(
+                as_of_date=d,
+                index_code=blended_code,
+                index_level=100.0,
+                raw_value=blended_raw[i],
+                suspended=suspended[i],
+            )
+        )
+    return pd.DataFrame(rows_core), pd.DataFrame(rows_blend)
+
+
+def test_build_blended_overlay_subplot_emits_single_ratio_line_plus_reference() -> None:
+    """Overlay panel plots one ratio line (B_X / X) plus a horizontal
+    reference line at the methodology baseline (0.80). Two traces total."""
+    fig = _empty_subplot_fig()
+    core_df, blended_df = _build_paired_dfs(
+        core_raw=[100.0, 100.0, 100.0],
+        blended_raw=[80.0, 80.0, 80.0],
+    )
+    build_blended_overlay_subplot(
+        fig,
+        row=1, col=1,
+        core_df=core_df, blended_df=blended_df,
+        core_code="TPRR_F", blended_code="TPRR_B_F",
+    )
+    assert len(fig.data) == 2
+    ratio_trace, reference_trace = fig.data
+    assert ratio_trace.name == "TPRR_B_F / TPRR_F"
+    assert reference_trace.line.dash == "dot"
+    assert reference_trace.showlegend is False
+
+
+def test_build_blended_overlay_subplot_ratio_values_are_blended_div_core() -> None:
+    """y values equal blended.raw / core.raw per day — the ratio
+    isolation that motivates this redesign."""
+    import numpy as np
+
+    fig = _empty_subplot_fig()
+    core_df, blended_df = _build_paired_dfs(
+        core_raw=[100.0, 50.0, 25.0],
+        blended_raw=[80.0, 40.0, 20.0],
+    )
+    build_blended_overlay_subplot(
+        fig,
+        row=1, col=1,
+        core_df=core_df, blended_df=blended_df,
+        core_code="TPRR_F", blended_code="TPRR_B_F",
+    )
+    ratio_trace = fig.data[0]
+    expected = [0.80, 0.80, 0.80]
+    assert np.allclose(np.array(ratio_trace.y, dtype=float), expected)
+
+
+def test_build_blended_overlay_subplot_reference_line_at_080() -> None:
+    """Horizontal reference at y=BLENDED_REFERENCE_RATIO=0.80 spans the
+    full date range."""
+    fig = _empty_subplot_fig()
+    core_df, blended_df = _build_paired_dfs(
+        core_raw=[100.0, 100.0, 100.0],
+        blended_raw=[80.0, 80.0, 80.0],
+    )
+    build_blended_overlay_subplot(
+        fig,
+        row=1, col=1,
+        core_df=core_df, blended_df=blended_df,
+        core_code="TPRR_F", blended_code="TPRR_B_F",
+    )
+    reference_trace = fig.data[1]
+    assert all(y == BLENDED_REFERENCE_RATIO for y in reference_trace.y)
+    assert len(reference_trace.x) == 2  # endpoints only
+
+
+def test_build_blended_overlay_subplot_y_axis_says_raw_value_ratio() -> None:
+    """Y-axis label distinguishes the panel from the index-level panels —
+    it's a raw-value ratio, not a rebased-to-100 series."""
+    fig = _empty_subplot_fig()
+    core_df, blended_df = _build_paired_dfs(
+        core_raw=[100.0], blended_raw=[80.0]
+    )
+    build_blended_overlay_subplot(
+        fig,
+        row=1, col=1,
+        core_df=core_df, blended_df=blended_df,
+        core_code="TPRR_F", blended_code="TPRR_B_F",
+    )
+    yaxis_text = fig.layout.yaxis.title.text
+    assert "raw value ratio" in yaxis_text
+    # Y range hint: 0 to 1.2 keeps the ~0.80 line mid-chart
+    assert tuple(fig.layout.yaxis.range) == (0.0, 1.2)
+
+
+def test_build_blended_overlay_subplot_handles_empty_dfs() -> None:
+    """Either side empty → no traces, no exception."""
+    fig = _empty_subplot_fig()
+    build_blended_overlay_subplot(
+        fig,
+        row=1, col=1,
+        core_df=pd.DataFrame(), blended_df=pd.DataFrame(),
+        core_code="TPRR_F", blended_code="TPRR_B_F",
+    )
+    assert len(fig.data) == 0
+
+
+def test_build_blended_overlay_subplot_one_empty_renders_nothing() -> None:
+    """A ratio with only one side defined is undefined — no traces, no
+    silent rendering of just the populated side as a misleading line."""
+    fig = _empty_subplot_fig()
+    core_df, _ = _build_paired_dfs(
+        core_raw=[100.0], blended_raw=[80.0]
+    )
+    build_blended_overlay_subplot(
+        fig,
+        row=1, col=1,
+        core_df=core_df, blended_df=pd.DataFrame(),
+        core_code="TPRR_F", blended_code="TPRR_B_F",
+    )
+    assert len(fig.data) == 0
+
+
+def test_build_blended_overlay_subplot_suspended_day_masks_ratio() -> None:
+    """If either series is suspended on a date, the ratio is NaN that day."""
+    import numpy as np
+
+    fig = _empty_subplot_fig()
+    core_df, blended_df = _build_paired_dfs(
+        core_raw=[100.0, 100.0, 100.0],
+        blended_raw=[80.0, 80.0, 80.0],
+        suspended=[False, True, False],
+    )
+    build_blended_overlay_subplot(
+        fig,
+        row=1, col=1,
+        core_df=core_df, blended_df=blended_df,
+        core_code="TPRR_F", blended_code="TPRR_B_F",
+    )
+    ratio_y = list(fig.data[0].y)
+    assert ratio_y[0] == 0.80
+    assert np.isnan(ratio_y[1])
+    assert ratio_y[2] == 0.80
+
+
+def test_build_blended_overlay_subplot_hovertemplate_shows_raws_and_ratio() -> None:
+    """Hover surfaces both raw values and the computed ratio so a reader
+    can sanity-check the formula effect at any point on the line."""
+    fig = _empty_subplot_fig()
+    core_df, blended_df = _build_paired_dfs(
+        core_raw=[100.0], blended_raw=[80.0]
+    )
+    build_blended_overlay_subplot(
+        fig,
+        row=1, col=1,
+        core_df=core_df, blended_df=blended_df,
+        core_code="TPRR_F", blended_code="TPRR_B_F",
+    )
+    hover = fig.data[0].hovertemplate
+    assert "TPRR_B_F raw" in hover
+    assert "TPRR_F raw" in hover
+    assert "Ratio" in hover
+
+
+@pytest.mark.parametrize(
+    ("core", "blended"),
+    [
+        ("TPRR_F", "TPRR_B_F"),
+        ("TPRR_S", "TPRR_B_S"),
+        ("TPRR_E", "TPRR_B_E"),
+    ],
+)
+def test_build_blended_overlay_subplot_each_tier(core: str, blended: str) -> None:
+    fig = _empty_subplot_fig()
+    core_df, blended_df = _build_paired_dfs(
+        core_raw=[100.0], blended_raw=[80.0],
+        core_code=core, blended_code=blended,
+    )
+    build_blended_overlay_subplot(
+        fig,
+        row=1, col=1,
+        core_df=core_df, blended_df=blended_df,
+        core_code=core, blended_code=blended,
+    )
+    # One ratio line + one reference line
+    assert len(fig.data) == 2
+    assert fig.data[0].name == f"{blended} / {core}"

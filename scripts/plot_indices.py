@@ -52,7 +52,11 @@ from tprr.reference.openrouter import (
     fetch_rankings,
     normalise_models_to_panel,
 )
-from tprr.viz.charts import build_index_level_subplot
+from tprr.viz.charts import (
+    build_blended_overlay_subplot,
+    build_index_level_subplot,
+    build_ratio_subplot,
+)
 from tprr.viz.dashboard import PanelSpec, plot_tprr_dashboard
 
 
@@ -261,8 +265,9 @@ def main() -> int:
     run_id = build_run_id(config=config, seed=args.seed, ordering=ordering)
     subtitle = build_dashboard_subtitle(config=config, ordering=ordering)
 
-    # Batch A: 1-panel smoke render. Subsequent batches append PanelSpec
-    # entries to this list.
+    # Group 1 (Batch B): three core tier levels (row 1) + two ratio
+    # indices and one blended overlay (row 2). 2x3 grid. Subsequent
+    # batches append rows below for tier-share / n_constituents / scenarios.
     panels: list[PanelSpec] = [
         PanelSpec(
             title="TPRR-F (Frontier) — index level",
@@ -274,6 +279,68 @@ def main() -> int:
                 col=col,
                 indices_df=pipeline.indices["TPRR_F"],
                 index_code="TPRR_F",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-S (Standard) — index level",
+            row=1,
+            col=2,
+            builder=lambda fig, row, col: build_index_level_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_S"],
+                index_code="TPRR_S",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-E (Efficiency) — index level",
+            row=1,
+            col=3,
+            builder=lambda fig, row, col: build_index_level_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_E"],
+                index_code="TPRR_E",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-FPR — Frontier Premium Ratio (F / S)",
+            row=2,
+            col=1,
+            builder=lambda fig, row, col: build_ratio_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_FPR"],
+                index_code="TPRR_FPR",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-SER — Standard Efficiency Ratio (S / E)",
+            row=2,
+            col=2,
+            builder=lambda fig, row, col: build_ratio_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_SER"],
+                index_code="TPRR_SER",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-F vs TPRR-B-F — output vs blended (Frontier)",
+            row=2,
+            col=3,
+            builder=lambda fig, row, col: build_blended_overlay_subplot(
+                fig,
+                row=row,
+                col=col,
+                core_df=pipeline.indices["TPRR_F"],
+                blended_df=pipeline.indices["TPRR_B_F"],
+                core_code="TPRR_F",
+                blended_code="TPRR_B_F",
             ),
         ),
     ]
