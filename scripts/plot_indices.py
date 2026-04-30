@@ -36,16 +36,22 @@ from pathlib import Path
 import pandas as pd
 
 from tprr.config import (
+    ContributorPanel,
     IndexConfig,
     ModelRegistry,
+    ScenarioEntry,
     TierBRevenueConfig,
+    load_contributors,
     load_index_config,
     load_model_registry,
+    load_scenarios,
     load_tier_b_revenue,
 )
 from tprr.index.compute import FullPipelineResults, run_full_pipeline
 from tprr.index.tier_b import derive_tier_b_volumes
 from tprr.index.weights import TierBVolumeFn
+from tprr.mockdata.outliers import ScenarioManifest
+from tprr.mockdata.scenarios import compose_scenario
 from tprr.reference.openrouter import (
     enrich_with_rankings_volume,
     fetch_models,
@@ -57,9 +63,22 @@ from tprr.viz.charts import (
     build_index_level_subplot,
     build_n_constituents_subplot,
     build_ratio_subplot,
+    build_scenario_overlay_subplot,
     build_tier_share_subplot,
 )
 from tprr.viz.dashboard import PanelSpec, plot_tprr_dashboard
+
+# Scenarios surfaced in the Phase 9 dashboard (Group 3, Batch D).
+# Six representative scenarios from config/scenarios.yaml covering the
+# distinct manipulation/event categories Phase 11 writeup will reference.
+SCENARIO_DASHBOARD_IDS: tuple[str, ...] = (
+    "fat_finger_high",
+    "intraday_spike",
+    "correlated_blackout",
+    "stale_quote",
+    "shock_price_cut",
+    "sustained_manipulation",
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -156,32 +175,28 @@ def _compose_panel_for_date(
     return pd.concat([a_slice, b_slice, c_slice], ignore_index=True)
 
 
-def run_pipeline_from_disk(
+def run_pipeline_from_panels(
     *,
-    seed: int,
+    tier_a_panel: pd.DataFrame,
+    change_events: pd.DataFrame,
+    tier_c_panel: pd.DataFrame,
+    rankings_df: pd.DataFrame,
     config: IndexConfig,
     registry: ModelRegistry,
     tier_b_config: TierBRevenueConfig,
     start: date | None = None,
     end: date | None = None,
 ) -> FullPipelineResults:
-    """Load all input data from disk, derive Tier B, compose, run pipeline.
+    """Compose multi-tier panel + run full pipeline against pre-loaded inputs.
 
-    Library-style entry point: callers pass already-loaded config/registry
-    /tier_b_config and get back ``FullPipelineResults``. Mirrors the
-    pipeline-running portion of ``scripts/compute_indices.py:main()``.
+    Used by both the clean-panel path (``run_pipeline_from_disk``) and the
+    Phase 9 Batch D scenario-overlay path (composed Tier A panels passed in).
+    Tier B volumes re-derive from the supplied Tier A panel — scenarios
+    that change Tier A coverage propagate into the Tier B implied volumes
+    naturally.
     """
-    tier_a_panel, change_events = _load_tier_a_panel(seed)
-    tier_c_panel = _load_tier_c_panel(registry)
-
     range_start = start if start else tier_a_panel["observation_date"].min().date()
     range_end = end if end else config.base_date
-
-    rankings_dates = sorted(
-        p.stem for p in Path("data/raw/openrouter/rankings").glob("*.json")
-    )
-    rankings_json = fetch_rankings(as_of_date=date.fromisoformat(rankings_dates[-1]))
-    rankings_df = _rankings_json_to_df(rankings_json)
 
     days = pd.date_range(range_start, range_end, freq="D")
     tier_b_by_date: dict[pd.Timestamp, pd.DataFrame] = {}
@@ -219,6 +234,82 @@ def run_pipeline_from_disk(
     )
 
 
+def run_pipeline_from_disk(
+    *,
+    seed: int,
+    config: IndexConfig,
+    registry: ModelRegistry,
+    tier_b_config: TierBRevenueConfig,
+    start: date | None = None,
+    end: date | None = None,
+) -> FullPipelineResults:
+    """Load all input data from disk, derive Tier B, compose, run pipeline."""
+    tier_a_panel, change_events = _load_tier_a_panel(seed)
+    tier_c_panel = _load_tier_c_panel(registry)
+    rankings_dates = sorted(
+        p.stem for p in Path("data/raw/openrouter/rankings").glob("*.json")
+    )
+    rankings_json = fetch_rankings(as_of_date=date.fromisoformat(rankings_dates[-1]))
+    rankings_df = _rankings_json_to_df(rankings_json)
+    return run_pipeline_from_panels(
+        tier_a_panel=tier_a_panel,
+        change_events=change_events,
+        tier_c_panel=tier_c_panel,
+        rankings_df=rankings_df,
+        config=config,
+        registry=registry,
+        tier_b_config=tier_b_config,
+        start=start,
+        end=end,
+    )
+
+
+def compose_and_run_scenario(
+    *,
+    scenario: ScenarioEntry,
+    tier_a_panel: pd.DataFrame,
+    change_events: pd.DataFrame,
+    tier_c_panel: pd.DataFrame,
+    rankings_df: pd.DataFrame,
+    config: IndexConfig,
+    registry: ModelRegistry,
+    tier_b_config: TierBRevenueConfig,
+    contributors: ContributorPanel,
+    seed: int,
+    start: date | None = None,
+    end: date | None = None,
+) -> FullPipelineResults:
+    """Compose one scenario on top of the clean Tier A panel + events,
+    then run the full pipeline against the composed result.
+
+    Tier C is reused as-is (rankings snapshot is static per DL 2026-04-28
+    Tier C historical backfill); Tier B is re-derived from the composed
+    Tier A panel.
+    """
+    manifest = ScenarioManifest(scenario_id=str(scenario.id), seed=seed)
+    panel_out, events_out, registry_out = compose_scenario(
+        spec=scenario,
+        panel_df=tier_a_panel,
+        events_df=change_events,
+        registry=registry,
+        contributors=contributors,
+        backtest_start=config.backtest_start,
+        seed=seed,
+        manifest=manifest,
+    )
+    return run_pipeline_from_panels(
+        tier_a_panel=panel_out,
+        change_events=events_out,
+        tier_c_panel=tier_c_panel,
+        rankings_df=rankings_df,
+        config=config,
+        registry=registry_out,
+        tier_b_config=tier_b_config,
+        start=start,
+        end=end,
+    )
+
+
 def build_run_id(*, config: IndexConfig, seed: int, ordering: str) -> str:
     """Deterministic identifier from (lambda, ordering, seed, base_date).
 
@@ -245,23 +336,69 @@ def main() -> int:
     config = load_index_config()
     registry = load_model_registry()
     tier_b_config = load_tier_b_revenue()
+    contributors = load_contributors()
+    scenarios_config = load_scenarios()
 
     start = date.fromisoformat(args.start) if args.start else None
     end = date.fromisoformat(args.end) if args.end else None
 
     print(
-        f"Running pipeline (seed={args.seed}, "
+        f"Running clean-panel pipeline (seed={args.seed}, "
         f"ordering={config.default_ordering})...",
         flush=True,
     )
-    pipeline = run_pipeline_from_disk(
-        seed=args.seed,
+    # Load the inputs once for reuse across clean + scenario runs.
+    tier_a_panel, change_events = _load_tier_a_panel(args.seed)
+    tier_c_panel = _load_tier_c_panel(registry)
+    rankings_dates = sorted(
+        p.stem for p in Path("data/raw/openrouter/rankings").glob("*.json")
+    )
+    rankings_json = fetch_rankings(
+        as_of_date=date.fromisoformat(rankings_dates[-1])
+    )
+    rankings_df = _rankings_json_to_df(rankings_json)
+
+    pipeline = run_pipeline_from_panels(
+        tier_a_panel=tier_a_panel,
+        change_events=change_events,
+        tier_c_panel=tier_c_panel,
+        rankings_df=rankings_df,
         config=config,
         registry=registry,
         tier_b_config=tier_b_config,
         start=start,
         end=end,
     )
+
+    # Phase 9 Batch D: run each dashboard scenario via compose + pipeline.
+    # Each takes ~30s on the seed-42 backtest; 6 scenarios → ~3 minutes.
+    scenarios_by_id: dict[str, ScenarioEntry] = {
+        s.id: s for s in scenarios_config.scenarios
+    }
+    scenario_results: dict[str, FullPipelineResults] = {}
+    for scenario_id in SCENARIO_DASHBOARD_IDS:
+        if scenario_id not in scenarios_by_id:
+            print(
+                f"  WARNING: scenario {scenario_id!r} not in scenarios.yaml "
+                f"— skipping",
+                flush=True,
+            )
+            continue
+        print(f"  scenario: {scenario_id} ...", flush=True)
+        scenario_results[scenario_id] = compose_and_run_scenario(
+            scenario=scenarios_by_id[scenario_id],
+            tier_a_panel=tier_a_panel,
+            change_events=change_events,
+            tier_c_panel=tier_c_panel,
+            rankings_df=rankings_df,
+            config=config,
+            registry=registry,
+            tier_b_config=tier_b_config,
+            contributors=contributors,
+            seed=args.seed,
+            start=start,
+            end=end,
+        )
 
     ordering = config.default_ordering
     run_id = build_run_id(config=config, seed=args.seed, ordering=ordering)
@@ -421,6 +558,46 @@ def main() -> int:
             ),
         ),
     ]
+
+    # Group 3 (Batch D): scenario overlays — F/S/E levels under each
+    # scenario panel vs clean baseline. 2 rows x 3 cols (rows 5-6).
+    # Scenarios that didn't compose successfully are silently skipped
+    # (an empty subplot leaves a gap rather than crashing the dashboard).
+    scenario_grid_positions: list[tuple[int, int]] = [
+        (5, 1), (5, 2), (5, 3),
+        (6, 1), (6, 2), (6, 3),
+    ]
+    for (sc_row, sc_col), scenario_id in zip(
+        scenario_grid_positions, SCENARIO_DASHBOARD_IDS, strict=False
+    ):
+        if scenario_id not in scenario_results:
+            continue
+        scenario_pipeline = scenario_results[scenario_id]
+        clean_indices = {
+            code: pipeline.indices[code] for code in ("TPRR_F", "TPRR_S", "TPRR_E")
+        }
+        scenario_indices_dict = {
+            code: scenario_pipeline.indices[code]
+            for code in ("TPRR_F", "TPRR_S", "TPRR_E")
+        }
+        # Capture the scenario_id by default-arg binding inside the lambda
+        # so each subplot binds its own scenario at definition time
+        # (avoids the closure-late-binding pitfall in for-loops).
+        panels.append(
+            PanelSpec(
+                title=f"Scenario: {scenario_id}",
+                row=sc_row,
+                col=sc_col,
+                builder=lambda fig, row, col, _ci=clean_indices, _si=scenario_indices_dict, _name=scenario_id: build_scenario_overlay_subplot(
+                    fig,
+                    row=row,
+                    col=col,
+                    clean_indices=_ci,
+                    scenario_indices=_si,
+                    scenario_name=_name,
+                ),
+            )
+        )
 
     output_path = Path(args.output_dir) / f"{run_id}_dashboard.html"
     plot_tprr_dashboard(

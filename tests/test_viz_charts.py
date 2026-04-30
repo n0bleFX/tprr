@@ -26,6 +26,7 @@ from tprr.viz.charts import (
     build_index_level_subplot,
     build_n_constituents_subplot,
     build_ratio_subplot,
+    build_scenario_overlay_subplot,
     build_tier_share_subplot,
 )
 
@@ -792,3 +793,133 @@ def test_attestation_tier_colours_distinct_from_tier_colours() -> None:
     attestation_set = set(ATTESTATION_TIER_COLOURS.values())
     tier_set = set(TIER_COLOURS.values())
     assert attestation_set.isdisjoint(tier_set)
+
+
+# ---------------------------------------------------------------------------
+# build_scenario_overlay_subplot — Phase 9 Batch D (DL 2026-04-30)
+# ---------------------------------------------------------------------------
+
+
+def _three_day_indices_dict(
+    *,
+    tier_codes: tuple[str, ...] = ("TPRR_F", "TPRR_S", "TPRR_E"),
+) -> dict[str, pd.DataFrame]:
+    """Build a dict[tier_code → IndexValueDF] for the scenario overlay tests."""
+    return {code: _three_day_indices_df(index_code=code) for code in tier_codes}
+
+
+def test_build_scenario_overlay_subplot_emits_six_lines_three_tiers_two_series_each() -> None:
+    """Six traces total: F/S/E x {clean, scenario}."""
+    fig = _empty_subplot_fig()
+    clean = _three_day_indices_dict()
+    scenario = _three_day_indices_dict()
+    build_scenario_overlay_subplot(
+        fig,
+        row=1, col=1,
+        clean_indices=clean,
+        scenario_indices=scenario,
+        scenario_name="fat_finger_high",
+    )
+    assert len(fig.data) == 6
+    names = {t.name for t in fig.data}
+    assert names == {
+        "TPRR_F clean", "TPRR_F fat_finger_high",
+        "TPRR_S clean", "TPRR_S fat_finger_high",
+        "TPRR_E clean", "TPRR_E fat_finger_high",
+    }
+
+
+def test_build_scenario_overlay_subplot_solid_clean_dashed_scenario() -> None:
+    """Convention: clean baseline solid, scenario dashed. Same colour per
+    tier so the eye groups by tier."""
+    fig = _empty_subplot_fig()
+    build_scenario_overlay_subplot(
+        fig,
+        row=1, col=1,
+        clean_indices=_three_day_indices_dict(),
+        scenario_indices=_three_day_indices_dict(),
+        scenario_name="ff",
+    )
+    by_name = {t.name: t for t in fig.data}
+    f_clean = by_name["TPRR_F clean"]
+    f_scen = by_name["TPRR_F ff"]
+    assert f_clean.line.dash in (None, "solid")
+    assert f_scen.line.dash == "dash"
+    # Same colour for clean + scenario of one tier.
+    assert f_clean.line.color == f_scen.line.color
+    # Tier colour matches palette.
+    assert f_clean.line.color == TIER_COLOURS["TPRR_F"]
+
+
+def test_build_scenario_overlay_subplot_handles_empty_inputs() -> None:
+    fig = _empty_subplot_fig()
+    build_scenario_overlay_subplot(
+        fig,
+        row=1, col=1,
+        clean_indices={},
+        scenario_indices={},
+        scenario_name="x",
+    )
+    assert len(fig.data) == 0
+
+
+def test_build_scenario_overlay_subplot_one_side_only_renders_that_side() -> None:
+    """If only the clean baseline is provided (e.g. scenario failed to run),
+    render the baseline only — no scenario lines."""
+    fig = _empty_subplot_fig()
+    build_scenario_overlay_subplot(
+        fig,
+        row=1, col=1,
+        clean_indices=_three_day_indices_dict(),
+        scenario_indices={},
+        scenario_name="x",
+    )
+    assert len(fig.data) == 3  # 3 clean lines (F/S/E)
+    for trace in fig.data:
+        assert "clean" in trace.name
+
+
+def test_build_scenario_overlay_subplot_legend_groups_by_tier() -> None:
+    """Each (clean, scenario) pair shares a legendgroup so clicking a tier
+    in the legend toggles both lines together. Useful for an analyst
+    isolating one tier's scenario effect."""
+    fig = _empty_subplot_fig()
+    build_scenario_overlay_subplot(
+        fig,
+        row=1, col=1,
+        clean_indices=_three_day_indices_dict(),
+        scenario_indices=_three_day_indices_dict(),
+        scenario_name="x",
+    )
+    by_name = {t.name: t for t in fig.data}
+    assert by_name["TPRR_F clean"].legendgroup == "TPRR_F"
+    assert by_name["TPRR_F x"].legendgroup == "TPRR_F"
+    assert by_name["TPRR_S clean"].legendgroup == "TPRR_S"
+    assert by_name["TPRR_E clean"].legendgroup == "TPRR_E"
+
+
+def test_build_scenario_overlay_subplot_y_axis_says_index_level() -> None:
+    fig = _empty_subplot_fig()
+    build_scenario_overlay_subplot(
+        fig,
+        row=1, col=1,
+        clean_indices=_three_day_indices_dict(),
+        scenario_indices=_three_day_indices_dict(),
+        scenario_name="x",
+    )
+    assert "rebased to 100" in fig.layout.yaxis.title.text
+
+
+def test_build_scenario_overlay_subplot_subset_of_tiers() -> None:
+    """Caller can request a subset of tier codes (e.g. F only). Useful
+    for compact scenario overlays where only one tier is the test target."""
+    fig = _empty_subplot_fig()
+    build_scenario_overlay_subplot(
+        fig,
+        row=1, col=1,
+        clean_indices=_three_day_indices_dict(),
+        scenario_indices=_three_day_indices_dict(),
+        scenario_name="x",
+        tier_codes=("TPRR_F",),
+    )
+    assert len(fig.data) == 2  # F clean + F scenario only

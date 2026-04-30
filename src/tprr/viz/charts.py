@@ -519,3 +519,96 @@ def build_n_constituents_subplot(
         row=row,
         col=col,
     )
+
+
+def build_scenario_overlay_subplot(
+    fig: go.Figure,
+    *,
+    row: int,
+    col: int,
+    clean_indices: dict[str, pd.DataFrame],
+    scenario_indices: dict[str, pd.DataFrame],
+    scenario_name: str,
+    tier_codes: tuple[str, ...] = ("TPRR_F", "TPRR_S", "TPRR_E"),
+) -> None:
+    """Overlay clean-baseline vs scenario-panel index levels for one panel.
+
+    Plots up to 6 lines per subplot (3 tiers x {clean baseline, scenario}).
+    Convention: solid line = clean baseline; dashed line = scenario panel.
+    Same tier colour for both series so the eye groups by tier; dash
+    pattern distinguishes scenario from baseline.
+
+    Phase 9 Batch D (DL 2026-04-30): scenario panels are produced by
+    composing one scenario from ``config/scenarios.yaml`` on the clean
+    Phase 2 panel via ``tprr.mockdata.scenarios.compose_scenario``, then
+    running the full pipeline (``run_full_pipeline``) on the composed
+    panel. The overlay panel reads the rebased ``index_level`` so the
+    visual difference between clean and scenario isolates the scenario's
+    effect from the rebase mechanics.
+
+    ``scenario_name`` is informational, used only for trace names + hover.
+    """
+    if not clean_indices and not scenario_indices:
+        return
+
+    for tier_code in tier_codes:
+        tier_colour = TIER_COLOURS.get(tier_code, "#444444")
+
+        clean_df = clean_indices.get(tier_code)
+        if clean_df is not None and not clean_df.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=clean_df["as_of_date"],
+                    y=clean_df["index_level"],
+                    mode="lines",
+                    name=f"{tier_code} clean",
+                    line={"color": tier_colour, "width": 1.4},
+                    legendgroup=tier_code,
+                    hovertemplate=(
+                        f"<b>{tier_code} clean</b><br>"
+                        "Date: %{x|%Y-%m-%d}<br>"
+                        "Level: %{y:.2f}<br>"
+                        "<extra></extra>"
+                    ),
+                ),
+                row=row,
+                col=col,
+            )
+
+        scenario_df = scenario_indices.get(tier_code)
+        if scenario_df is not None and not scenario_df.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=scenario_df["as_of_date"],
+                    y=scenario_df["index_level"],
+                    mode="lines",
+                    name=f"{tier_code} {scenario_name}",
+                    line={"color": tier_colour, "width": 1.4, "dash": "dash"},
+                    legendgroup=tier_code,
+                    hovertemplate=(
+                        f"<b>{tier_code} {scenario_name}</b><br>"
+                        "Date: %{x|%Y-%m-%d}<br>"
+                        "Level: %{y:.2f}<br>"
+                        "<extra></extra>"
+                    ),
+                ),
+                row=row,
+                col=col,
+            )
+
+    fig.update_xaxes(
+        title_text="",
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )
+    fig.update_yaxes(
+        title_text="Index level (rebased to 100)",
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )
