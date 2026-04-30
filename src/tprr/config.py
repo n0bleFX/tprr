@@ -57,7 +57,7 @@ class IndexConfig(BaseModel):
     tier_haircuts: dict[AttestationTier, float] = Field(
         default_factory=lambda: {
             AttestationTier.A: 1.0,
-            AttestationTier.B: 0.9,
+            AttestationTier.B: 0.5,
             AttestationTier.C: 0.8,
         }
     )

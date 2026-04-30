@@ -1071,3 +1071,43 @@ The same coefficient (0.6/0.3/0.1) applies to both volume and price per tier. Th
 
 **Empirical row count observation (added 2026-04-30 post-Batch-B)**: Long-format audit row count under Batch B continuous blending is 14,700 on the seed-42 backtest, ~1.35x pre-Batch-B baseline rather than the predicted ~3x under full per-tier breakdown. The discrepancy reflects v0.1's actual tier coverage: most constituents have 1-2 contributing tiers per day rather than 3. Tier C is sparse (1 of 16 registry constituents has rankings data per Phase 4 close-out); 3-tier overlap is therefore rare. v0.2 universe expansion with broader Tier C coverage would grow audit row count toward the predicted 3x ceiling. The 1.35x shape correctly reflects that v0.1 blending in practice is mostly Tier A + Tier B, with Tier C contribution limited to deepseek-v3-2.
 
+## 2026-04-30 — Phase 7H Batch C: Tier B confidence haircut 0.9 → 0.5 + tier ordering A > C > B
+
+**Decision**: Tier B confidence haircut reduced from 0.9 to 0.5 in v0.1. Tier ordering for blending coefficients confirmed as A (0.6) > C (0.3) > B (0.1), reflecting that Tier C ranks above Tier B in v0.1 confidence ranking. This pair of changes implements the Tier B recalibration component of the Phase 7H methodology design (DL 2026-04-30 Phase 7H design entry, change #3).
+
+**Tier B bias-chain rationale**: Tier B implies model-level token volume from disclosed provider revenue via the chain:
+
+  implied_volume = (provider_revenue × API_share_assumption) / (provider_weighted_reference_price × 1) × OpenRouter_within_provider_split
+
+Each step has compounding bias risks:
+
+1. **Top-line provider revenue includes non-API sources**: subscription tiers (ChatGPT Plus, Claude Pro), licensing (Microsoft Azure OpenAI), professional services, and embedded model deployments. v0.1's `tier_b_revenue.yaml` uses analyst-triangulation estimates of *total* provider revenue. Allocating a fixed API_share fraction (e.g. 25%) overstates API revenue when subscription growth outpaces API growth, and understates it in the reverse.
+
+2. **API share is a point estimate**: provider mix shifts over time (consumer subscriptions → API as developer adoption grows; or API → enterprise as enterprise tier launches). v0.1 uses a single quarter-static API_share assumption per provider; the actual share moves quarter-to-quarter without disclosure.
+
+3. **"API revenue" includes flat-rate Enterprise tiers**: enterprise customers on flat-rate API contracts pay a per-seat or per-month fee that doesn't scale linearly with token consumption. The implied per-token rate from a flat-rate Enterprise customer differs from the published rate. v0.1 has no visibility into the Enterprise-vs-pay-as-you-go split.
+
+4. **Within-provider model attribution requires synthetic priors**: the OpenRouter within-provider split is the v0.1 mechanism for attributing provider-level revenue to specific constituent models. OpenRouter coverage is sparse for some providers (DL 2026-04-29 Tier B price-implied within-provider split entry); the synthetic price-implied prior fills the gaps but is itself an estimate, not a measurement.
+
+Cumulative bias is plausibly 30-50% upward on Tier B implied volumes for some providers. A 0.9 haircut (the literal-canon Section 3.3.2 value) implies "Tier B is 90% as reliable as Tier A" — that's not credible given the bias chain above. 0.5 implies "Tier B is half as reliable as Tier A" — still meaningful contribution, but reduced confidence appropriate to the bias profile.
+
+**Tier C above Tier B rationale**: Tier C is third-party-source measurement of token activity (OpenRouter rankings) — direct observation rather than derived. Lower precision than Tier B (rankings include only models with OpenRouter integration; misses non-routed direct API traffic) but lower bias risk (no synthetic priors, no Enterprise-mix assumptions, no API_share guesswork). The 0.8 Tier C haircut already reflects "Tier C is more direct than Tier B but covers less of the market." The Phase 7H Batch B coefficients (A=0.6, C=0.3, B=0.1) reflect this: when both Tier C and Tier B are available alongside Tier A, Tier C contributes 3× as much as Tier B.
+
+**Why 0.5 specifically (not 0.4 or 0.6)**: 0.5 reflects the heuristic that Tier B has roughly half the per-unit information content of Tier A given the bias chain. v1.3 may revise based on:
+- Provider-disclosed API token volumes (replaces the API_share assumption with measurement)
+- Subscription-tier carve-outs in audited revenue (replaces analyst-triangulation top-line)
+- Enterprise-flat-rate detection (corrects per-token rate inference)
+
+Phase 10 sensitivity sweep over 0.4 / 0.5 / 0.6 will quantify how much the haircut value affects index dynamics.
+
+**Coefficient ordering already encodes Tier C > Tier B**: Phase 7H Batch B set tier_blending_coefficients to A=0.6, C=0.3, B=0.1 (DL 2026-04-30 Phase 7H design entry). The 0.3 vs 0.1 split is the methodology statement that Tier C ranks above Tier B in confidence ordering. The Batch C haircut change (B: 0.9 → 0.5) compounds this: when the constituent has all three tiers, Tier B's effective contribution is 0.1 × 0.5 = 0.05 per share unit, vs Tier C's 0.3 × 0.8 = 0.24 — Tier C contributes ~5× as much per unit of within-tier share as Tier B. That ratio reflects the v0.1 confidence assessment.
+
+**Phase 10 obligations**:
+- Sweep Tier B haircut (0.4, 0.5, 0.6) — characterise sensitivity
+- Sweep coefficient ordering (alternate (0.5, 0.35, 0.15), (0.7, 0.2, 0.1), (0.6, 0.2, 0.2)) — does the C > B ordering survive?
+- Multi-seed: does the haircut effect on tier weight share trajectories generalise across seeds?
+
+**Phase 11 narrative**: This recalibration is one of four Phase 7H methodology proposals. Phase 11 documents (a) the bias chain motivating the change, (b) the empirical effect on tier weight shares, (c) the sensitivity envelope from Phase 10, and (d) the v1.3 specification refinements that would reduce dependence on this haircut value (audited revenue, provider token disclosure, Enterprise carve-outs).
+
+**Methodology section**: 3.3.2 (volume weights — Tier B confidence calibration)
+

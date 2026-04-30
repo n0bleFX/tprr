@@ -126,9 +126,10 @@ def test_index_config_defaults_when_loaded_from_empty_yaml(tmp_path: Path) -> No
     assert cfg.continuity_check_pct == 0.25
     assert cfg.min_constituents_per_tier == 3
     assert cfg.staleness_max_days == 3
+    # Phase 7H Batch C (DL 2026-04-30): Tier B haircut 0.9 -> 0.5.
     assert cfg.tier_haircuts == {
         AttestationTier.A: 1.0,
-        AttestationTier.B: 0.9,
+        AttestationTier.B: 0.5,
         AttestationTier.C: 0.8,
     }
     assert cfg.twap_window_utc == (9, 17)

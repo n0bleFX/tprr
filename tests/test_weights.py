@@ -7,7 +7,7 @@ Covers:
   Tier A when ≥3 contributors with attested non-zero volume; else Tier B
   when provider has revenue; else Tier C when rankings data exists; else
   excluded.
-- Per-tier haircut application (1.0 / 0.9 / 0.8).
+- Per-tier haircut application (1.0 / 0.5 / 0.8 — Phase 7H Batch C).
 - The intentional cross-tier magnitude gap (Phase 10 must observe this —
   the test pins the property so it can't drift silently).
 - Hypothesis property tests for exp/vol primitives.
@@ -103,7 +103,7 @@ def _tier_b_config_with_openai() -> TierBRevenueConfig:
 
 
 def _index_config() -> IndexConfig:
-    return IndexConfig()  # defaults: λ=3, haircuts A=1.0/B=0.9/C=0.8
+    return IndexConfig()  # defaults: λ=3, haircuts A=1.0/B=0.5/C=0.8 (Phase 7H Batch C)
 
 
 def _stub_tier_b_volume_fn(value: float = 100.0) -> TierBVolumeFn:
@@ -148,9 +148,10 @@ def _panel_row(
 
 
 def test_volume_weight_haircuts_per_tier() -> None:
+    """Phase 7H Batch C (DL 2026-04-30): Tier B haircut 0.9 -> 0.5."""
     cfg = _index_config()
     assert volume_weight(100.0, AttestationTier.A, cfg) == pytest.approx(100.0)
-    assert volume_weight(100.0, AttestationTier.B, cfg) == pytest.approx(90.0)
+    assert volume_weight(100.0, AttestationTier.B, cfg) == pytest.approx(50.0)
     assert volume_weight(100.0, AttestationTier.C, cfg) == pytest.approx(80.0)
 
 
@@ -551,7 +552,8 @@ def test_dual_weights_haircut_applied_per_selected_tier() -> None:
 
     assert gpt_b["coefficient"] == pytest.approx(0.1 / 0.7)
     assert gpt_b["within_tier_volume_share"] == pytest.approx(1.0)
-    assert gpt_b["w_vol_contribution"] == pytest.approx((0.1 / 0.7) * 0.9)
+    # Phase 7H Batch C (DL 2026-04-30): Tier B haircut 0.9 -> 0.5.
+    assert gpt_b["w_vol_contribution"] == pytest.approx((0.1 / 0.7) * 0.5)
 
     # gemini: Tier C only → coefficient = 1.0, share = 1.0, w_vol_contribution = 0.8.
     assert gemini_c["attestation_tier"] == "C"
@@ -560,7 +562,7 @@ def test_dual_weights_haircut_applied_per_selected_tier() -> None:
 
 
 def test_dual_weights_tier_b_haircut() -> None:
-    """Tier B selected → 0.9 haircut applied to derived volume."""
+    """Tier B selected → 0.5 haircut applied (Phase 7H Batch C; was 0.9)."""
     target_date = date(2025, 6, 1)
     panel = pd.DataFrame(
         [
@@ -588,13 +590,14 @@ def test_dual_weights_tier_b_haircut() -> None:
         config=_index_config(),
     )
     row = out.iloc[0]
-    # Phase 7H Batch B: single Tier-B-resolved constituent → 1 row →
-    # coefficient=1.0, share=1.0, w_vol_contribution = 1.0 x 1.0 x 0.9 = 0.9.
+    # Phase 7H Batch C (DL 2026-04-30): Tier B haircut 0.9 -> 0.5.
+    # Single Tier-B-resolved constituent → 1 row → coefficient=1.0,
+    # share=1.0, w_vol_contribution = 1.0 x 1.0 x 0.5 = 0.5.
     assert row["attestation_tier"] == "B"
     assert row["raw_volume"] == pytest.approx(10_000.0)
     assert row["within_tier_volume_share"] == pytest.approx(1.0)
     assert row["coefficient"] == pytest.approx(1.0)
-    assert row["w_vol_contribution"] == pytest.approx(0.9)
+    assert row["w_vol_contribution"] == pytest.approx(0.5)
 
 
 def test_dual_weights_excludes_unweightable_constituent() -> None:
@@ -735,7 +738,7 @@ def test_w_vol_bounded_under_within_tier_share_normalization() -> None:
     """Under Phase 7H Batch A within-tier-share normalization (DL 2026-04-30),
     w_vol = within_tier_share x haircut. Both factors are bounded:
     within_tier_share in [0, 1] by construction (it's a proportion of the
-    tier total), and haircut in {1.0, 0.9, 0.8} by config. So w_vol in [0, 1]
+    tier total), and haircut in {1.0, 0.5, 0.8} by config. So w_vol in [0, 1]
     regardless of underlying raw-volume scale.
 
     This test pins the bounded-w_vol property that Phase 7H Batch A

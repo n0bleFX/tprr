@@ -76,7 +76,7 @@ def _registry() -> ModelRegistry:
 
 
 def _index_config() -> IndexConfig:
-    return IndexConfig()  # λ=3, haircuts A=1.0/B=0.9/C=0.8, min_constituents=3
+    return IndexConfig()  # λ=3, haircuts A=1.0/B=0.5/C=0.8 (Phase 7H Batch C), min=3
 
 
 def _empty_tier_b_config() -> TierBRevenueConfig:
@@ -471,8 +471,9 @@ def test_compute_tier_index_priority_fallthrough_preserved_under_within_tier_nor
     that the old test pinned is deliberately removed.
 
     Under within-tier-share normalization, a tier with one constituent
-    contributes share=1.0 x haircut (e.g. 0.9 for Tier B). A tier with two
-    constituents contributes 2 x 0.5 x haircut. The relative weight share
+    contributes share=1.0 x haircut (e.g. 0.5 for Tier B per Phase 7H
+    Batch C). A tier with two constituents contributes 2 x 0.5 x haircut.
+    The relative weight share
     at the IndexValue level depends on per-constituent w_exp factors, but
     is bounded — Tier B with one constituent no longer dominates simply
     because its raw volume is 4-5 orders of magnitude larger.
@@ -534,10 +535,9 @@ def test_compute_tier_index_priority_fallthrough_preserved_under_within_tier_nor
     assert result["n_constituents_c"] == 0
     # Cross-tier weight-share dominance from the old raw-volume formulation
     # is explicitly removed. Tier B no longer dominates by magnitude alone;
-    # it contributes 1.0 x 0.9 = 0.9 raw weight (within-tier-share x haircut)
-    # vs Tier A's 0.5 x 1.0 = 0.5 per constituent (2 active constituents).
-    # Final tier weight shares depend on w_exp; both are non-trivial fractions
-    # of total weight (neither swamps the other).
+    # under Phase 7H Batch C its haircut is 0.5 (was 0.9). Final tier
+    # weight shares depend on w_exp; both are non-trivial fractions of
+    # total weight (neither swamps the other).
     assert 0.0 < result["tier_a_weight_share"] < 1.0
     assert 0.0 < result["tier_b_weight_share"] < 1.0
     # Tier A's combined weight (2 active) exceeds Tier B's (1 active) under
