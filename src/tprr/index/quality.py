@@ -41,10 +41,17 @@ DEFAULT_DEVIATION_PCT = 0.15
 DEFAULT_CONTINUITY_PCT = 0.25
 DEFAULT_STALENESS_MAX_DAYS = 3
 DEFAULT_SUSPENSION_THRESHOLD_DAYS = 3
+DEFAULT_REINSTATEMENT_THRESHOLD_DAYS = 10
 DEFAULT_MIN_CONSTITUENTS_PER_TIER = 3
 
 EXCLUDED_SLOTS_COLUMNS = ["contributor_id", "constituent_id", "date", "slot_idx"]
 SUSPENSION_COLUMNS = ["contributor_id", "constituent_id", "suspension_date"]
+SUSPENSION_INTERVAL_COLUMNS = [
+    "contributor_id",
+    "constituent_id",
+    "suspension_date",
+    "reinstatement_date",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +322,188 @@ def compute_consecutive_day_suspensions(
         "datetime64[ns]"
     )
     return out[SUSPENSION_COLUMNS].reset_index(drop=True)
+
+
+def compute_suspension_intervals(
+    excluded_slots_df: pd.DataFrame,
+    panel_df: pd.DataFrame,
+    *,
+    threshold_days: int = DEFAULT_SUSPENSION_THRESHOLD_DAYS,
+    reinstatement_threshold_days: int = DEFAULT_REINSTATEMENT_THRESHOLD_DAYS,
+) -> pd.DataFrame:
+    """Compute suspension/reinstatement intervals per (contributor, constituent).
+
+    Phase 7H Batch D (DL 2026-04-30 Phase 7H methodology design entry +
+    DL 2026-04-30 suspension reinstatement gap entry): bidirectional
+    exclude/reinstate criteria replace the v0.1 one-way ratchet from
+    ``compute_consecutive_day_suspensions``. Each pair walks chronologically:
+
+    - **Fire day** (gate firing): increment fire_counter; reset clean_counter
+      to zero. If pair is currently active and fire_counter reaches
+      ``threshold_days``, start a new suspension interval at this date.
+    - **Clean day** (panel row exists, no gate firing): increment
+      clean_counter (only useful while suspended); reset fire_counter.
+      If pair is currently suspended and clean_counter reaches
+      ``reinstatement_threshold_days``, end the active interval at this
+      date (pair is on-market starting from this date).
+    - **Missing day** (no panel row for the pair): reset BOTH counters to
+      zero. Treats absence-of-data as "no progress" — neither toward
+      suspension nor toward reinstatement. v0.1 conservative choice;
+      v1.3 may revisit (DL 2026-04-30 Phase 7H methodology design).
+
+    Returns a DataFrame with columns
+    ``[contributor_id, constituent_id, suspension_date, reinstatement_date]``.
+    A pair with multiple suspend/reinstate cycles emits multiple rows
+    (one per interval). ``reinstatement_date`` is ``NaT`` when the pair
+    is still suspended at the end of the date range.
+
+    The aggregation pipeline checks "is suspended on date D" via the
+    interval semantic: ``suspension_date <= D < reinstatement_date``
+    (treating ``NaT`` as +infinity).
+
+    Backward compatibility: ``compute_consecutive_day_suspensions``
+    is retained for tests and external callers that want the simpler
+    one-way schema.
+    """
+    if threshold_days < 1:
+        raise ValueError(
+            f"compute_suspension_intervals: threshold_days must be >= 1, got {threshold_days}"
+        )
+    if reinstatement_threshold_days < 1:
+        raise ValueError(
+            f"compute_suspension_intervals: reinstatement_threshold_days must be "
+            f">= 1, got {reinstatement_threshold_days}"
+        )
+
+    if excluded_slots_df.empty:
+        return _empty_suspension_intervals()
+
+    # Per-(pair, date) flag: did this pair have a gate firing on this date?
+    fired_keys: set[tuple[str, str, pd.Timestamp]] = set()
+    for rec in excluded_slots_df[
+        ["contributor_id", "constituent_id", "date"]
+    ].drop_duplicates().to_dict("records"):
+        fired_keys.add(
+            (
+                str(rec["contributor_id"]),
+                str(rec["constituent_id"]),
+                pd.Timestamp(rec["date"]),
+            )
+        )
+
+    # Per-(pair, date) presence: did this pair appear in the panel on this
+    # date? Used to distinguish missing days from clean days.
+    panel_keys: set[tuple[str, str, pd.Timestamp]] = set()
+    if not panel_df.empty:
+        for rec in panel_df[
+            ["contributor_id", "constituent_id", "observation_date"]
+        ].drop_duplicates().to_dict("records"):
+            panel_keys.add(
+                (
+                    str(rec["contributor_id"]),
+                    str(rec["constituent_id"]),
+                    pd.Timestamp(rec["observation_date"]),
+                )
+            )
+
+    # Full calendar date range (inclusive) from min to max date in either
+    # the panel or the excluded-slots frame. This is the universe walked
+    # per pair — missing days WITHIN this range get the reset semantic
+    # (DL 2026-04-30 Phase 7H methodology design entry: "absence of data
+    # shouldn't earn reinstatement progress").
+    all_endpoint_dates: set[pd.Timestamp] = set()
+    for _, _, d in fired_keys:
+        all_endpoint_dates.add(d)
+    for _, _, d in panel_keys:
+        all_endpoint_dates.add(d)
+    if not all_endpoint_dates:
+        return _empty_suspension_intervals()
+    min_date = min(all_endpoint_dates)
+    max_date = max(all_endpoint_dates)
+    all_dates: list[pd.Timestamp] = list(
+        pd.date_range(start=min_date, end=max_date, freq="D")
+    )
+
+    # Pairs to evaluate: those that ever fired (no fire = no suspension
+    # possible).
+    pairs: set[tuple[str, str]] = {(c, k) for c, k, _ in fired_keys}
+
+    rows: list[dict[str, Any]] = []
+    for contrib, const in sorted(pairs):
+        is_suspended = False
+        fire_counter = 0
+        clean_counter = 0
+        active_suspension_date: pd.Timestamp | None = None
+
+        for d in all_dates:
+            key = (contrib, const, d)
+            in_panel = key in panel_keys
+            had_fire = key in fired_keys
+
+            if had_fire:
+                fire_counter += 1
+                clean_counter = 0
+                if not is_suspended and fire_counter >= threshold_days:
+                    is_suspended = True
+                    active_suspension_date = d
+            elif in_panel:
+                # Clean day: panel observation present, no gate firing.
+                clean_counter += 1
+                fire_counter = 0
+                if (
+                    is_suspended
+                    and clean_counter >= reinstatement_threshold_days
+                ):
+                    rows.append(
+                        {
+                            "contributor_id": contrib,
+                            "constituent_id": const,
+                            "suspension_date": active_suspension_date,
+                            "reinstatement_date": d,
+                        }
+                    )
+                    is_suspended = False
+                    active_suspension_date = None
+                    clean_counter = 0
+            else:
+                # Missing day: no panel row for this pair on this date.
+                # Both counters reset — no progress in either direction.
+                fire_counter = 0
+                clean_counter = 0
+
+        # End of date range: if still suspended, emit interval with NaT
+        # reinstatement.
+        if is_suspended:
+            rows.append(
+                {
+                    "contributor_id": contrib,
+                    "constituent_id": const,
+                    "suspension_date": active_suspension_date,
+                    "reinstatement_date": pd.NaT,
+                }
+            )
+
+    if not rows:
+        return _empty_suspension_intervals()
+    out = pd.DataFrame(rows)
+    out["suspension_date"] = pd.to_datetime(out["suspension_date"]).astype(
+        "datetime64[ns]"
+    )
+    out["reinstatement_date"] = pd.to_datetime(out["reinstatement_date"]).astype(
+        "datetime64[ns]"
+    )
+    return out[SUSPENSION_INTERVAL_COLUMNS].reset_index(drop=True)
+
+
+def _empty_suspension_intervals() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "contributor_id": pd.Series([], dtype="object"),
+            "constituent_id": pd.Series([], dtype="object"),
+            "suspension_date": pd.Series([], dtype="datetime64[ns]"),
+            "reinstatement_date": pd.Series([], dtype="datetime64[ns]"),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -27,6 +27,7 @@ from tprr.index.quality import (
     apply_staleness_rule,
     check_min_constituents,
     compute_consecutive_day_suspensions,
+    compute_suspension_intervals,
 )
 from tprr.schema import AttestationTier, Tier
 
@@ -471,3 +472,265 @@ def test_min_constituents_accepts_tier_string_alias() -> None:
         ignore_index=True,
     )
     assert check_min_constituents(panel, tier="TPRR_F")
+
+
+# ---------------------------------------------------------------------------
+# compute_suspension_intervals — Phase 7H Batch D (DL 2026-04-30)
+# ---------------------------------------------------------------------------
+
+
+def _panel_row_for_suspension(
+    *,
+    contributor_id: str,
+    constituent_id: str,
+    date_value: pd.Timestamp,
+) -> dict[str, Any]:
+    """Minimal panel row for suspension-interval testing — only the
+    columns the function reads."""
+    return {
+        "contributor_id": contributor_id,
+        "constituent_id": constituent_id,
+        "observation_date": date_value,
+    }
+
+
+_DEFAULT_PANEL_START = pd.Timestamp("2025-01-01")
+
+
+def _panel_for_pair(
+    contributor_id: str,
+    constituent_id: str,
+    n_days: int,
+    *,
+    start: pd.Timestamp = _DEFAULT_PANEL_START,
+) -> pd.DataFrame:
+    """Build a panel covering n_days consecutive days for one pair."""
+    return pd.DataFrame(
+        [
+            _panel_row_for_suspension(
+                contributor_id=contributor_id,
+                constituent_id=constituent_id,
+                date_value=start + i * DAY,
+            )
+            for i in range(n_days)
+        ]
+    )
+
+
+def _excluded_slot(
+    *,
+    contributor_id: str,
+    constituent_id: str,
+    date_value: pd.Timestamp,
+    slot_idx: int = 0,
+) -> dict[str, Any]:
+    return {
+        "contributor_id": contributor_id,
+        "constituent_id": constituent_id,
+        "date": date_value,
+        "slot_idx": slot_idx,
+    }
+
+
+def test_compute_suspension_intervals_empty_input_returns_empty() -> None:
+    out = compute_suspension_intervals(
+        excluded_slots_df=pd.DataFrame(
+            columns=["contributor_id", "constituent_id", "date", "slot_idx"]
+        ),
+        panel_df=pd.DataFrame(
+            columns=["contributor_id", "constituent_id", "observation_date"]
+        ),
+    )
+    assert out.empty
+    assert list(out.columns) == [
+        "contributor_id",
+        "constituent_id",
+        "suspension_date",
+        "reinstatement_date",
+    ]
+
+
+def test_compute_suspension_intervals_single_suspension_no_reinstatement() -> None:
+    """3 consecutive fire days → suspension. No reinstatement (only 5 days
+    of clean behaviour after, < 10-day threshold). Output: one row with
+    reinstatement_date = NaT."""
+    start = pd.Timestamp("2025-01-01")
+    panel = _panel_for_pair("c1", "k1", 8, start=start)
+    excluded_slots = pd.DataFrame(
+        [
+            _excluded_slot(
+                contributor_id="c1",
+                constituent_id="k1",
+                date_value=start + i * DAY,
+            )
+            for i in range(3)
+        ]
+    )
+    out = compute_suspension_intervals(excluded_slots, panel, threshold_days=3)
+    assert len(out) == 1
+    row = out.iloc[0]
+    assert row["contributor_id"] == "c1"
+    assert row["constituent_id"] == "k1"
+    assert pd.Timestamp(row["suspension_date"]) == start + 2 * DAY
+    assert pd.isna(row["reinstatement_date"])
+
+
+def test_compute_suspension_intervals_suspend_then_reinstate() -> None:
+    """3 fire days + 10 clean days → suspension at day 3, reinstatement
+    at day 13 (10 consecutive clean days reach threshold)."""
+    start = pd.Timestamp("2025-01-01")
+    panel = _panel_for_pair("c1", "k1", 14, start=start)
+    excluded_slots = pd.DataFrame(
+        [
+            _excluded_slot(
+                contributor_id="c1",
+                constituent_id="k1",
+                date_value=start + i * DAY,
+            )
+            for i in range(3)
+        ]
+    )
+    out = compute_suspension_intervals(
+        excluded_slots, panel,
+        threshold_days=3,
+        reinstatement_threshold_days=10,
+    )
+    assert len(out) == 1
+    row = out.iloc[0]
+    # Suspension fires on day 3 (the 3rd consecutive fire day, 0-indexed
+    # day 2).
+    assert pd.Timestamp(row["suspension_date"]) == start + 2 * DAY
+    # Reinstatement fires on day 13 (10th clean day after suspension; the
+    # clean days are days 3..12 = 10 days; 0-indexed day 12).
+    assert pd.Timestamp(row["reinstatement_date"]) == start + 12 * DAY
+
+
+def test_compute_suspension_intervals_multiple_cycles() -> None:
+    """Pair suspends, reinstates, then suspends again. Output: 2 rows
+    representing the two intervals.
+
+    Panel sized at 25 days so the second suspension (day 17) has only
+    7 clean days after (days 18..24) → insufficient for reinstatement,
+    second interval stays open at end of range."""
+    start = pd.Timestamp("2025-01-01")
+    panel = _panel_for_pair("c1", "k1", 25, start=start)
+    excluded_slots = pd.DataFrame(
+        [
+            # First suspension cycle: days 0, 1, 2 fire (suspends day 2)
+            _excluded_slot(
+                contributor_id="c1",
+                constituent_id="k1",
+                date_value=start + i * DAY,
+            )
+            for i in range(3)
+        ]
+        + [
+            # Days 3..12 (10 days) clean → reinstates day 12
+            # Days 15, 16, 17 fire → second suspension at day 17
+            _excluded_slot(
+                contributor_id="c1",
+                constituent_id="k1",
+                date_value=start + (15 + i) * DAY,
+            )
+            for i in range(3)
+        ]
+    )
+    out = compute_suspension_intervals(
+        excluded_slots, panel,
+        threshold_days=3,
+        reinstatement_threshold_days=10,
+    )
+    assert len(out) == 2
+    # First interval: suspends day 2, reinstates day 12.
+    assert pd.Timestamp(out.iloc[0]["suspension_date"]) == start + 2 * DAY
+    assert pd.Timestamp(out.iloc[0]["reinstatement_date"]) == start + 12 * DAY
+    # Second interval: suspends day 17. Still suspended at end of range.
+    assert pd.Timestamp(out.iloc[1]["suspension_date"]) == start + 17 * DAY
+    assert pd.isna(out.iloc[1]["reinstatement_date"])
+
+
+def test_compute_suspension_intervals_missing_day_resets_clean_counter() -> None:
+    """A missing day (no panel row for the pair) resets the clean
+    counter to zero — reinstatement requires 10 CONSECUTIVE clean
+    panel-recorded days, not 10 calendar days with gaps."""
+    start = pd.Timestamp("2025-01-01")
+    # 14 days total: panel covers all 14 except day 6 missing.
+    panel_dates = [start + i * DAY for i in range(14) if i != 6]
+    panel = pd.DataFrame(
+        [
+            _panel_row_for_suspension(
+                contributor_id="c1", constituent_id="k1", date_value=d
+            )
+            for d in panel_dates
+        ]
+    )
+    excluded_slots = pd.DataFrame(
+        [
+            _excluded_slot(
+                contributor_id="c1",
+                constituent_id="k1",
+                date_value=start + i * DAY,
+            )
+            for i in range(3)
+        ]
+    )
+    out = compute_suspension_intervals(
+        excluded_slots, panel,
+        threshold_days=3,
+        reinstatement_threshold_days=10,
+    )
+    # The missing day at index 6 resets the clean counter. After the
+    # missing day, we need another 10 consecutive clean days — but only
+    # days 7..13 remain (7 clean days), insufficient for reinstatement.
+    # Result: one row, still suspended.
+    assert len(out) == 1
+    assert pd.isna(out.iloc[0]["reinstatement_date"])
+
+
+def test_compute_suspension_intervals_fire_during_clean_run_resets_counter() -> None:
+    """A fire day mid-clean-run resets the clean counter — does not
+    accumulate fire counter from zero unless suspension is currently
+    active. Pair stays suspended."""
+    start = pd.Timestamp("2025-01-01")
+    panel = _panel_for_pair("c1", "k1", 15, start=start)
+    # Initial 3-day fire (suspend at day 2), then days 3-9 clean (7 clean),
+    # then day 10 fire (resets clean), then days 11-14 clean (4 clean,
+    # < 10 threshold).
+    fire_days = [0, 1, 2, 10]
+    excluded_slots = pd.DataFrame(
+        [
+            _excluded_slot(
+                contributor_id="c1",
+                constituent_id="k1",
+                date_value=start + i * DAY,
+            )
+            for i in fire_days
+        ]
+    )
+    out = compute_suspension_intervals(
+        excluded_slots, panel,
+        threshold_days=3,
+        reinstatement_threshold_days=10,
+    )
+    assert len(out) == 1
+    assert pd.Timestamp(out.iloc[0]["suspension_date"]) == start + 2 * DAY
+    assert pd.isna(out.iloc[0]["reinstatement_date"])
+
+
+def test_compute_suspension_intervals_invalid_thresholds_raise() -> None:
+    import pytest as _pytest
+
+    excluded_slots = pd.DataFrame(
+        columns=["contributor_id", "constituent_id", "date", "slot_idx"]
+    )
+    panel = pd.DataFrame(
+        columns=["contributor_id", "constituent_id", "observation_date"]
+    )
+    with _pytest.raises(ValueError, match="threshold_days must be"):
+        compute_suspension_intervals(
+            excluded_slots, panel, threshold_days=0
+        )
+    with _pytest.raises(ValueError, match="reinstatement_threshold_days"):
+        compute_suspension_intervals(
+            excluded_slots, panel, reinstatement_threshold_days=0
+        )

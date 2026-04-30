@@ -343,10 +343,21 @@ def compute_tier_index(
     }
 
     # 2. Drop suspended (contributor, constituent) pairs effective on this date.
+    # Phase 7H Batch D (DL 2026-04-30): suspended_pairs_df may carry an
+    # optional ``reinstatement_date`` column for interval-based semantics
+    # (suspension_date <= D < reinstatement_date is "active"). Legacy
+    # frames without that column are treated as one-way ratchet.
     if suspended_pairs_df is not None and not suspended_pairs_df.empty:
-        active_susp = suspended_pairs_df[
-            suspended_pairs_df["suspension_date"] <= pd.Timestamp(as_of_date_value)
-        ]
+        as_of_ts = pd.Timestamp(as_of_date_value)
+        suspension_active = suspended_pairs_df["suspension_date"] <= as_of_ts
+        if "reinstatement_date" in suspended_pairs_df.columns:
+            reinstated = (
+                suspended_pairs_df["reinstatement_date"].notna()
+                & (suspended_pairs_df["reinstatement_date"] <= as_of_ts)
+            )
+            active_susp = suspended_pairs_df[suspension_active & ~reinstated]
+        else:
+            active_susp = suspended_pairs_df[suspension_active]
         if not active_susp.empty:
             keep_keys = pd.MultiIndex.from_arrays(
                 [tier_panel["contributor_id"], tier_panel["constituent_id"]]
@@ -930,10 +941,18 @@ def _compute_weight_then_twap_index(
     }
 
     # 2. Drop suspended (contributor, constituent) pairs.
+    # Phase 7H Batch D: same interval-aware filter as the canonical path.
     if suspended_pairs_df is not None and not suspended_pairs_df.empty:
-        active_susp = suspended_pairs_df[
-            suspended_pairs_df["suspension_date"] <= pd.Timestamp(as_of_date_value)
-        ]
+        as_of_ts_w2t = pd.Timestamp(as_of_date_value)
+        suspension_active = suspended_pairs_df["suspension_date"] <= as_of_ts_w2t
+        if "reinstatement_date" in suspended_pairs_df.columns:
+            reinstated = (
+                suspended_pairs_df["reinstatement_date"].notna()
+                & (suspended_pairs_df["reinstatement_date"] <= as_of_ts_w2t)
+            )
+            active_susp = suspended_pairs_df[suspension_active & ~reinstated]
+        else:
+            active_susp = suspended_pairs_df[suspension_active]
         if not active_susp.empty:
             keep_keys = pd.MultiIndex.from_arrays(
                 [tier_panel["contributor_id"], tier_panel["constituent_id"]]

@@ -52,7 +52,7 @@ from tprr.index.derived import (
 )
 from tprr.index.quality import (
     apply_slot_level_gate,
-    compute_consecutive_day_suspensions,
+    compute_suspension_intervals,
 )
 from tprr.index.weights import TierBVolumeFn
 from tprr.schema import Tier
@@ -112,9 +112,11 @@ def run_full_pipeline(
        Tier A rows (per the Tier-A-only scope addendum in DL 2026-04-29 Phase
        6 slot-level quality gate parameters). Returns
        ``excluded_slots_df``.
-    2. ``compute_consecutive_day_suspensions`` on the gate output.
-       3-consecutive-day rule (DL 2026-04-29 Phase 6 suspension counter).
-       Returns ``suspended_pairs_df``.
+    2. ``compute_suspension_intervals`` on the gate output + panel.
+       Phase 7H Batch D (DL 2026-04-30): bidirectional 3-day-exclude /
+       10-day-reinstate criteria (was ``compute_consecutive_day_suspensions``
+       with sticky one-way ratchet pre-Phase-7H). Returns interval-based
+       ``suspended_pairs`` with ``reinstatement_date`` column.
     3. ``compute_panel_twap`` on the full panel, honouring the gate's
        exclusions. Tier B/C rows pass through unchanged because they have no
        slot dimension.
@@ -134,9 +136,11 @@ def run_full_pipeline(
         trailing_window_days=5,
         deviation_pct=config.quality_gate_pct,
     )
-    suspended_pairs = compute_consecutive_day_suspensions(
+    suspended_pairs = compute_suspension_intervals(
         excluded_slots,
-        threshold_days=3,
+        panel_df,
+        threshold_days=config.suspension_threshold_days,
+        reinstatement_threshold_days=config.reinstatement_threshold_days,
     )
 
     # All-32-slots-excluded handling: when every slot fires for a

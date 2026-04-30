@@ -54,6 +54,8 @@ class IndexConfig(BaseModel):
     continuity_check_pct: float = 0.25
     min_constituents_per_tier: int = 3
     staleness_max_days: int = 3
+    suspension_threshold_days: int = 3
+    reinstatement_threshold_days: int = 10
     tier_haircuts: dict[AttestationTier, float] = Field(
         default_factory=lambda: {
             AttestationTier.A: 1.0,

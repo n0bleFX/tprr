@@ -12,6 +12,8 @@ quality_gate_pct: 0.15            # slot-level deviation threshold vs 5-day trai
 continuity_check_pct: 0.25        # day-over-day change → requires_verification flag (Section 4.1)
 min_constituents_per_tier: 3      # tier suspension floor (Section 4.2.4)
 staleness_max_days: 3             # MVP staleness rule (decision log gap, pending Index Committee)
+suspension_threshold_days: 3      # Phase 7H Batch D: 3 consecutive gate-firing days → pair suspended
+reinstatement_threshold_days: 10  # Phase 7H Batch D: 10 consecutive clean days post-suspension → pair reinstated
 
 tier_haircuts:                    # volume-weight haircuts by attestation tier (Section 3.3.2)
   A: 1.0

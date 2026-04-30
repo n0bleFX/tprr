@@ -1111,3 +1111,29 @@ Phase 10 sensitivity sweep over 0.4 / 0.5 / 0.6 will quantify how much the hairc
 
 **Methodology section**: 3.3.2 (volume weights — Tier B confidence calibration)
 
+## 2026-04-30 — Phase 7H Batch D: suspension reinstatement (3-day exclude / 10-day reinstate)
+
+**Decision**: Implement bidirectional suspension/reinstatement criteria as specified in DL 2026-04-30 Phase 7H methodology design entry (change #4) and DL 2026-04-30 suspension reinstatement gap entry. Suspension trigger unchanged: 3 consecutive days with ≥1 slot-level gate firing on the (contributor, constituent) pair → suspended. Reinstatement trigger (new): 10 consecutive days of on-market behavior (no slot-level gate firings) on the previously-suspended pair → reinstated. Asymmetric thresholds (3-day exclude / 10-day reinstate) create stability bias preventing oscillation.
+
+**Implementation**: new `compute_suspension_intervals` in `src/tprr/index/quality.py` walks the full calendar date range (min to max in panel ∪ excluded_slots) per pair tracking three states per day:
+- **Fire day** (gate firing): increment fire_counter; reset clean_counter
+- **Clean day** (panel row exists, no gate firing): increment clean_counter; reset fire_counter
+- **Missing day** (no panel row for the pair): reset BOTH counters to zero
+
+Output schema: `[contributor_id, constituent_id, suspension_date, reinstatement_date]`. Multiple rows per pair if it has multiple suspend/reinstate cycles. `reinstatement_date = NaT` when pair is still suspended at end of range.
+
+**Pair-suspension drop logic** (in `compute_tier_index` and `_compute_weight_then_twap_index`) now performs interval-aware filtering: a pair is "active suspended on date D" when `suspension_date <= D AND (reinstatement_date is NaT OR D < reinstatement_date)`. Backward compatibility: legacy frames without the `reinstatement_date` column fall back to one-way ratchet semantics so existing test fixtures (and pre-Phase-7H pipeline outputs) still work.
+
+**Config exposure**: `suspension_threshold_days` (default 3) and `reinstatement_threshold_days` (default 10) added to `IndexConfig`. Phase 10 sweeps will sweep both.
+
+**Missing-day reset rationale (re-confirming the methodology design entry)**: a contributor that goes silent (no panel row for N days) should not earn reinstatement progress on those days. Reset preserves the "observed on-market" semantic of reinstatement. v0.1 conservative choice; v1.3 may revisit (e.g., distinguish "expected gap" weekends/maintenance from "unexplained absence").
+
+**Phase 10 obligations**:
+- Sweep reinstatement threshold (5 / 10 / 15 / 20 days) — test asymmetric ratio sensitivity
+- Compare scenario panels under one-way vs bidirectional suspension — does reinstatement materially change cascade trajectory?
+- Multi-seed: characterise whether reinstatement frequency is robust across seeds
+
+**Phase 11 narrative**: Phase 7H Batch D is the last of four Phase 7H methodology proposals. Phase 11 closes the v1.3 specification proposal narrative: cliff-edge dynamics + Tier B data quality + one-way ratchet were the three problems surfaced; within-tier-share normalization + continuous blending + Tier B haircut + symmetric reinstatement are the four proposed solutions. Phase 7H Batch D completes the implementation; Phase 10 quantifies sensitivity.
+
+**Methodology section**: 4.2.2 (data quality checks — suspension/reinstatement criteria)
+

@@ -628,6 +628,137 @@ def test_run_full_pipeline_propagates_suspensions_into_aggregation() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 7H Batch D — suspension reinstatement (DL 2026-04-30)
+# ---------------------------------------------------------------------------
+
+
+def test_run_full_pipeline_emits_interval_based_suspended_pairs() -> None:
+    """Phase 7H Batch D: suspended_pairs DataFrame on FullPipelineResults
+    carries reinstatement_date column (NaT when still suspended).
+    Replaces the pre-7H one-way ratchet schema."""
+    panel = _multi_day_clean_panel(n_days=10)
+    result = run_full_pipeline(
+        panel_df=panel,
+        change_events_df=_empty_change_events(),
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+    )
+    # On a clean panel no pair suspends, so the frame is empty — but it
+    # still carries the new schema columns.
+    assert list(result.suspended_pairs.columns) == [
+        "contributor_id",
+        "constituent_id",
+        "suspension_date",
+        "reinstatement_date",
+    ]
+
+
+def test_aggregation_honors_reinstatement_in_suspended_pairs_df() -> None:
+    """A pair with suspension_date=D1 and reinstatement_date=D2 is
+    treated as suspended for D in [D1, D2) and active for D >= D2.
+    Verifies the interval-aware filter in compute_tier_index."""
+    from tprr.index.aggregation import compute_tier_index
+
+    d_active = date(2025, 1, 5)  # before suspension
+    d_suspended = date(2025, 1, 12)  # within interval
+    d_reinstated = date(2025, 1, 20)  # after reinstatement
+
+    panel_active = _multi_day_clean_panel(n_days=1, start=d_active)
+    panel_suspended = _multi_day_clean_panel(n_days=1, start=d_suspended)
+    panel_reinstated = _multi_day_clean_panel(n_days=1, start=d_reinstated)
+
+    susp_intervals = pd.DataFrame(
+        [
+            {
+                "contributor_id": "c1",
+                "constituent_id": "openai/gpt-5-pro",
+                "suspension_date": pd.Timestamp(date(2025, 1, 10)),
+                "reinstatement_date": pd.Timestamp(date(2025, 1, 18)),
+            }
+        ]
+    )
+
+    # Before the interval: pair is active.
+    r1 = compute_tier_index(
+        panel_day_df=panel_active,
+        tier=Tier.TPRR_F,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp_intervals,
+    )
+    # No suspended pair affects gpt-5-pro before suspension_date.
+    assert not r1["suspended"]
+    assert r1["n_constituents_active"] == 3
+
+    # Within the interval: pair is suspended → gpt-5-pro contributors
+    # drop to 2 → Tier A min-3 fails for that constituent → constituent
+    # excluded. Remaining 2 constituents → tier suspends.
+    r2 = compute_tier_index(
+        panel_day_df=panel_suspended,
+        tier=Tier.TPRR_F,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp_intervals,
+    )
+    assert r2["suspended"]
+    assert r2["n_constituents_active"] == 2
+
+    # After reinstatement: pair active again → gpt-5-pro recovers.
+    r3 = compute_tier_index(
+        panel_day_df=panel_reinstated,
+        tier=Tier.TPRR_F,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=susp_intervals,
+    )
+    assert not r3["suspended"]
+    assert r3["n_constituents_active"] == 3
+
+
+def test_aggregation_legacy_one_way_suspension_frame_still_works() -> None:
+    """Backward compatibility: a suspended_pairs_df WITHOUT the
+    reinstatement_date column is treated as one-way ratchet (suspended
+    forever from suspension_date onward). Existing tests that build
+    legacy frames stay green."""
+    from tprr.index.aggregation import compute_tier_index
+
+    d = date(2025, 1, 12)
+    panel = _multi_day_clean_panel(n_days=1, start=d)
+
+    # Legacy schema: no reinstatement_date column.
+    legacy_susp = pd.DataFrame(
+        [
+            {
+                "contributor_id": "c1",
+                "constituent_id": "openai/gpt-5-pro",
+                "suspension_date": pd.Timestamp(date(2025, 1, 10)),
+            }
+        ]
+    )
+
+    r = compute_tier_index(
+        panel_day_df=panel,
+        tier=Tier.TPRR_F,
+        config=_config(date(2025, 1, 1)),
+        registry=_registry_three_tiers(),
+        tier_b_config=_empty_tier_b_config(),
+        tier_b_volume_fn=_stub_tier_b_volume_fn(),
+        suspended_pairs_df=legacy_susp,
+    )
+    # Pair suspended on 2025-01-10; querying 2025-01-12 → still suspended
+    # under one-way ratchet. gpt-5-pro loses contributor c1, n_a drops.
+    assert r["suspended"]
+
+
+# ---------------------------------------------------------------------------
 # Empty inputs
 # ---------------------------------------------------------------------------
 
