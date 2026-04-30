@@ -970,3 +970,62 @@ Same upstream cause (no Tier B revenue config means no fall-through path), diffe
 
 **Methodology section**: 3.3.2 (priority fall-through), 4.2.4 (min_constituents_per_tier)
 
+## 2026-04-30 — Phase 7H methodology design: continuous blending, within-tier normalization, Tier B confidence recalibration, suspension reinstatement
+
+**Decision**: Phase 7H implements four substantive methodology changes in response to v0.1 validation findings. These changes constitute a deliberate v0.1 deviation from canonical Section 3.3.2 priority fall-through, designed to test whether modified methodology produces a stable, manipulation-resistant institutional benchmark.
+
+**Research question context**: The v0.1 validation primary research question — "does the TPRR dual-weighted formula combined with the three-tier volume hierarchy produce a stable, credible, manipulation-resistant index when run on realistic data?" — was answered as 'no' by Phase 7 Batch C empirical findings under literal-canon Section 3.3.2. The Phase 7 Batch C cascade and Phase 9 cliff-edge dynamics demonstrated that priority fall-through with cross-tier magnitude gap produces discontinuous index behavior at the min-3 boundary. Phase 7H tests an alternative methodology specification to determine whether the methodology — appropriately modified — can answer 'yes'.
+
+**Four substantive changes**:
+
+1. **Continuous blending replaces priority fall-through**. Section 3.3.2's literal canonical reading specifies priority fall-through (one tier per constituent per day, in order A → B → C). Phase 7H replaces this with continuous blending: when multiple tiers have data for a constituent, all available tiers contribute according to coefficients. Default coefficients when all three tiers available: (Tier A: 0.6, Tier C: 0.3, Tier B: 0.1). Coefficients redistribute proportionally when fewer tiers available. Rationale: the cliff-edge dynamics finding (DL 2026-04-30 Phase 9 visual diagnostic entry) demonstrated that priority fall-through produces discontinuous weight share at the min-3 boundary. Continuous blending produces smooth transitions that are robust to single-constituent tier changes and reduce manipulation surface.
+
+2. **Within-tier-share normalization replaces raw volume**. Replace `w_vol = raw_volume × haircut` with `w_vol = (volume / Σ within-tier volumes for active constituents) × haircut`. Each tier's volumes are normalized to within-tier shares before haircut application. Rationale: cross-tier magnitude gap (DL 2026-04-29 priority fall-through entry, ~66,000:1 in v0.1) is a structural sample-vs-population property of any panel-based vs market-based volume measurement. Within-tier shares are bounded in [0, 1] regardless of underlying scale, allowing meaningful cross-tier blending without one tier's magnitude dominating regardless of coefficient choice.
+
+3. **Tier B confidence haircut: 0.9 → 0.5; tier ordering: A → C → B (was A → B → C)**. Lower Tier B's confidence haircut from 0.9 to 0.5 reflecting v0.1 data-quality realities. Tier B's revenue-derivation chain (provider total revenue × API share assumption × OpenRouter within-provider split ÷ reference price) has compounding bias risks: top-line revenue includes non-API sources (subscriptions, licensing, services); API share assumptions are point estimates that may not track over time; "API revenue" includes flat-rate Enterprise tiers where effective per-token rates differ from published rates; revenue-attribution to specific constituents requires synthetic priors when OpenRouter coverage is sparse. Cumulative bias is plausibly 30-50% upward on Tier B implied volumes for some providers. Tier C (OpenRouter rankings) is direct third-party-source measurement of token activity with lower precision but lower bias risk. Tier C therefore ranks above Tier B in confidence ordering for v0.1. Coefficient values (A=0.6, C=0.3, B=0.1) reflect this ordering. v1.3 may revise haircut values based on improved data quality (audited revenue with subscription-tier carve-outs, provider-disclosed API token volumes, etc.).
+
+4. **Suspension reinstatement (symmetric criteria)**. Add automated reinstatement to complement automated suspension. Suspension trigger (existing): 3 consecutive days with ≥1 slot-level gate firing on the (contributor, constituent) pair → suspended. Reinstatement trigger (new): 10 consecutive days of on-market behavior (NO slot-level gate firings) on the previously-suspended pair → reinstated. Asymmetric thresholds (3-day exclude / 10-day reinstate) create stability bias preventing oscillation near threshold. No backfill — reinstated pair contributes from reinstatement date forward, not retroactively. Rationale: DL 2026-04-30 suspension reinstatement gap entry identified one-way suspension as an unprincipled ratchet inconsistent with real benchmark practice (ICE Brent contributor reinstatement, ISDA reference-rate fallback frameworks). Symmetric criteria align v0.1 implementation with bidirectional methodology principles.
+
+**Methodology rationale (combined)**:
+
+The four changes address the same research question from different angles:
+- Continuous blending: structural smoothness across tier transitions
+- Within-tier-share normalization: structural compatibility for cross-tier blending
+- Tier B confidence recalibration: bias-aware contribution weights
+- Suspension reinstatement: bidirectional pair eligibility
+
+Together they implement a candidate v1.3 methodology specification within v0.1 to empirically test whether the modified methodology produces the stable, manipulation-resistant index the research question asks about. Phase 7H is the v0.1 validation experiment for the proposed v1.3 specification, not a v1.3 implementation itself — v1.3 specification work properly belongs to a future revision with empirical input from this v0.1 work.
+
+**Departure from canonical Section 3.3.2**:
+
+This is a *substantive deviation* from Section 3.3.2's literal canonical reading. Phase 7H is explicitly *not* literal-canon implementation. The Phase 11 publication will frame this as: "v0.1 validation surfaced cliff-edge dynamics and Tier B data-quality issues under literal-canon priority fall-through. We proposed and implemented modified methodology — continuous blending with within-tier-share normalization, recalibrated Tier B confidence, and symmetric suspension reinstatement — and tested whether the modified methodology produces a stable, manipulation-resistant index. Results: [Phase 7H outcomes]."
+
+This positioning is methodologically more powerful than literal-canon validation because it demonstrates not only "we found problems" but "we found problems, designed solutions, and tested them empirically."
+
+**Phase 10 sensitivity obligations**:
+
+- Sweep blending coefficients (alternatives: 0.5/0.35/0.15, 0.7/0.2/0.1, etc.) to characterize parameter sensitivity
+- Sweep Tier B haircut values (0.4, 0.5, 0.6) to test whether index dynamics are robust to confidence calibration
+- Sweep reinstatement thresholds (5/10/15/20 days) to test asymmetric ratio sensitivity
+- Compare Phase 7H output to literal-canon (Phase 7 Batch F) output empirically: how do the two methodologies differ on the clean panel, on each of the 5 scenario panels, in cliff-edge dynamics, in suspension trajectory?
+- Multi-seed runs to characterize whether Phase 7H findings are robust across seeds or seed-42-specific
+
+**Phase 11 narrative implications**:
+
+This entry establishes Phase 7H as the central methodology contribution of the v0.1 validation. The cumulative Phase 5-7-9 findings led to a v1.3 specification proposal; Phase 7H tests it empirically. Phase 11 documents the design rationale, the empirical results, and the v1.3 specification recommendations. This is the publishable methodology validation work that distinguishes TPRR from a "methodology paper plus toy backtest" to "rigorous validation including testing alternative formulations."
+
+**Methodology section affected**: 3.3.2 (priority fall-through → continuous blending), 3.3.3 (within-tier-share normalization), 4.2.2 (suspension/reinstatement criteria)
+
+## 2026-04-30 — Phase 7H Batch A: within-tier-share normalization (refactor)
+
+**Decision**: w_vol computation in `compute_dual_weights` modified from `raw_volume × haircut` to `within_tier_share × haircut`, where `within_tier_share = constituent_raw_volume / Σ raw_volumes for active constituents in that tier`. This changes the volume representation in the dual-weighted formula but preserves priority fall-through behavior (Batch B implements continuous blending).
+
+**Rationale**: prerequisite for Batch B continuous blending. Within-tier shares are bounded in [0, 1] regardless of underlying volume scale, enabling meaningful cross-tier blending. Under this representation, Tier A's panel-sum and Tier B's revenue-derived volume become structurally comparable.
+
+**Backward compatibility**: ConstituentDecisionDF audit trail preserves both within_tier_volume_share (new) and raw_volume_mtok (existing) for full audit visibility.
+
+**Dependent on**: Phase 7H design entry (this same date)
+**Phase 7H Batch B will**: implement continuous blending using within-tier-share representation as input
+
+**Empirical observation on within-tier-share refactor (added 2026-04-30 post-Batch-A)**: While Batch A is methodologically a "no change" refactor (priority fall-through selection preserved), within-tier-share normalization substantially attenuates cliff-edge dynamics on the seed-42 clean panel even without further methodology changes. TPRR_F tier_a_weight_share at base_date moved from 0.0012 (pre-Batch-A, raw-volume-dominated) to 0.5083 (post-Batch-A, within-tier-share-normalized). Tier B no longer dominates because its higher raw magnitude is normalized to a within-tier share bounded in [0, 1]. This refactor alone resolves much of the cliff-edge dynamics finding (DL 2026-04-30 Phase 9 visual diagnostic entry) — Phase 7H Batch B's continuous blending builds on top of this already-attenuated baseline. Phase 11 writeup material: within-tier-share normalization is a substantive component of the proposed v1.3 specification refinement, separable from the continuous blending change in Batch B.
+

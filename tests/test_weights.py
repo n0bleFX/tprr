@@ -38,6 +38,7 @@ from tprr.index.weights import (
     compute_exp_weights,
     compute_tier_median,
     compute_tier_volume,
+    compute_within_tier_share,
     exponential_weight,
     volume_weight,
 )
@@ -524,13 +525,17 @@ def test_dual_weights_haircut_applied_per_selected_tier() -> None:
     a_row = out[out["constituent_id"] == "openai/gpt-5-pro"].iloc[0]
     c_row = out[out["constituent_id"] == "google/gemini-3-pro"].iloc[0]
 
+    # Phase 7H Batch A (DL 2026-04-30): w_vol = within_tier_share x haircut.
+    # Each tier here has a single resolved constituent → within_tier_share = 1.0.
     assert a_row["attestation_tier"] == "A"
     assert a_row["raw_volume"] == pytest.approx(300.0)
-    assert a_row["w_vol"] == pytest.approx(300.0)  # haircut 1.0
+    assert a_row["within_tier_volume_share"] == pytest.approx(1.0)
+    assert a_row["w_vol"] == pytest.approx(1.0)  # share 1.0 x haircut 1.0
 
     assert c_row["attestation_tier"] == "C"
     assert c_row["raw_volume"] == pytest.approx(50_000.0)
-    assert c_row["w_vol"] == pytest.approx(50_000.0 * 0.8)
+    assert c_row["within_tier_volume_share"] == pytest.approx(1.0)
+    assert c_row["w_vol"] == pytest.approx(0.8)  # share 1.0 x haircut 0.8
 
 
 def test_dual_weights_tier_b_haircut() -> None:
@@ -562,9 +567,12 @@ def test_dual_weights_tier_b_haircut() -> None:
         config=_index_config(),
     )
     row = out.iloc[0]
+    # Phase 7H Batch A: single Tier-B-resolved constituent → share=1.0 →
+    # w_vol = 1.0 x 0.9 = 0.9 (down from raw 10_000 x 0.9 = 9_000).
     assert row["attestation_tier"] == "B"
     assert row["raw_volume"] == pytest.approx(10_000.0)
-    assert row["w_vol"] == pytest.approx(10_000.0 * 0.9)
+    assert row["within_tier_volume_share"] == pytest.approx(1.0)
+    assert row["w_vol"] == pytest.approx(0.9)
 
 
 def test_dual_weights_excludes_unweightable_constituent() -> None:
@@ -640,10 +648,13 @@ def test_dual_weights_output_label_is_selected_tier_not_panel_row_tier() -> None
     )
     assert len(out) == 1
     row = out.iloc[0]
+    # Phase 7H Batch A: single Tier-C-resolved constituent → share=1.0 →
+    # w_vol = 1.0 x 0.8 = 0.8 (down from raw 42_000 x 0.8 = 33_600).
     assert row["constituent_id"] == "anthropic/claude-opus-4-7"
     assert row["attestation_tier"] == "C"
     assert row["raw_volume"] == pytest.approx(42_000.0)
-    assert row["w_vol"] == pytest.approx(42_000.0 * 0.8)
+    assert row["within_tier_volume_share"] == pytest.approx(1.0)
+    assert row["w_vol"] == pytest.approx(0.8)
 
 
 def test_dual_weights_empty_panel_returns_empty_frame() -> None:
@@ -660,6 +671,7 @@ def test_dual_weights_empty_panel_returns_empty_frame() -> None:
         "observation_date",
         "attestation_tier",
         "raw_volume",
+        "within_tier_volume_share",
         "w_vol",
     ]
 
@@ -691,20 +703,26 @@ def test_dual_weights_rejects_multi_date_input() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_cross_tier_magnitude_gap_is_intentional() -> None:
-    """When constituent X is Tier A and constituent Y is Tier C in the same tier-day,
-    Y's w_vol must dominate X's by >100x even after haircuts.
+def test_w_vol_bounded_under_within_tier_share_normalization() -> None:
+    """Under Phase 7H Batch A within-tier-share normalization (DL 2026-04-30),
+    w_vol = within_tier_share x haircut. Both factors are bounded:
+    within_tier_share in [0, 1] by construction (it's a proportion of the
+    tier total), and haircut in {1.0, 0.9, 0.8} by config. So w_vol in [0, 1]
+    regardless of underlying raw-volume scale.
 
-    This test pins the 'Tier C dominance' property documented in
-    docs/decision_log.md 2026-04-29. Phase 10 will quantify the gap;
-    this test ensures the gap doesn't disappear due to a regression
-    (e.g. someone adding a hidden rescaling step) without an explicit
-    methodology change.
+    This test pins the bounded-w_vol property that Phase 7H Batch A
+    introduced. It REPLACES the prior test_cross_tier_magnitude_gap_is_
+    intentional test which asserted the >100x cross-tier gap that
+    within-tier-share normalization deliberately closes. The two are
+    incompatible by design — Phase 7H's purpose is to close that gap
+    so continuous blending in Batch B has structurally comparable inputs.
+
+    See DL 2026-04-30 "Phase 7H methodology design" entry for context.
     """
     target_date = date(2025, 6, 1)
     panel_rows = [
-        # X: anthropic/claude-opus-4-7 -- Tier A (3 contributors, panel-sum
-        # volume in the realistic mock-data range of ~50-500 mtok/7d)
+        # X: anthropic/claude-opus-4-7 — Tier A (3 contributors, panel-sum
+        # volume ~80 mtok/7d each → 240 mtok total panel-sum)
         *[
             _panel_row(
                 constituent_id="anthropic/claude-opus-4-7",
@@ -715,8 +733,8 @@ def test_cross_tier_magnitude_gap_is_intentional() -> None:
             )
             for name in ("alpha", "beta", "gamma")
         ],
-        # Y: google/gemini-3-pro — Tier C (whole-market rankings volume,
-        # ~50,000 mtok/7d, the realistic OR rankings magnitude)
+        # Y: google/gemini-3-pro - Tier C (whole-market rankings volume,
+        # 50_000 mtok/7d, ~200x the Tier A panel-sum)
         _panel_row(
             constituent_id="google/gemini-3-pro",
             contributor_id="openrouter:aggregate",
@@ -728,20 +746,39 @@ def test_cross_tier_magnitude_gap_is_intentional() -> None:
     out = compute_dual_weights(
         panel_day_df=pd.DataFrame(panel_rows),
         registry=_registry(),
-        tier_b_config=_tier_b_config_with_openai(),  # neither anthropic nor google → no Tier B
+        tier_b_config=_tier_b_config_with_openai(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
         config=_index_config(),
     )
 
-    a_w = out.set_index("constituent_id").loc["anthropic/claude-opus-4-7", "w_vol"]
-    c_w = out.set_index("constituent_id").loc["google/gemini-3-pro", "w_vol"]
-    # The 0.8 Tier C haircut does not close a >100x raw-volume gap.
-    assert c_w / a_w > 100, (
-        f"Cross-tier magnitude gap collapsed: Tier C w_vol={c_w}, "
-        f"Tier A w_vol={a_w}. If this fails, someone added a rescaling "
-        f"step to compute_tier_volume / volume_weight. Per "
-        f"docs/decision_log.md 2026-04-29 the v0.1 implementation must "
-        f"keep the magnitude gap intact so Phase 10 can measure it."
+    a_w = float(out.set_index("constituent_id").loc[
+        "anthropic/claude-opus-4-7", "w_vol"
+    ])
+    c_w = float(out.set_index("constituent_id").loc[
+        "google/gemini-3-pro", "w_vol"
+    ])
+
+    # Both w_vols bounded in [0, 1].
+    assert 0.0 <= a_w <= 1.0, f"Tier A w_vol out of [0, 1]: {a_w}"
+    assert 0.0 <= c_w <= 1.0, f"Tier C w_vol out of [0, 1]: {c_w}"
+
+    # Each tier has a single resolved constituent here → share = 1.0 →
+    # w_vol = haircut. Tier A haircut 1.0, Tier C haircut 0.8.
+    assert a_w == pytest.approx(1.0)
+    assert c_w == pytest.approx(0.8)
+
+    # Raw-volume ratio is preserved in raw_volume (audit-trail field) but
+    # NOT in w_vol — that's the whole point.
+    a_raw = float(out.set_index("constituent_id").loc[
+        "anthropic/claude-opus-4-7", "raw_volume"
+    ])
+    c_raw = float(out.set_index("constituent_id").loc[
+        "google/gemini-3-pro", "raw_volume"
+    ])
+    assert c_raw / a_raw > 100, (
+        "Raw volumes still reflect the realistic ~200x panel-sum vs rankings "
+        "magnitude — w_vol normalisation does not erase the underlying signal, "
+        "it just isolates it from the dual-weighted formula's volume term."
     )
 
 
@@ -846,3 +883,78 @@ def test_property_volume_weight_linear_in_volume(
     w_base = volume_weight(volume, tier, cfg)
     w_scaled = volume_weight(volume * scale, tier, cfg)
     assert w_scaled == pytest.approx(w_base * scale, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# compute_within_tier_share — Phase 7H Batch A (DL 2026-04-30)
+# ---------------------------------------------------------------------------
+
+
+def test_compute_within_tier_share_basic() -> None:
+    """Three positive volumes → shares sum to 1.0 and reflect proportions."""
+    out = compute_within_tier_share({"a": 100.0, "b": 200.0, "c": 700.0})
+    assert out["a"] == pytest.approx(0.10)
+    assert out["b"] == pytest.approx(0.20)
+    assert out["c"] == pytest.approx(0.70)
+    assert sum(out.values()) == pytest.approx(1.0)
+
+
+def test_compute_within_tier_share_single_constituent_returns_one() -> None:
+    """Single constituent occupies the full tier → share = 1.0."""
+    out = compute_within_tier_share({"only": 42.0})
+    assert out == {"only": 1.0}
+
+
+def test_compute_within_tier_share_empty_input_returns_empty() -> None:
+    """Empty input → empty dict (no constituents to normalize)."""
+    out = compute_within_tier_share({})
+    assert out == {}
+
+
+def test_compute_within_tier_share_all_zero_volumes_returns_zeros() -> None:
+    """All-zero volumes → all-zero shares (defensive against div-by-zero)."""
+    out = compute_within_tier_share({"a": 0.0, "b": 0.0, "c": 0.0})
+    assert out == {"a": 0.0, "b": 0.0, "c": 0.0}
+
+
+def test_compute_within_tier_share_negative_volume_raises() -> None:
+    with pytest.raises(ValueError, match="negative volume"):
+        compute_within_tier_share({"a": 100.0, "b": -1.0})
+
+
+def test_compute_within_tier_share_bounded_in_zero_to_one() -> None:
+    """Phase 7H Batch A invariant: every share ∈ [0, 1] regardless of input
+    scale. This is the property that makes within-tier shares structurally
+    comparable across tiers (the cross-tier blending prerequisite)."""
+    # Mix tiny + huge volumes to verify the invariant under wide scale ranges.
+    out = compute_within_tier_share({
+        "tiny": 1e-6,
+        "small": 1.0,
+        "medium": 1_000.0,
+        "huge": 1_000_000_000.0,
+    })
+    for cid, share in out.items():
+        assert 0.0 <= share <= 1.0, f"{cid} share {share} out of [0, 1]"
+    assert sum(out.values()) == pytest.approx(1.0)
+
+
+@given(
+    volumes=st.lists(
+        st.floats(
+            min_value=0.0, max_value=1e9, allow_nan=False, allow_infinity=False
+        ),
+        min_size=1,
+        max_size=10,
+    )
+)
+def test_property_compute_within_tier_share_sum_invariant(
+    volumes: list[float],
+) -> None:
+    """Sum of shares equals 1.0 (or all-zero if total volume is zero)."""
+    raw = {f"c{i}": v for i, v in enumerate(volumes)}
+    out = compute_within_tier_share(raw)
+    total = sum(out.values())
+    if sum(volumes) > 0:
+        assert total == pytest.approx(1.0, abs=1e-9)
+    else:
+        assert total == 0.0

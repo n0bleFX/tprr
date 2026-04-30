@@ -45,19 +45,54 @@ _TIER_A_MIN_CONTRIBUTORS = 3
 
 
 def volume_weight(
-    volume_mtok: float,
+    volume_or_share: float,
     attestation_tier: AttestationTier,
     config: IndexConfig,
 ) -> float:
-    """Apply the tier confidence haircut (Section 3.3.2) to a raw volume.
+    """Apply the tier confidence haircut (Section 3.3.2) to a volume input.
 
-    Negative volumes raise — the caller must surface bad data, not silently
-    coerce it. Zero volume returns zero (constituent has no weight on this
-    day from this tier).
+    The input is interpreted as either a raw volume (legacy use) or a
+    within-tier share (post-Phase-7H-Batch-A use). The haircut math is
+    identical; the caller decides which input semantics apply. Phase 7H
+    Batch A switches all aggregation callers (compute_dual_weights,
+    compute_tier_index) to within-tier-share inputs per DL 2026-04-30
+    "Phase 7H Batch A — within-tier-share normalization".
+
+    Negative input raises — the caller must surface bad data, not silently
+    coerce it. Zero input returns zero.
     """
-    if volume_mtok < 0:
-        raise ValueError(f"volume_weight: volume_mtok must be non-negative, got {volume_mtok}")
-    return volume_mtok * config.tier_haircuts[attestation_tier]
+    if volume_or_share < 0:
+        raise ValueError(
+            f"volume_weight: volume_or_share must be non-negative, got {volume_or_share}"
+        )
+    return volume_or_share * config.tier_haircuts[attestation_tier]
+
+
+def compute_within_tier_share(raw_volumes: dict[str, float]) -> dict[str, float]:
+    """Within-tier share normalization: share_i = volume_i / Σ volumes.
+
+    Pure helper. Takes a dict mapping constituent_id to raw volume for
+    constituents that resolved to the same selected attestation tier, and
+    returns a dict mapping constituent_id to bounded [0, 1] within-tier
+    share. Used by ``compute_dual_weights`` and the aggregation drivers
+    in ``tprr.index.aggregation`` to enable cross-tier blending without
+    cross-tier magnitude domination (DL 2026-04-30 Phase 7H design).
+
+    Empty input → empty dict. All-zero input → all-zero output (defensive
+    against division-by-zero; no constituent contributes when the tier
+    has no positive volume). Negative volumes raise.
+    """
+    if not raw_volumes:
+        return {}
+    for cid, v in raw_volumes.items():
+        if v < 0:
+            raise ValueError(
+                f"compute_within_tier_share: negative volume for {cid!r}: {v}"
+            )
+    total = sum(raw_volumes.values())
+    if total <= 0:
+        return {cid: 0.0 for cid in raw_volumes}
+    return {cid: v / total for cid, v in raw_volumes.items()}
 
 
 def exponential_weight(
@@ -202,36 +237,41 @@ def compute_dual_weights(
     tier_b_volume_fn: TierBVolumeFn,
     config: IndexConfig,
 ) -> pd.DataFrame:
-    """One row per constituent on a single date with selected tier, raw_volume, w_vol.
+    """One row per constituent on a single date with selected tier, raw_volume,
+    within_tier_volume_share, w_vol.
 
-    Iterates over distinct ``constituent_id`` values in ``panel_day_df``,
-    calls :func:`compute_tier_volume` per constituent, and applies the
-    per-tier haircut via :func:`volume_weight`. Constituents for whom
-    all three tiers are insufficient are dropped from the output —
-    Phase 7's tier-membership and minimum-3 suspension logic consume
-    only surviving rows.
+    Two-pass:
+
+    1. Per constituent, call :func:`compute_tier_volume` to resolve
+       (selected_tier, raw_volume) per the priority fall-through rules.
+       Constituents for whom all three tiers are insufficient are dropped.
+    2. Per selected tier, compute within-tier shares via
+       :func:`compute_within_tier_share`, then apply the per-tier haircut
+       via :func:`volume_weight` to produce w_vol.
+
+    Phase 7H Batch A (DL 2026-04-30) replaces ``w_vol = raw_volume x haircut``
+    with ``w_vol = within_tier_share x haircut``. Priority fall-through
+    selection is unchanged; only the volume representation changes. Within-
+    tier shares are bounded in [0, 1] regardless of underlying volume scale,
+    enabling Batch B's continuous blending without one tier's magnitude
+    dominating regardless of coefficient choice.
 
     Output columns: ``constituent_id``, ``observation_date``,
     ``attestation_tier`` (the **selected** A/B/C label), ``raw_volume``,
-    ``w_vol``. The output's ``attestation_tier`` reflects the tier that
-    won the priority fall-through, which may differ from any single
-    panel row's ``attestation_tier`` (e.g. a constituent with one Tier
-    A panel row and a Tier C panel row falls through to Tier C if Tier
-    B is unavailable; ``attestation_tier`` in the output is "C").
+    ``within_tier_volume_share``, ``w_vol``.
 
-    Raises ``ValueError`` if ``panel_day_df`` spans more than one date —
-    enforces the per-day shape this function operates on.
+    Raises ``ValueError`` if ``panel_day_df`` spans more than one date.
     """
+    output_columns = [
+        "constituent_id",
+        "observation_date",
+        "attestation_tier",
+        "raw_volume",
+        "within_tier_volume_share",
+        "w_vol",
+    ]
     if panel_day_df.empty:
-        return pd.DataFrame(
-            columns=[
-                "constituent_id",
-                "observation_date",
-                "attestation_tier",
-                "raw_volume",
-                "w_vol",
-            ]
-        )
+        return pd.DataFrame(columns=output_columns)
 
     unique_dates = panel_day_df["observation_date"].unique()
     if len(unique_dates) != 1:
@@ -241,7 +281,8 @@ def compute_dual_weights(
         )
     as_of_date_value = pd.Timestamp(unique_dates[0]).date()
 
-    rows: list[dict[str, str | date | float]] = []
+    # Pass 1: tier resolution per constituent.
+    resolved: dict[str, tuple[AttestationTier, float]] = {}
     for constituent_id in panel_day_df["constituent_id"].unique():
         result = compute_tier_volume(
             constituent_id=constituent_id,
@@ -253,16 +294,36 @@ def compute_dual_weights(
         )
         if result is None:
             continue
-        tier_used, raw_volume = result
-        w_vol = volume_weight(raw_volume, tier_used, config)
+        resolved[str(constituent_id)] = result
+
+    # Pass 2: group by selected tier, compute within-tier shares.
+    volumes_by_tier: dict[AttestationTier, dict[str, float]] = {
+        AttestationTier.A: {},
+        AttestationTier.B: {},
+        AttestationTier.C: {},
+    }
+    for cid, (tier_used, raw_volume) in resolved.items():
+        volumes_by_tier[tier_used][cid] = raw_volume
+
+    shares_by_tier: dict[AttestationTier, dict[str, float]] = {
+        tier: compute_within_tier_share(vols)
+        for tier, vols in volumes_by_tier.items()
+    }
+
+    # Pass 3: apply haircut to within-tier-share to produce w_vol.
+    rows: list[dict[str, str | date | float]] = []
+    for cid, (tier_used, raw_volume) in resolved.items():
+        share = shares_by_tier[tier_used][cid]
+        w_vol = volume_weight(share, tier_used, config)
         rows.append(
             {
-                "constituent_id": constituent_id,
+                "constituent_id": cid,
                 "observation_date": as_of_date_value,
                 "attestation_tier": tier_used.value,
                 "raw_volume": raw_volume,
+                "within_tier_volume_share": share,
                 "w_vol": w_vol,
             }
         )
 
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows, columns=output_columns)

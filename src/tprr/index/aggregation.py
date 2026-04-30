@@ -52,6 +52,7 @@ from tprr.config import IndexConfig, ModelRegistry, TierBRevenueConfig
 from tprr.index.weights import (
     TierBVolumeFn,
     compute_tier_volume,
+    compute_within_tier_share,
     exponential_weight,
     volume_weight,
 )
@@ -124,6 +125,7 @@ _DECISION_FIELDS = (
     "exclusion_reason",
     "selected_attestation_tier",
     "raw_volume_mtok",
+    "within_tier_volume_share",
     "constituent_price_usd_mtok",
     "tier_median_price_usd_mtok",
     "price_distance_from_median_pct",
@@ -146,6 +148,7 @@ def _decision_row(
     exclusion_reason: str,
     selected_attestation_tier: str = "",
     raw_volume_mtok: float = float("nan"),
+    within_tier_volume_share: float = float("nan"),
     constituent_price_usd_mtok: float = float("nan"),
     tier_median_price_usd_mtok: float = float("nan"),
     price_distance_from_median_pct: float = float("nan"),
@@ -157,7 +160,12 @@ def _decision_row(
 ) -> dict[str, Any]:
     """Build one ConstituentDecisionDF row. NaN defaults match the audit
     contract: every numeric field is populated when ``included=True`` and
-    selectively populated for exclusion paths (see ``compute_tier_index``)."""
+    selectively populated for exclusion paths (see ``compute_tier_index``).
+
+    ``within_tier_volume_share`` is the bounded [0, 1] within-tier share
+    (Phase 7H Batch A, DL 2026-04-30) used to compute w_vol. NaN on
+    excluded rows that didn't reach the share-computation pass.
+    ``raw_volume_mtok`` is preserved for audit-trail completeness."""
     return {
         "as_of_date": as_of_date,
         "index_code": index_code,
@@ -168,6 +176,7 @@ def _decision_row(
         "exclusion_reason": exclusion_reason,
         "selected_attestation_tier": selected_attestation_tier,
         "raw_volume_mtok": float(raw_volume_mtok),
+        "within_tier_volume_share": float(within_tier_volume_share),
         "constituent_price_usd_mtok": float(constituent_price_usd_mtok),
         "tier_median_price_usd_mtok": float(tier_median_price_usd_mtok),
         "price_distance_from_median_pct": float(price_distance_from_median_pct),
@@ -441,14 +450,15 @@ def compute_tier_index(
         constituent_price = collapse_constituent_price(
             price_rows, price_col=price_field
         )
-        w_vol = volume_weight(raw_volume, selected_tier, config)
+        # w_vol deferred — computed in the second pass below from within-tier
+        # shares (Phase 7H Batch A, DL 2026-04-30). Raw volume buffered here
+        # for the within-tier-share denominator and audit trail.
         rows.append(
             {
                 "constituent_id": const_id,
                 "selected_tier": selected_tier.value,
                 "price": constituent_price,
                 "raw_volume": raw_volume,
-                "w_vol": w_vol,
                 "contributor_count": int(price_rows["contributor_id"].nunique()),
             }
         )
@@ -466,6 +476,29 @@ def compute_tier_index(
             reason=SuspensionReason.TIER_DATA_UNAVAILABLE,
             n_constituents=n_constituents_total,
             prior_raw_value=prior_raw_value,
+        )
+
+    # Pass 2: within-tier-share normalization + haircut (Phase 7H Batch A).
+    volumes_by_tier: dict[str, dict[str, float]] = {
+        AttestationTier.A.value: {},
+        AttestationTier.B.value: {},
+        AttestationTier.C.value: {},
+    }
+    for r in rows:
+        volumes_by_tier[str(r["selected_tier"])][str(r["constituent_id"])] = float(
+            r["raw_volume"]
+        )
+    shares_by_tier: dict[str, dict[str, float]] = {
+        tier_value: compute_within_tier_share(vols)
+        for tier_value, vols in volumes_by_tier.items()
+    }
+    for r in rows:
+        cid = str(r["constituent_id"])
+        sel = str(r["selected_tier"])
+        share = shares_by_tier[sel][cid]
+        r["within_tier_volume_share"] = share
+        r["w_vol"] = volume_weight(
+            share, AttestationTier(sel), config
         )
 
     constituents_df = pd.DataFrame(rows)
@@ -488,6 +521,7 @@ def compute_tier_index(
                     exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
                     selected_attestation_tier=str(r["selected_tier"]),
                     raw_volume_mtok=float(r["raw_volume"]),
+                    within_tier_volume_share=float(r["within_tier_volume_share"]),
                     constituent_price_usd_mtok=float(r["price"]),
                     w_vol=float(r["w_vol"]),
                     contributor_count=int(r["contributor_count"]),
@@ -542,6 +576,7 @@ def compute_tier_index(
                     exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
                     selected_attestation_tier=str(srs["selected_tier"]),
                     raw_volume_mtok=float(srs["raw_volume"]),
+                    within_tier_volume_share=float(srs["within_tier_volume_share"]),
                     constituent_price_usd_mtok=float(srs["price"]),
                     tier_median_price_usd_mtok=tier_median,
                     price_distance_from_median_pct=distance_pct,
@@ -609,6 +644,7 @@ def compute_tier_index(
                 exclusion_reason="",
                 selected_attestation_tier=str(srs["selected_tier"]),
                 raw_volume_mtok=float(srs["raw_volume"]),
+                within_tier_volume_share=float(srs["within_tier_volume_share"]),
                 constituent_price_usd_mtok=float(srs["price"]),
                 tier_median_price_usd_mtok=tier_median,
                 price_distance_from_median_pct=distance_pct,
@@ -955,13 +991,13 @@ def _compute_weight_then_twap_index(
             volume = float(prow["volume_mtok_7d"])
             contributor_slot_data.append((contributor_id, slots, volume))
 
-        w_vol = volume_weight(raw_volume, selected_tier, config)
+        # w_vol deferred — computed in the within-tier-share normalization
+        # pass below (Phase 7H Batch A, DL 2026-04-30).
         constituents.append(
             {
                 "constituent_id": const_id,
                 "selected_tier": selected_tier.value,
                 "raw_volume": raw_volume,
-                "w_vol": w_vol,
                 "contributor_slots": contributor_slot_data,
                 "contributor_count": int(price_rows["contributor_id"].nunique()),
             }
@@ -980,6 +1016,27 @@ def _compute_weight_then_twap_index(
             prior_raw_value=prior_raw_value,
         )
 
+    # Within-tier-share normalization pass (Phase 7H Batch A).
+    volumes_by_tier: dict[str, dict[str, float]] = {
+        AttestationTier.A.value: {},
+        AttestationTier.B.value: {},
+        AttestationTier.C.value: {},
+    }
+    for c in constituents:
+        volumes_by_tier[str(c["selected_tier"])][str(c["constituent_id"])] = float(
+            c["raw_volume"]
+        )
+    shares_by_tier: dict[str, dict[str, float]] = {
+        tier_value: compute_within_tier_share(vols)
+        for tier_value, vols in volumes_by_tier.items()
+    }
+    for c in constituents:
+        cid = str(c["constituent_id"])
+        sel = str(c["selected_tier"])
+        share = shares_by_tier[sel][cid]
+        c["within_tier_volume_share"] = share
+        c["w_vol"] = volume_weight(share, AttestationTier(sel), config)
+
     # 5. Slot-level loop.
     # For each slot s: collapse contributor prices per constituent (volume-
     # weighted), check min-3, compute median + w_exp + slot aggregate.
@@ -991,6 +1048,7 @@ def _compute_weight_then_twap_index(
         c["constituent_id"]: {
             "selected_tier": c["selected_tier"],
             "raw_volume": float(c["raw_volume"]),
+            "within_tier_volume_share": float(c["within_tier_volume_share"]),
             "w_vol": float(c["w_vol"]),
             "contributor_count": int(c["contributor_count"]),
             "slot_prices": [],
@@ -1121,6 +1179,7 @@ def _compute_weight_then_twap_index(
                     exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
                     selected_attestation_tier=str(c["selected_tier"]),
                     raw_volume_mtok=float(c["raw_volume"]),
+                    within_tier_volume_share=float(c["within_tier_volume_share"]),
                     w_vol=float(c["w_vol"]),
                     contributor_count=int(c["contributor_count"]),
                 )
@@ -1179,6 +1238,7 @@ def _compute_weight_then_twap_index(
                     exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
                     selected_attestation_tier=str(c["selected_tier"]),
                     raw_volume_mtok=float(c["raw_volume"]),
+                    within_tier_volume_share=float(c["within_tier_volume_share"]),
                     w_vol=float(c["w_vol"]),
                     contributor_count=int(c["contributor_count"]),
                 )
@@ -1201,6 +1261,7 @@ def _compute_weight_then_twap_index(
                 exclusion_reason="",
                 selected_attestation_tier=str(c["selected_tier"]),
                 raw_volume_mtok=float(c["raw_volume"]),
+                within_tier_volume_share=float(c["within_tier_volume_share"]),
                 constituent_price_usd_mtok=avg_price,
                 tier_median_price_usd_mtok=avg_median,
                 price_distance_from_median_pct=avg_distance,

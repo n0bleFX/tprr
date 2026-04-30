@@ -463,16 +463,25 @@ def test_compute_tier_index_volume_weighted_collapse_pulls_constituent_price() -
 # ---------------------------------------------------------------------------
 
 
-def test_compute_tier_index_tier_b_fallthrough_dominates_via_magnitude() -> None:
-    """The cross-tier magnitude finding (DL 2026-04-29 priority fall-through):
-    a single Tier B fall-through constituent with implied volume orders of
-    magnitude larger than Tier A constituents will dominate the index even
-    after the 0.9 haircut. Phase 7 must observe this; this test pins the
-    property so it can't drift silently."""
+def test_compute_tier_index_priority_fallthrough_preserved_under_within_tier_normalization() -> None:
+    """Phase 7H Batch A (DL 2026-04-30) replaces ``w_vol = raw_volume x haircut``
+    with ``w_vol = within_tier_share x haircut``. Priority fall-through
+    SELECTION is preserved (gpt-5-pro still falls to Tier B because it has
+    only 2 Tier A contributors); but the cross-tier weight-share dominance
+    that the old test pinned is deliberately removed.
+
+    Under within-tier-share normalization, a tier with one constituent
+    contributes share=1.0 x haircut (e.g. 0.9 for Tier B). A tier with two
+    constituents contributes 2 x 0.5 x haircut. The relative weight share
+    at the IndexValue level depends on per-constituent w_exp factors, but
+    is bounded — Tier B with one constituent no longer dominates simply
+    because its raw volume is 4-5 orders of magnitude larger.
+
+    Replaces test_compute_tier_index_tier_b_fallthrough_dominates_via_magnitude.
+    """
     d = date(2025, 1, 1)
     rows = []
-    # gpt-5-pro: only 2 contributors with volume → fails Tier A min-3, falls
-    # through to Tier B (provider 'openai' has revenue config).
+    # gpt-5-pro: only 2 contributors → fails Tier A min-3, falls to Tier B.
     for c in ["contrib_alpha", "contrib_beta"]:
         rows.append(
             _row(
@@ -484,7 +493,6 @@ def test_compute_tier_index_tier_b_fallthrough_dominates_via_magnitude() -> None
                 twap_output=80.0,
             )
         )
-    # Tier B panel row for gpt-5-pro (derive_tier_b_volumes upstream emits these).
     rows.append(
         _row(
             constituent_id="openai/gpt-5-pro",
@@ -495,7 +503,6 @@ def test_compute_tier_index_tier_b_fallthrough_dominates_via_magnitude() -> None
             twap_output=80.0,
         )
     )
-    # Two Tier-A-eligible constituents.
     for cid, price in [
         ("anthropic/claude-opus-4-7", 70.0),
         ("google/gemini-3-pro", 30.0),
@@ -518,14 +525,25 @@ def test_compute_tier_index_tier_b_fallthrough_dominates_via_magnitude() -> None
         config=_index_config(),
         registry=_registry(),
         tier_b_config=_tier_b_config_with_openai(),
-        tier_b_volume_fn=_stub_tier_b_volume_fn(value=20_000_000.0),  # ~66,000:1 magnitude
+        tier_b_volume_fn=_stub_tier_b_volume_fn(value=20_000_000.0),
     )
+    # Priority fall-through SELECTION preserved: gpt-5-pro → Tier B, others → Tier A.
     assert not result["suspended"]
     assert result["n_constituents_a"] == 2
     assert result["n_constituents_b"] == 1
     assert result["n_constituents_c"] == 0
-    # Tier B constituent dominates the weight share due to magnitude gap.
-    assert result["tier_b_weight_share"] > 0.95
+    # Cross-tier weight-share dominance from the old raw-volume formulation
+    # is explicitly removed. Tier B no longer dominates by magnitude alone;
+    # it contributes 1.0 x 0.9 = 0.9 raw weight (within-tier-share x haircut)
+    # vs Tier A's 0.5 x 1.0 = 0.5 per constituent (2 active constituents).
+    # Final tier weight shares depend on w_exp; both are non-trivial fractions
+    # of total weight (neither swamps the other).
+    assert 0.0 < result["tier_a_weight_share"] < 1.0
+    assert 0.0 < result["tier_b_weight_share"] < 1.0
+    # Tier A's combined weight (2 active) exceeds Tier B's (1 active) under
+    # within-tier-share normalization on this panel — the magnitude inversion
+    # is structural, not coincidental.
+    assert result["tier_a_weight_share"] > result["tier_b_weight_share"]
 
 
 # ---------------------------------------------------------------------------
