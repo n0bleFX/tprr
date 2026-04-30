@@ -1016,6 +1016,25 @@ This entry establishes Phase 7H as the central methodology contribution of the v
 
 **Methodology section affected**: 3.3.2 (priority fall-through → continuous blending), 3.3.3 (within-tier-share normalization), 4.2.2 (suspension/reinstatement criteria)
 
+**Price aggregation under continuous blending (added 2026-04-30 post-design)**: Phase 7H Batch B continuous blending applies coefficient-weighted blending to BOTH volume and price contributions per tier, symmetrically. For each constituent on each day:
+
+- Per-tier price (P_{i,t}): volume-weighted average over tier-t contributor rows for constituent i (the existing contributor-to-constituent collapse rule from DL 2026-04-30 Phase 7 Batch A entry, applied within each tier independently)
+- Per-tier volume contribution (w_vol_{i,t}): coefficient_t x within_tier_share_{i,t} x haircut_t
+- Constituent volume: w_vol_i = Σ_t w_vol_{i,t}
+- Constituent price: P_i = Σ_t [coefficient_t x P_{i,t}]
+
+The same coefficient (0.6/0.3/0.1) applies to both volume and price per tier. The same haircut (1.0/0.5/0.8 for A/B/C in Phase 7H) implicitly applies to both signals through the coefficient × haircut composition for volume; the price blend uses the coefficient directly without an explicit haircut multiplier (the haircut's role for price is through its effect on the volume side's coefficient redistribution, which determines blending weights).
+
+**Tier B price specifics**: Tier B has one synthesized contributor row per (constituent, date) with price = registry reference price. So "Tier B's collapsed price" in the blend equals the constituent's published rate. This is structurally low-information (no market-discount/premium signal) but also low-bias (verifiable observable) — different bias-precision profile than Tier B volume.
+
+**Alternatives considered**:
+- Single volume-weighted average across all tiers' contributor pools: rejected because Tier B's revenue-derived volume magnitudes would dominate the pool (re-introduces the cross-tier magnitude problem on the price side that within-tier-share normalization solves on the volume side)
+- Asymmetric methodology (price from priority fall-through, volume from continuous blending): rejected because the asymmetry has no principled rationale; coefficients should mean the same thing for both signals
+
+**Volume vs price haircut symmetry**: v0.1 applies the single tier haircut (0.5 for Tier B in Phase 7H) uniformly to both volume and price contributions. Tier B's price has lower bias risk than its volume (published rate vs revenue-derived implied volume), so a higher price-specific haircut would be defensible. v0.1 chooses simplicity over differential haircuts; v1.3 may revisit if Phase 10 sensitivity work shows price haircut is load-bearing.
+
+**Methodology section**: 3.3.1 (dual-weighted aggregation), 3.3.2 (continuous blending — gap addressed), 3.3.3 (volume-weighted contributor-to-constituent collapse — applied within each tier under continuous blending)
+
 ## 2026-04-30 — Phase 7H Batch A: within-tier-share normalization (refactor)
 
 **Decision**: w_vol computation in `compute_dual_weights` modified from `raw_volume × haircut` to `within_tier_share × haircut`, where `within_tier_share = constituent_raw_volume / Σ raw_volumes for active constituents in that tier`. This changes the volume representation in the dual-weighted formula but preserves priority fall-through behavior (Batch B implements continuous blending).
@@ -1028,4 +1047,27 @@ This entry establishes Phase 7H as the central methodology contribution of the v
 **Phase 7H Batch B will**: implement continuous blending using within-tier-share representation as input
 
 **Empirical observation on within-tier-share refactor (added 2026-04-30 post-Batch-A)**: While Batch A is methodologically a "no change" refactor (priority fall-through selection preserved), within-tier-share normalization substantially attenuates cliff-edge dynamics on the seed-42 clean panel even without further methodology changes. TPRR_F tier_a_weight_share at base_date moved from 0.0012 (pre-Batch-A, raw-volume-dominated) to 0.5083 (post-Batch-A, within-tier-share-normalized). Tier B no longer dominates because its higher raw magnitude is normalized to a within-tier share bounded in [0, 1]. This refactor alone resolves much of the cliff-edge dynamics finding (DL 2026-04-30 Phase 9 visual diagnostic entry) — Phase 7H Batch B's continuous blending builds on top of this already-attenuated baseline. Phase 11 writeup material: within-tier-share normalization is a substantive component of the proposed v1.3 specification refinement, separable from the continuous blending change in Batch B.
+
+## 2026-04-30 — Phase 7H Batch B audit trail design: long-format per-tier breakdown
+
+**Decision**: Under Phase 7H Batch B continuous blending, each constituent contributes to potentially multiple tiers per day. ConstituentDecisionDF schema shifts from one-row-per-(date, index_code, constituent_id) to one-row-per-(date, index_code, constituent_id, attestation_tier). Each row represents one tier's contribution. New fields: coefficient, w_vol_contribution. Field rename: selected_attestation_tier → attestation_tier (reflects long-format semantics). Field deprecated: weight_share_within_tier (Phase 9/10 consumers compute via groupby when needed).
+
+**Context**: Phase 7H Batch B replaces priority fall-through with continuous blending; constituents now have non-zero contribution from multiple tiers per day. Single-row aggregate audit (Option A) loses per-tier visibility, forcing Phase 10 coefficient/haircut sweeps to re-run pipeline rather than recompute from audit. Long-format per-tier breakdown (Option B chosen) preserves visibility, enables in-memory sweep computation.
+
+**Alternatives considered**:
+- Option A — single-row aggregate (current schema preserved): simpler but loses Phase 10 sweep speedup; coefficient changes require pipeline re-run
+- Option B — long-format per-tier rows (chosen): ~3x row count (~32K rows total), preserves per-tier visibility, enables Phase 10 sweep speedup
+- Option C — wide-format per-tier columns: same data as B but column-suffixed (raw_volume_a/b/c_mtok); less idiomatic for groupby-style queries
+
+**Rationale**: Phase 10 sensitivity sweep is the load-bearing justification for ConstituentDecisionDF originally (DL 2026-04-30 Batch D Q1 entry). Phase 7H specifically tests coefficient and haircut sensitivity. Long-format makes those sweeps recomputable from audit without pipeline re-runs — critical for Phase 10 iteration speed. 3x row multiplication produces ~15MB on seed-42 backtest, well within tractable bounds.
+
+**Impact**:
+- ConstituentDecisionDF schema breaking change vs Phase 7 Batch D shape
+- No production consumers (Phase 9 dashboard uses IndexValueDF not ConstituentDecisionDF; Phase 10 sensitivity tooling will design against long-format from the start)
+- Test updates required for row-count assertions
+- Phase 9 chart code (Group 4 charts) deferred to Phase 10 will consume long-format
+
+**Methodology section**: 3.3.2 (priority fall-through → continuous blending audit instrumentation)
+
+**Empirical row count observation (added 2026-04-30 post-Batch-B)**: Long-format audit row count under Batch B continuous blending is 14,700 on the seed-42 backtest, ~1.35x pre-Batch-B baseline rather than the predicted ~3x under full per-tier breakdown. The discrepancy reflects v0.1's actual tier coverage: most constituents have 1-2 contributing tiers per day rather than 3. Tier C is sparse (1 of 16 registry constituents has rankings data per Phase 4 close-out); 3-tier overlap is therefore rare. v0.2 universe expansion with broader Tier C coverage would grow audit row count toward the predicted 3x ceiling. The 1.35x shape correctly reflects that v0.1 blending in practice is mostly Tier A + Tier B, with Tier C contribution limited to deepseek-v3-2.
 

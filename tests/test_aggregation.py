@@ -1145,8 +1145,11 @@ def test_decisions_out_schema_matches_decision_fields() -> None:
 
 
 def test_decisions_out_included_rows_populate_all_numeric_fields() -> None:
-    """Active constituents have non-NaN numeric fields including
-    weight_share_within_tier (which sums to 1.0 across active rows)."""
+    """Active rows under Phase 7H Batch B long-format (DL 2026-04-30): each
+    (constituent, contributing tier) row populates per-tier numeric fields
+    plus the constituent-level fields duplicated across the constituent's
+    rows. weight_share_within_tier was deprecated; consumers compute via
+    groupby on w_vol_contribution if needed."""
     d = date(2025, 1, 1)
     panel = _three_contributors_per_constituent_panel(d)
     decisions: list[dict[str, Any]] = []
@@ -1161,13 +1164,16 @@ def test_decisions_out_included_rows_populate_all_numeric_fields() -> None:
     )
     numeric_fields = (
         "raw_volume_mtok",
+        "within_tier_volume_share",
+        "tier_collapsed_price_usd_mtok",
+        "coefficient",
+        "w_vol_contribution",
         "constituent_price_usd_mtok",
         "tier_median_price_usd_mtok",
         "price_distance_from_median_pct",
         "w_vol",
         "w_exp",
         "combined_weight",
-        "weight_share_within_tier",
     )
     for row in decisions:
         for field_name in numeric_fields:
@@ -1175,9 +1181,17 @@ def test_decisions_out_included_rows_populate_all_numeric_fields() -> None:
                 f"included row should populate {field_name!r}"
             )
         assert row["contributor_count"] > 0
-    # weight_share_within_tier sums to 1.0 within the (date, index_code) group.
-    total_share = sum(d["weight_share_within_tier"] for d in decisions)
-    assert total_share == pytest.approx(1.0)
+    # Sum of w_vol_contribution per constituent equals that constituent's
+    # combined w_vol — Phase 9/10 consumers reconstruct combined w_vol via
+    # groupby([constituent_id]).w_vol_contribution.sum().
+    by_constituent: dict[str, float] = {}
+    by_constituent_w_vol: dict[str, float] = {}
+    for row in decisions:
+        cid = row["constituent_id"]
+        by_constituent[cid] = by_constituent.get(cid, 0.0) + row["w_vol_contribution"]
+        by_constituent_w_vol[cid] = row["w_vol"]  # duplicated across rows
+    for cid in by_constituent:
+        assert by_constituent[cid] == pytest.approx(by_constituent_w_vol[cid])
 
 
 def test_decisions_out_tier_volume_unavailable_emits_excluded_row() -> None:
@@ -1253,10 +1267,11 @@ def test_decisions_out_tier_volume_unavailable_emits_excluded_row() -> None:
         excluded[0]["exclusion_reason"]
         == ConstituentExclusionReason.TIER_VOLUME_UNAVAILABLE.value
     )
-    assert excluded[0]["selected_attestation_tier"] == ""
+    assert excluded[0]["attestation_tier"] == ""
     assert np.isnan(excluded[0]["raw_volume_mtok"])
     assert np.isnan(excluded[0]["w_vol"])
-    # The other 3 constituents are included.
+    # The other 3 constituents are included with one row per contributing
+    # tier — under this panel each has only Tier A → 1 row each = 3 rows.
     included = [d for d in decisions if d["included"]]
     assert len(included) == 3
 
@@ -1294,6 +1309,8 @@ def test_decisions_out_tier_aggregation_suspended_when_min_3_fails() -> None:
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
         decisions_out=decisions,
     )
+    # Under Phase 7H Batch B long-format: 2 constituents x 1 contributing
+    # tier each (only Tier A available) = 2 rows.
     assert len(decisions) == 2
     for row in decisions:
         assert not row["included"]
@@ -1301,13 +1318,13 @@ def test_decisions_out_tier_aggregation_suspended_when_min_3_fails() -> None:
             row["exclusion_reason"]
             == ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value
         )
-        # w_vol was computed before suspension decision.
+        # w_vol_contribution was computed before suspension decision.
+        assert not np.isnan(row["w_vol_contribution"])
         assert not np.isnan(row["w_vol"])
-        assert not np.isnan(row["constituent_price_usd_mtok"])
         # median + w_exp + weight cascade never ran.
         assert np.isnan(row["tier_median_price_usd_mtok"])
         assert np.isnan(row["w_exp"])
-        assert np.isnan(row["weight_share_within_tier"])
+        assert np.isnan(row["combined_weight"])
 
 
 def test_decisions_out_lambda_recomputability() -> None:
@@ -1465,17 +1482,20 @@ def test_decisions_out_all_pairs_suspended_emits_excluded_row() -> None:
     row = all_pairs_suspended[0]
     assert row["constituent_id"] == "openai/gpt-5-pro"
     assert not row["included"]
-    assert row["selected_attestation_tier"] == ""
+    assert row["attestation_tier"] == ""
     assert row["contributor_count"] == 0
     for f in (
+        "coefficient",
         "raw_volume_mtok",
+        "within_tier_volume_share",
+        "tier_collapsed_price_usd_mtok",
+        "w_vol_contribution",
         "constituent_price_usd_mtok",
         "tier_median_price_usd_mtok",
         "price_distance_from_median_pct",
         "w_vol",
         "w_exp",
         "combined_weight",
-        "weight_share_within_tier",
     ):
         assert np.isnan(row[f]), f"ALL_PAIRS_SUSPENDED row {f!r} should be NaN"
 

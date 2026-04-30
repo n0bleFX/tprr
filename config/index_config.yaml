@@ -18,6 +18,11 @@ tier_haircuts:                    # volume-weight haircuts by attestation tier (
   B: 0.9
   C: 0.8
 
+tier_blending_coefficients:       # Phase 7H Batch B continuous blending (DL 2026-04-30)
+  A: 0.6                          # default coefficients when all three tiers available
+  C: 0.3                          # tier ordering A > C > B per Phase 7H design entry
+  B: 0.1                          # coefficients redistribute proportionally when fewer tiers available
+
 twap_window_utc: [9, 17]          # daily TWAP window 09:00–17:00 UTC (Section 4.2.1)
 twap_slots: 32                    # 32 fifteen-minute observation slots (15 min x 8h window; see decision_log.md 2026-04-24)
 default_ordering: twap_then_weight  # decision log 2026-04-23

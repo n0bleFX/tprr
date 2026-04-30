@@ -962,9 +962,13 @@ def test_run_full_pipeline_constituent_decisions_count_matches_active_constituen
     assert decisions["included"].all()
 
 
-def test_run_full_pipeline_constituent_decisions_weight_shares_sum_to_one_per_group() -> None:
-    """Within each (date, index_code) group, weight_share_within_tier sums
-    to 1.0 across included rows."""
+def test_run_full_pipeline_constituent_decisions_w_vol_contributions_reconstruct_w_vol() -> None:
+    """Phase 7H Batch B (DL 2026-04-30): under long-format audit, the sum
+    of w_vol_contribution within each (date, index_code, constituent_id)
+    group equals that constituent's combined w_vol (which is duplicated
+    across the group's per-tier rows). Replaces the prior test that
+    asserted weight_share_within_tier sums to 1.0 — that field was
+    deprecated."""
     panel = _multi_day_clean_panel(n_days=2)
     result = run_full_pipeline(
         panel_df=panel,
@@ -976,11 +980,28 @@ def test_run_full_pipeline_constituent_decisions_weight_shares_sum_to_one_per_gr
     )
     decisions = result.constituent_decisions
     included = decisions[decisions["included"]]
-    grouped_sum = included.groupby(["as_of_date", "index_code"])[
-        "weight_share_within_tier"
-    ].sum()
+    grouped_sum = (
+        included.groupby(["as_of_date", "index_code", "constituent_id"])[
+            "w_vol_contribution"
+        ]
+        .sum()
+        .reset_index(name="reconstructed_w_vol")
+    )
+    # Each (date, index_code, constituent_id) has a single w_vol value
+    # duplicated across its rows; take the first.
+    reference = (
+        included.groupby(["as_of_date", "index_code", "constituent_id"])["w_vol"]
+        .first()
+        .reset_index(name="w_vol")
+    )
+    merged = grouped_sum.merge(
+        reference, on=["as_of_date", "index_code", "constituent_id"]
+    )
     import numpy as np
-    assert np.allclose(grouped_sum.to_numpy(), 1.0)
+    assert np.allclose(
+        merged["reconstructed_w_vol"].to_numpy(),
+        merged["w_vol"].to_numpy(),
+    )
 
 
 def test_run_full_pipeline_constituent_decisions_propagates_pair_suspension_cascade() -> None:

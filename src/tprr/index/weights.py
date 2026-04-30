@@ -95,6 +95,108 @@ def compute_within_tier_share(raw_volumes: dict[str, float]) -> dict[str, float]
     return {cid: v / total for cid, v in raw_volumes.items()}
 
 
+def redistribute_blending_coefficients(
+    available_tiers: set[AttestationTier],
+    default_coefficients: dict[AttestationTier, float],
+) -> dict[AttestationTier, float]:
+    """Redistribute default blending coefficients proportionally to available tiers.
+
+    Phase 7H Batch B continuous blending (DL 2026-04-30). When a constituent
+    has data for a subset of tiers (e.g. Tier A and Tier C but not Tier B),
+    the default coefficients (e.g. ``{A: 0.6, C: 0.3, B: 0.1}``) are
+    renormalised over the available subset:
+
+      coefficient[t] = default[t] / Σ_{t' in available_tiers} default[t']
+
+    so the actual coefficients always sum to 1.0 across the available tiers.
+
+    Examples (default ``{A: 0.6, C: 0.3, B: 0.1}``):
+
+    - All three available → returned unchanged: ``{A: 0.6, C: 0.3, B: 0.1}``
+    - A + C only → ``{A: 0.667, C: 0.333}`` (sum 0.9, A=0.6/0.9, C=0.3/0.9)
+    - A + B only → ``{A: 0.857, B: 0.143}`` (sum 0.7)
+    - C + B only → ``{C: 0.75, B: 0.25}`` (sum 0.4)
+    - A only → ``{A: 1.0}``
+    - Empty available_tiers → ``{}``
+
+    Returns a dict with one entry per available tier (other tiers omitted).
+    """
+    if not available_tiers:
+        return {}
+    subset_total = sum(default_coefficients[t] for t in available_tiers)
+    if subset_total <= 0:
+        # All coefficients in the available subset are zero — defensive
+        # branch. Distribute uniformly so the constituent still contributes.
+        n = len(available_tiers)
+        return {t: 1.0 / n for t in available_tiers}
+    return {
+        t: default_coefficients[t] / subset_total for t in available_tiers
+    }
+
+
+def compute_blended_tier_volumes(
+    constituent_id: str,
+    as_of_date: date,
+    panel_df: pd.DataFrame,
+    registry: ModelRegistry,
+    tier_b_config: TierBRevenueConfig,
+    tier_b_volume_fn: TierBVolumeFn,
+) -> dict[AttestationTier, float] | None:
+    """Resolve raw volumes for ALL tiers this constituent has data for.
+
+    Phase 7H Batch B continuous blending (DL 2026-04-30) replaces priority
+    fall-through with simultaneous multi-tier contribution. Returns a dict
+    mapping attestation tier → raw volume for each tier where the
+    constituent has resolvable data. Returns ``None`` when no tier
+    resolves (constituent excluded from aggregation).
+
+    Resolution rules per tier:
+
+    1. **Tier A**: ``panel_df`` has ≥3 distinct contributors with
+       ``attestation_tier == 'A'`` and ``volume_mtok_7d > 0`` for this
+       constituent on this date. Raw volume = sum across those contributors.
+    2. **Tier B**: provider has revenue config in ``tier_b_config``. Raw
+       volume from ``tier_b_volume_fn(provider, constituent_id, as_of_date)``.
+    3. **Tier C**: ``panel_df`` has ≥1 row with ``attestation_tier == 'C'``
+       and ``volume_mtok_7d > 0`` for this constituent. Raw volume = sum.
+
+    Each tier's resolution is INDEPENDENT — a constituent with all three
+    tiers available returns ``{A: ..., B: ..., C: ...}``. Compare to
+    ``compute_tier_volume`` which returns a single (tier, raw_volume)
+    via priority fall-through; that legacy function is retained for
+    pre-Phase-7H compatibility but the aggregation pipeline now uses
+    this blended resolver.
+    """
+    target = pd.Timestamp(as_of_date)
+    constituent_filter = panel_df["constituent_id"] == constituent_id
+    date_filter = panel_df["observation_date"] == target
+    base = panel_df[constituent_filter & date_filter]
+
+    resolved: dict[AttestationTier, float] = {}
+
+    tier_a_rows = base[
+        (base["attestation_tier"] == AttestationTier.A.value) & (base["volume_mtok_7d"] > 0)
+    ]
+    if tier_a_rows["contributor_id"].nunique() >= _TIER_A_MIN_CONTRIBUTORS:
+        resolved[AttestationTier.A] = float(tier_a_rows["volume_mtok_7d"].sum())
+
+    provider = _provider_for_constituent(constituent_id, registry)
+    if _provider_has_tier_b(provider, as_of_date, tier_b_config):
+        tier_b_volume = float(tier_b_volume_fn(provider, constituent_id, as_of_date))
+        if tier_b_volume > 0:
+            resolved[AttestationTier.B] = tier_b_volume
+
+    tier_c_rows = base[
+        (base["attestation_tier"] == AttestationTier.C.value) & (base["volume_mtok_7d"] > 0)
+    ]
+    if not tier_c_rows.empty:
+        resolved[AttestationTier.C] = float(tier_c_rows["volume_mtok_7d"].sum())
+
+    if not resolved:
+        return None
+    return resolved
+
+
 def exponential_weight(
     price: float,
     tier_median: float,
@@ -237,28 +339,36 @@ def compute_dual_weights(
     tier_b_volume_fn: TierBVolumeFn,
     config: IndexConfig,
 ) -> pd.DataFrame:
-    """One row per constituent on a single date with selected tier, raw_volume,
-    within_tier_volume_share, w_vol.
+    """One row per (constituent, contributing tier) with raw_volume, share,
+    coefficient, w_vol_contribution.
 
-    Two-pass:
+    Phase 7H Batch B continuous blending (DL 2026-04-30) replaces priority
+    fall-through with simultaneous multi-tier contribution. Each constituent
+    can produce up to 3 rows (one per tier where it has data); coefficients
+    are redistributed proportionally over the constituent's available tiers.
 
-    1. Per constituent, call :func:`compute_tier_volume` to resolve
-       (selected_tier, raw_volume) per the priority fall-through rules.
-       Constituents for whom all three tiers are insufficient are dropped.
-    2. Per selected tier, compute within-tier shares via
-       :func:`compute_within_tier_share`, then apply the per-tier haircut
-       via :func:`volume_weight` to produce w_vol.
+    Pipeline:
 
-    Phase 7H Batch A (DL 2026-04-30) replaces ``w_vol = raw_volume x haircut``
-    with ``w_vol = within_tier_share x haircut``. Priority fall-through
-    selection is unchanged; only the volume representation changes. Within-
-    tier shares are bounded in [0, 1] regardless of underlying volume scale,
-    enabling Batch B's continuous blending without one tier's magnitude
-    dominating regardless of coefficient choice.
+    1. Per constituent, call :func:`compute_blended_tier_volumes` to resolve
+       a dict mapping each available tier → raw volume. Constituents with
+       no resolvable tier are dropped.
+    2. Per tier, compute within-tier shares via
+       :func:`compute_within_tier_share` over constituents that have that
+       tier available.
+    3. Per constituent, redistribute the default blending coefficients
+       (``config.tier_blending_coefficients``) over the constituent's
+       available tiers via :func:`redistribute_blending_coefficients`.
+    4. Per (constituent, tier): emit one row with
+       ``w_vol_contribution = coefficient x within_tier_share x haircut``.
 
     Output columns: ``constituent_id``, ``observation_date``,
-    ``attestation_tier`` (the **selected** A/B/C label), ``raw_volume``,
-    ``within_tier_volume_share``, ``w_vol``.
+    ``attestation_tier``, ``raw_volume``, ``within_tier_volume_share``,
+    ``coefficient``, ``w_vol_contribution``.
+
+    The combined w_vol per constituent is the sum of w_vol_contribution
+    over its rows: ``df.groupby("constituent_id")["w_vol_contribution"].sum()``.
+    Long format chosen per DL 2026-04-30 "Phase 7H Batch B audit trail
+    design: long-format per-tier breakdown".
 
     Raises ``ValueError`` if ``panel_day_df`` spans more than one date.
     """
@@ -268,7 +378,8 @@ def compute_dual_weights(
         "attestation_tier",
         "raw_volume",
         "within_tier_volume_share",
-        "w_vol",
+        "coefficient",
+        "w_vol_contribution",
     ]
     if panel_day_df.empty:
         return pd.DataFrame(columns=output_columns)
@@ -281,10 +392,10 @@ def compute_dual_weights(
         )
     as_of_date_value = pd.Timestamp(unique_dates[0]).date()
 
-    # Pass 1: tier resolution per constituent.
-    resolved: dict[str, tuple[AttestationTier, float]] = {}
+    # Pass 1: blended tier resolution per constituent.
+    resolved: dict[str, dict[AttestationTier, float]] = {}
     for constituent_id in panel_day_df["constituent_id"].unique():
-        result = compute_tier_volume(
+        per_tier_volumes = compute_blended_tier_volumes(
             constituent_id=constituent_id,
             as_of_date=as_of_date_value,
             panel_df=panel_day_df,
@@ -292,38 +403,46 @@ def compute_dual_weights(
             tier_b_config=tier_b_config,
             tier_b_volume_fn=tier_b_volume_fn,
         )
-        if result is None:
+        if per_tier_volumes is None:
             continue
-        resolved[str(constituent_id)] = result
+        resolved[str(constituent_id)] = per_tier_volumes
 
-    # Pass 2: group by selected tier, compute within-tier shares.
+    # Pass 2: within-tier shares per tier (denominator = constituents with
+    # that tier available).
     volumes_by_tier: dict[AttestationTier, dict[str, float]] = {
         AttestationTier.A: {},
         AttestationTier.B: {},
         AttestationTier.C: {},
     }
-    for cid, (tier_used, raw_volume) in resolved.items():
-        volumes_by_tier[tier_used][cid] = raw_volume
-
+    for cid, per_tier in resolved.items():
+        for tier_t, raw_v in per_tier.items():
+            volumes_by_tier[tier_t][cid] = raw_v
     shares_by_tier: dict[AttestationTier, dict[str, float]] = {
         tier: compute_within_tier_share(vols)
         for tier, vols in volumes_by_tier.items()
     }
 
-    # Pass 3: apply haircut to within-tier-share to produce w_vol.
+    # Pass 3: per (constituent, tier) emit one row.
     rows: list[dict[str, str | date | float]] = []
-    for cid, (tier_used, raw_volume) in resolved.items():
-        share = shares_by_tier[tier_used][cid]
-        w_vol = volume_weight(share, tier_used, config)
-        rows.append(
-            {
-                "constituent_id": cid,
-                "observation_date": as_of_date_value,
-                "attestation_tier": tier_used.value,
-                "raw_volume": raw_volume,
-                "within_tier_volume_share": share,
-                "w_vol": w_vol,
-            }
+    for cid, per_tier in resolved.items():
+        coefficients = redistribute_blending_coefficients(
+            available_tiers=set(per_tier.keys()),
+            default_coefficients=config.tier_blending_coefficients,
         )
+        for tier_t, raw_v in per_tier.items():
+            share = shares_by_tier[tier_t][cid]
+            coef = coefficients[tier_t]
+            w_vol_contribution = coef * volume_weight(share, tier_t, config)
+            rows.append(
+                {
+                    "constituent_id": cid,
+                    "observation_date": as_of_date_value,
+                    "attestation_tier": tier_t.value,
+                    "raw_volume": raw_v,
+                    "within_tier_volume_share": share,
+                    "coefficient": coef,
+                    "w_vol_contribution": w_vol_contribution,
+                }
+            )
 
     return pd.DataFrame(rows, columns=output_columns)

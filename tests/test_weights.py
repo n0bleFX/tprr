@@ -522,20 +522,41 @@ def test_dual_weights_haircut_applied_per_selected_tier() -> None:
         "openai/gpt-5-pro",
         "google/gemini-3-pro",
     }
-    a_row = out[out["constituent_id"] == "openai/gpt-5-pro"].iloc[0]
-    c_row = out[out["constituent_id"] == "google/gemini-3-pro"].iloc[0]
+    # Phase 7H Batch B (DL 2026-04-30) long-format: openai/gpt-5-pro has
+    # both Tier A (3 contributors) AND Tier B (provider revenue config
+    # present) → 2 rows. google/gemini-3-pro has only Tier C → 1 row.
+    # Total 3 rows.
+    assert len(out) == 3
+    assert set(out["constituent_id"]) == {
+        "openai/gpt-5-pro",
+        "google/gemini-3-pro",
+    }
 
-    # Phase 7H Batch A (DL 2026-04-30): w_vol = within_tier_share x haircut.
-    # Each tier here has a single resolved constituent → within_tier_share = 1.0.
-    assert a_row["attestation_tier"] == "A"
-    assert a_row["raw_volume"] == pytest.approx(300.0)
-    assert a_row["within_tier_volume_share"] == pytest.approx(1.0)
-    assert a_row["w_vol"] == pytest.approx(1.0)  # share 1.0 x haircut 1.0
+    gpt_a = out[
+        (out["constituent_id"] == "openai/gpt-5-pro")
+        & (out["attestation_tier"] == "A")
+    ].iloc[0]
+    gpt_b = out[
+        (out["constituent_id"] == "openai/gpt-5-pro")
+        & (out["attestation_tier"] == "B")
+    ].iloc[0]
+    gemini_c = out[out["constituent_id"] == "google/gemini-3-pro"].iloc[0]
 
-    assert c_row["attestation_tier"] == "C"
-    assert c_row["raw_volume"] == pytest.approx(50_000.0)
-    assert c_row["within_tier_volume_share"] == pytest.approx(1.0)
-    assert c_row["w_vol"] == pytest.approx(0.8)  # share 1.0 x haircut 0.8
+    # gpt-5-pro: Tier A + Tier B available → coefficients redistribute
+    # to 0.6/0.7 ≈ 0.857 (A) and 0.1/0.7 ≈ 0.143 (B); each tier has only
+    # gpt-5-pro → share = 1.0; w_vol_contribution = coef x share x haircut.
+    assert gpt_a["coefficient"] == pytest.approx(0.6 / 0.7)
+    assert gpt_a["within_tier_volume_share"] == pytest.approx(1.0)
+    assert gpt_a["w_vol_contribution"] == pytest.approx((0.6 / 0.7) * 1.0)
+
+    assert gpt_b["coefficient"] == pytest.approx(0.1 / 0.7)
+    assert gpt_b["within_tier_volume_share"] == pytest.approx(1.0)
+    assert gpt_b["w_vol_contribution"] == pytest.approx((0.1 / 0.7) * 0.9)
+
+    # gemini: Tier C only → coefficient = 1.0, share = 1.0, w_vol_contribution = 0.8.
+    assert gemini_c["attestation_tier"] == "C"
+    assert gemini_c["coefficient"] == pytest.approx(1.0)
+    assert gemini_c["w_vol_contribution"] == pytest.approx(0.8)
 
 
 def test_dual_weights_tier_b_haircut() -> None:
@@ -567,12 +588,13 @@ def test_dual_weights_tier_b_haircut() -> None:
         config=_index_config(),
     )
     row = out.iloc[0]
-    # Phase 7H Batch A: single Tier-B-resolved constituent → share=1.0 →
-    # w_vol = 1.0 x 0.9 = 0.9 (down from raw 10_000 x 0.9 = 9_000).
+    # Phase 7H Batch B: single Tier-B-resolved constituent → 1 row →
+    # coefficient=1.0, share=1.0, w_vol_contribution = 1.0 x 1.0 x 0.9 = 0.9.
     assert row["attestation_tier"] == "B"
     assert row["raw_volume"] == pytest.approx(10_000.0)
     assert row["within_tier_volume_share"] == pytest.approx(1.0)
-    assert row["w_vol"] == pytest.approx(0.9)
+    assert row["coefficient"] == pytest.approx(1.0)
+    assert row["w_vol_contribution"] == pytest.approx(0.9)
 
 
 def test_dual_weights_excludes_unweightable_constituent() -> None:
@@ -608,7 +630,10 @@ def test_dual_weights_excludes_unweightable_constituent() -> None:
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
         config=_index_config(),
     )
-    assert list(out["constituent_id"]) == ["openai/gpt-5-pro"]
+    # Phase 7H Batch B: openai/gpt-5-pro emits 2 rows (Tier A + Tier B);
+    # anthropic excluded (only 1 Tier A contributor, no Tier B, no Tier C).
+    # Set comparison ignores duplicates from long-format.
+    assert set(out["constituent_id"]) == {"openai/gpt-5-pro"}
 
 
 def test_dual_weights_output_label_is_selected_tier_not_panel_row_tier() -> None:
@@ -648,13 +673,14 @@ def test_dual_weights_output_label_is_selected_tier_not_panel_row_tier() -> None
     )
     assert len(out) == 1
     row = out.iloc[0]
-    # Phase 7H Batch A: single Tier-C-resolved constituent → share=1.0 →
-    # w_vol = 1.0 x 0.8 = 0.8 (down from raw 42_000 x 0.8 = 33_600).
+    # Phase 7H Batch B: single Tier-C-resolved constituent → 1 row →
+    # coefficient=1.0, share=1.0, w_vol_contribution = 1.0 x 1.0 x 0.8 = 0.8.
     assert row["constituent_id"] == "anthropic/claude-opus-4-7"
     assert row["attestation_tier"] == "C"
     assert row["raw_volume"] == pytest.approx(42_000.0)
     assert row["within_tier_volume_share"] == pytest.approx(1.0)
-    assert row["w_vol"] == pytest.approx(0.8)
+    assert row["coefficient"] == pytest.approx(1.0)
+    assert row["w_vol_contribution"] == pytest.approx(0.8)
 
 
 def test_dual_weights_empty_panel_returns_empty_frame() -> None:
@@ -666,13 +692,15 @@ def test_dual_weights_empty_panel_returns_empty_frame() -> None:
         config=_index_config(),
     )
     assert out.empty
+    # Phase 7H Batch B long-format columns.
     assert list(out.columns) == [
         "constituent_id",
         "observation_date",
         "attestation_tier",
         "raw_volume",
         "within_tier_volume_share",
-        "w_vol",
+        "coefficient",
+        "w_vol_contribution",
     ]
 
 
@@ -751,19 +779,22 @@ def test_w_vol_bounded_under_within_tier_share_normalization() -> None:
         config=_index_config(),
     )
 
+    # Phase 7H Batch B: long-format. Each constituent has 1 row per
+    # contributing tier; here each has only 1 contributing tier, so 1
+    # row per constituent. w_vol_contribution = coef x share x haircut.
     a_w = float(out.set_index("constituent_id").loc[
-        "anthropic/claude-opus-4-7", "w_vol"
+        "anthropic/claude-opus-4-7", "w_vol_contribution"
     ])
     c_w = float(out.set_index("constituent_id").loc[
-        "google/gemini-3-pro", "w_vol"
+        "google/gemini-3-pro", "w_vol_contribution"
     ])
 
-    # Both w_vols bounded in [0, 1].
-    assert 0.0 <= a_w <= 1.0, f"Tier A w_vol out of [0, 1]: {a_w}"
-    assert 0.0 <= c_w <= 1.0, f"Tier C w_vol out of [0, 1]: {c_w}"
+    # Both w_vol_contributions bounded in [0, 1].
+    assert 0.0 <= a_w <= 1.0, f"Tier A w_vol_contribution out of [0, 1]: {a_w}"
+    assert 0.0 <= c_w <= 1.0, f"Tier C w_vol_contribution out of [0, 1]: {c_w}"
 
-    # Each tier has a single resolved constituent here → share = 1.0 →
-    # w_vol = haircut. Tier A haircut 1.0, Tier C haircut 0.8.
+    # Single tier per constituent → coefficient redistributes to 1.0 →
+    # w_vol_contribution = 1.0 x 1.0 x haircut = haircut.
     assert a_w == pytest.approx(1.0)
     assert c_w == pytest.approx(0.8)
 

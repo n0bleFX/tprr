@@ -61,6 +61,13 @@ class IndexConfig(BaseModel):
             AttestationTier.C: 0.8,
         }
     )
+    tier_blending_coefficients: dict[AttestationTier, float] = Field(
+        default_factory=lambda: {
+            AttestationTier.A: 0.6,
+            AttestationTier.B: 0.1,
+            AttestationTier.C: 0.3,
+        }
+    )
     twap_window_utc: tuple[int, int] = (9, 17)
     twap_slots: int = 32
     default_ordering: str = "twap_then_weight"

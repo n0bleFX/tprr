@@ -51,9 +51,10 @@ import pandas as pd
 from tprr.config import IndexConfig, ModelRegistry, TierBRevenueConfig
 from tprr.index.weights import (
     TierBVolumeFn,
-    compute_tier_volume,
+    compute_blended_tier_volumes,
     compute_within_tier_share,
     exponential_weight,
+    redistribute_blending_coefficients,
     volume_weight,
 )
 from tprr.schema import AttestationTier, Tier
@@ -123,16 +124,18 @@ _DECISION_FIELDS = (
     "constituent_id",
     "included",
     "exclusion_reason",
-    "selected_attestation_tier",
+    "attestation_tier",
+    "coefficient",
     "raw_volume_mtok",
     "within_tier_volume_share",
+    "tier_collapsed_price_usd_mtok",
+    "w_vol_contribution",
     "constituent_price_usd_mtok",
     "tier_median_price_usd_mtok",
     "price_distance_from_median_pct",
     "w_vol",
     "w_exp",
     "combined_weight",
-    "weight_share_within_tier",
     "contributor_count",
 )
 
@@ -146,26 +149,43 @@ def _decision_row(
     constituent_id: str,
     included: bool,
     exclusion_reason: str,
-    selected_attestation_tier: str = "",
+    attestation_tier: str = "",
+    coefficient: float = float("nan"),
     raw_volume_mtok: float = float("nan"),
     within_tier_volume_share: float = float("nan"),
+    tier_collapsed_price_usd_mtok: float = float("nan"),
+    w_vol_contribution: float = float("nan"),
     constituent_price_usd_mtok: float = float("nan"),
     tier_median_price_usd_mtok: float = float("nan"),
     price_distance_from_median_pct: float = float("nan"),
     w_vol: float = float("nan"),
     w_exp: float = float("nan"),
     combined_weight: float = float("nan"),
-    weight_share_within_tier: float = float("nan"),
     contributor_count: int = 0,
 ) -> dict[str, Any]:
-    """Build one ConstituentDecisionDF row. NaN defaults match the audit
-    contract: every numeric field is populated when ``included=True`` and
-    selectively populated for exclusion paths (see ``compute_tier_index``).
+    """Build one ConstituentDecisionDF row.
 
-    ``within_tier_volume_share`` is the bounded [0, 1] within-tier share
-    (Phase 7H Batch A, DL 2026-04-30) used to compute w_vol. NaN on
-    excluded rows that didn't reach the share-computation pass.
-    ``raw_volume_mtok`` is preserved for audit-trail completeness."""
+    Phase 7H Batch B (DL 2026-04-30) introduces long-format per-tier
+    breakdown: each constituent emits one row per contributing tier under
+    continuous blending. Per-tier fields (``attestation_tier``,
+    ``coefficient``, ``raw_volume_mtok``, ``within_tier_volume_share``,
+    ``tier_collapsed_price_usd_mtok``, ``w_vol_contribution``,
+    ``contributor_count``) describe THIS row's tier's contribution.
+    Constituent-level fields (``constituent_price_usd_mtok``,
+    ``tier_median_price_usd_mtok``, ``price_distance_from_median_pct``,
+    ``w_vol``, ``w_exp``, ``combined_weight``) are duplicated across the
+    constituent's per-tier rows for query convenience.
+
+    Excluded rows (constituent failed before tier resolution OR before
+    median computation) carry single rows with ``attestation_tier=""``
+    and the appropriate ``exclusion_reason``; numeric per-tier fields
+    are NaN.
+
+    ``weight_share_within_tier`` was dropped per DL 2026-04-30 "Phase 7H
+    Batch B audit trail design": consumers compute it via
+    ``df.groupby([as_of_date, constituent_id]).w_vol_contribution.sum()``
+    when needed.
+    """
     return {
         "as_of_date": as_of_date,
         "index_code": index_code,
@@ -174,16 +194,18 @@ def _decision_row(
         "constituent_id": constituent_id,
         "included": included,
         "exclusion_reason": exclusion_reason,
-        "selected_attestation_tier": selected_attestation_tier,
+        "attestation_tier": attestation_tier,
+        "coefficient": float(coefficient),
         "raw_volume_mtok": float(raw_volume_mtok),
         "within_tier_volume_share": float(within_tier_volume_share),
+        "tier_collapsed_price_usd_mtok": float(tier_collapsed_price_usd_mtok),
+        "w_vol_contribution": float(w_vol_contribution),
         "constituent_price_usd_mtok": float(constituent_price_usd_mtok),
         "tier_median_price_usd_mtok": float(tier_median_price_usd_mtok),
         "price_distance_from_median_pct": float(price_distance_from_median_pct),
         "w_vol": float(w_vol),
         "w_exp": float(w_exp),
         "combined_weight": float(combined_weight),
-        "weight_share_within_tier": float(weight_share_within_tier),
         "contributor_count": int(contributor_count),
     }
 
@@ -389,11 +411,16 @@ def compute_tier_index(
             n_constituents=n_constituents_total,
             prior_raw_value=prior_raw_value,
         )
+    # Phase 7H Batch B (DL 2026-04-30): continuous blending replaces priority
+    # fall-through. Per-constituent multi-tier resolution + per-tier price
+    # collapse, then within-tier-share normalisation across constituents,
+    # then coefficient redistribution per constituent, then combined w_vol
+    # and combined price.
     for constituent_id in tier_panel["constituent_id"].unique():
         const_id = str(constituent_id)
         sub = tier_panel[tier_panel["constituent_id"] == const_id]
 
-        tier_result = compute_tier_volume(
+        blended_volumes = compute_blended_tier_volumes(
             constituent_id=const_id,
             as_of_date=as_of_date_value,
             panel_df=sub,
@@ -401,7 +428,7 @@ def compute_tier_index(
             tier_b_config=tier_b_config,
             tier_b_volume_fn=tier_b_volume_fn,
         )
-        if tier_result is None:
+        if blended_volumes is None:
             pending_decisions.append(
                 _decision_row(
                     as_of_date=as_of_date_value,
@@ -416,21 +443,35 @@ def compute_tier_index(
             )
             continue
 
-        selected_tier, raw_volume = tier_result
-        if selected_tier == AttestationTier.A:
-            price_rows = sub[
-                (sub["attestation_tier"] == AttestationTier.A.value)
-                & (sub["volume_mtok_7d"] > 0)
-            ]
-        elif selected_tier == AttestationTier.B:
-            price_rows = sub[sub["attestation_tier"] == AttestationTier.B.value]
-        else:  # AttestationTier.C
-            price_rows = sub[
-                (sub["attestation_tier"] == AttestationTier.C.value)
-                & (sub["volume_mtok_7d"] > 0)
-            ]
+        # Per-tier price collapse: filter price rows for each tier with
+        # resolved volume; collapse via volume-weighted contributor average
+        # (DL 2026-04-30 Phase 7 contributor-to-constituent collapse rule
+        # applied within each tier independently).
+        per_tier_data: dict[AttestationTier, dict[str, float]] = {}
+        for tier_t, raw_v in blended_volumes.items():
+            if tier_t == AttestationTier.A:
+                price_rows = sub[
+                    (sub["attestation_tier"] == AttestationTier.A.value)
+                    & (sub["volume_mtok_7d"] > 0)
+                ]
+            elif tier_t == AttestationTier.B:
+                price_rows = sub[sub["attestation_tier"] == AttestationTier.B.value]
+            else:  # AttestationTier.C
+                price_rows = sub[
+                    (sub["attestation_tier"] == AttestationTier.C.value)
+                    & (sub["volume_mtok_7d"] > 0)
+                ]
+            if price_rows.empty:
+                continue  # tier has volume but no surviving prices; drop from blend
+            tier_price = collapse_constituent_price(price_rows, price_col=price_field)
+            per_tier_data[tier_t] = {
+                "raw_volume": float(raw_v),
+                "tier_price": float(tier_price),
+                "contributor_count": int(price_rows["contributor_id"].nunique()),
+            }
 
-        if price_rows.empty:
+        if not per_tier_data:
+            # All resolved tiers lost their price rows; constituent excluded.
             pending_decisions.append(
                 _decision_row(
                     as_of_date=as_of_date_value,
@@ -440,32 +481,19 @@ def compute_tier_index(
                     constituent_id=const_id,
                     included=False,
                     exclusion_reason=ConstituentExclusionReason.SELECTED_TIER_NO_PRICE_ROWS.value,
-                    selected_attestation_tier=selected_tier.value,
-                    raw_volume_mtok=float(raw_volume),
                     contributor_count=int(sub["contributor_id"].nunique()),
                 )
             )
             continue
 
-        constituent_price = collapse_constituent_price(
-            price_rows, price_col=price_field
-        )
-        # w_vol deferred — computed in the second pass below from within-tier
-        # shares (Phase 7H Batch A, DL 2026-04-30). Raw volume buffered here
-        # for the within-tier-share denominator and audit trail.
         rows.append(
             {
                 "constituent_id": const_id,
-                "selected_tier": selected_tier.value,
-                "price": constituent_price,
-                "raw_volume": raw_volume,
-                "contributor_count": int(price_rows["contributor_id"].nunique()),
+                "per_tier_data": per_tier_data,
             }
         )
 
     if not rows:
-        # Tier suspends with TIER_DATA_UNAVAILABLE; per-constituent exclusion
-        # decisions (if any) already buffered. No active-row decisions to add.
         _publish(pending_decisions)
         return _suspended_row(
             tier=tier,
@@ -478,55 +506,114 @@ def compute_tier_index(
             prior_raw_value=prior_raw_value,
         )
 
-    # Pass 2: within-tier-share normalization + haircut (Phase 7H Batch A).
-    volumes_by_tier: dict[str, dict[str, float]] = {
-        AttestationTier.A.value: {},
-        AttestationTier.B.value: {},
-        AttestationTier.C.value: {},
-    }
-    for r in rows:
-        volumes_by_tier[str(r["selected_tier"])][str(r["constituent_id"])] = float(
-            r["raw_volume"]
-        )
-    shares_by_tier: dict[str, dict[str, float]] = {
-        tier_value: compute_within_tier_share(vols)
-        for tier_value, vols in volumes_by_tier.items()
+    # Pass 2 (continuous blending): within-tier shares per tier across
+    # contributing constituents; coefficient redistribution per constituent;
+    # combined w_vol and combined price per constituent.
+    volumes_by_tier_b: dict[AttestationTier, dict[str, float]] = {
+        AttestationTier.A: {},
+        AttestationTier.B: {},
+        AttestationTier.C: {},
     }
     for r in rows:
         cid = str(r["constituent_id"])
-        sel = str(r["selected_tier"])
-        share = shares_by_tier[sel][cid]
-        r["within_tier_volume_share"] = share
-        r["w_vol"] = volume_weight(
-            share, AttestationTier(sel), config
+        per_tier = r["per_tier_data"]
+        assert isinstance(per_tier, dict)
+        for tier_t, info in per_tier.items():
+            volumes_by_tier_b[tier_t][cid] = float(info["raw_volume"])
+    shares_by_tier_b: dict[AttestationTier, dict[str, float]] = {
+        tier_t: compute_within_tier_share(vols)
+        for tier_t, vols in volumes_by_tier_b.items()
+    }
+
+    for r in rows:
+        cid = str(r["constituent_id"])
+        per_tier = r["per_tier_data"]
+        assert isinstance(per_tier, dict)
+        coefficients = redistribute_blending_coefficients(
+            available_tiers=set(per_tier.keys()),
+            default_coefficients=config.tier_blending_coefficients,
+        )
+        combined_w_vol = 0.0
+        combined_price = 0.0
+        for tier_t, info in per_tier.items():
+            share = shares_by_tier_b[tier_t][cid]
+            coef = coefficients[tier_t]
+            w_vol_contribution = coef * volume_weight(share, tier_t, config)
+            combined_w_vol += w_vol_contribution
+            combined_price += coef * float(info["tier_price"])
+            info["share"] = share
+            info["coefficient"] = coef
+            info["w_vol_contribution"] = w_vol_contribution
+        r["w_vol"] = combined_w_vol
+        r["price"] = combined_price
+        r["contributor_count_total"] = sum(
+            int(info["contributor_count"]) for info in per_tier.values()
         )
 
-    constituents_df = pd.DataFrame(rows)
-    n_active = len(constituents_df)
+    n_active = len(rows)
+
+    # n_a/n_b/n_c under continuous blending: count of constituents with ANY
+    # non-zero contribution from each tier (constituents may overlap across
+    # tiers under blending).
+    n_a = sum(1 for r in rows if AttestationTier.A in r["per_tier_data"])
+    n_b = sum(1 for r in rows if AttestationTier.B in r["per_tier_data"])
+    n_c = sum(1 for r in rows if AttestationTier.C in r["per_tier_data"])
+
+    def _emit_tier_aggregation_suspended_rows(
+        rows_in: list[dict[str, Any]],
+        median: float = float("nan"),
+        compute_w_exp_for_audit: bool = False,
+    ) -> None:
+        """Emit one TIER_AGGREGATION_SUSPENDED audit row per (constituent,
+        contributing tier). Median + w_exp may or may not be computed
+        depending on which suspension path fires.
+        """
+        for r in rows_in:
+            cid = str(r["constituent_id"])
+            per_tier = r["per_tier_data"]
+            assert isinstance(per_tier, dict)
+            if compute_w_exp_for_audit and median > 0:
+                distance_pct = abs(float(r["price"]) - median) / median
+                w_exp_value = exponential_weight(
+                    float(r["price"]), median, config.lambda_
+                )
+                combined_w = float(r["w_vol"]) * w_exp_value
+            else:
+                distance_pct = float("nan")
+                w_exp_value = float("nan")
+                combined_w = float("nan")
+            for tier_t, info in per_tier.items():
+                pending_decisions.append(
+                    _decision_row(
+                        as_of_date=as_of_date_value,
+                        index_code=tier.value,
+                        version=version,
+                        ordering=ordering,
+                        constituent_id=cid,
+                        included=False,
+                        exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
+                        attestation_tier=tier_t.value,
+                        coefficient=float(info["coefficient"]),
+                        raw_volume_mtok=float(info["raw_volume"]),
+                        within_tier_volume_share=float(info["share"]),
+                        tier_collapsed_price_usd_mtok=float(info["tier_price"]),
+                        w_vol_contribution=float(info["w_vol_contribution"]),
+                        constituent_price_usd_mtok=float(r["price"]),
+                        tier_median_price_usd_mtok=median,
+                        price_distance_from_median_pct=distance_pct,
+                        w_vol=float(r["w_vol"]),
+                        w_exp=w_exp_value,
+                        combined_weight=combined_w,
+                        contributor_count=int(info["contributor_count"]),
+                    )
+                )
 
     if n_active < config.min_constituents_per_tier:
         # Tier suspends — emit each "would-be-active" constituent as
-        # included=False with TIER_AGGREGATION_SUSPENDED. w_vol is real
-        # (computed); w_exp / weight / tier_median are NaN (the median
-        # cascade never ran).
-        for r in rows:
-            pending_decisions.append(
-                _decision_row(
-                    as_of_date=as_of_date_value,
-                    index_code=tier.value,
-                    version=version,
-                    ordering=ordering,
-                    constituent_id=str(r["constituent_id"]),
-                    included=False,
-                    exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
-                    selected_attestation_tier=str(r["selected_tier"]),
-                    raw_volume_mtok=float(r["raw_volume"]),
-                    within_tier_volume_share=float(r["within_tier_volume_share"]),
-                    constituent_price_usd_mtok=float(r["price"]),
-                    w_vol=float(r["w_vol"]),
-                    contributor_count=int(r["contributor_count"]),
-                )
-            )
+        # included=False with TIER_AGGREGATION_SUSPENDED, one row per
+        # contributing tier. Median cascade never ran; w_exp/combined_weight
+        # are NaN.
+        _emit_tier_aggregation_suspended_rows(rows)
         _publish(pending_decisions)
         return _suspended_row(
             tier=tier,
@@ -537,55 +624,29 @@ def compute_tier_index(
             reason=SuspensionReason.INSUFFICIENT_CONSTITUENTS,
             n_constituents=n_constituents_total,
             n_constituents_active=n_active,
-            n_a=int((constituents_df["selected_tier"] == AttestationTier.A.value).sum()),
-            n_b=int((constituents_df["selected_tier"] == AttestationTier.B.value).sum()),
-            n_c=int((constituents_df["selected_tier"] == AttestationTier.C.value).sum()),
+            n_a=n_a,
+            n_b=n_b,
+            n_c=n_c,
             prior_raw_value=prior_raw_value,
         )
 
-    # 4. Tier median across active constituents (Section 3.3.3).
-    tier_median = float(np.median(constituents_df["price"].to_numpy(dtype=np.float64)))
-
-    # 5. w_exp per constituent.
-    constituents_df["w_exp"] = constituents_df["price"].apply(
-        lambda p: exponential_weight(float(p), tier_median, config.lambda_)
+    # 4. Tier median across active constituents (Section 3.3.3) — using
+    # blended constituent prices.
+    tier_median = float(
+        np.median(np.array([float(r["price"]) for r in rows], dtype=np.float64))
     )
 
-    # 6. Combined weight + dual-weighted aggregate (Section 3.3.1).
-    constituents_df["weight"] = constituents_df["w_vol"] * constituents_df["w_exp"]
-    total_weight = float(constituents_df["weight"].sum())
+    # 5. w_exp per constituent (using blended price).
+    for r in rows:
+        r["w_exp"] = exponential_weight(float(r["price"]), tier_median, config.lambda_)
+        r["weight"] = float(r["w_vol"]) * float(r["w_exp"])
+
+    total_weight = float(sum(float(r["weight"]) for r in rows))
 
     if total_weight <= 0:
-        # Quality-gate cascade — emit active constituents as included=False
-        # with TIER_AGGREGATION_SUSPENDED. All numeric fields populated except
-        # weight_share (no denominator).
-        for _, srs in constituents_df.iterrows():
-            distance_pct = (
-                abs(float(srs["price"]) - tier_median) / tier_median
-                if tier_median > 0
-                else float("nan")
-            )
-            pending_decisions.append(
-                _decision_row(
-                    as_of_date=as_of_date_value,
-                    index_code=tier.value,
-                    version=version,
-                    ordering=ordering,
-                    constituent_id=str(srs["constituent_id"]),
-                    included=False,
-                    exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
-                    selected_attestation_tier=str(srs["selected_tier"]),
-                    raw_volume_mtok=float(srs["raw_volume"]),
-                    within_tier_volume_share=float(srs["within_tier_volume_share"]),
-                    constituent_price_usd_mtok=float(srs["price"]),
-                    tier_median_price_usd_mtok=tier_median,
-                    price_distance_from_median_pct=distance_pct,
-                    w_vol=float(srs["w_vol"]),
-                    w_exp=float(srs["w_exp"]),
-                    combined_weight=float(srs["weight"]),
-                    contributor_count=int(srs["contributor_count"]),
-                )
-            )
+        _emit_tier_aggregation_suspended_rows(
+            rows, median=tier_median, compute_w_exp_for_audit=True
+        )
         _publish(pending_decisions)
         return _suspended_row(
             tier=tier,
@@ -600,61 +661,74 @@ def compute_tier_index(
         )
 
     raw_value = float(
-        (constituents_df["weight"] * constituents_df["price"]).sum() / total_weight
+        sum(float(r["weight"]) * float(r["price"]) for r in rows) / total_weight
     )
 
-    # 7. Tier-level instrumentation (DL 2026-04-30 schema additions).
-    n_a = int((constituents_df["selected_tier"] == AttestationTier.A.value).sum())
-    n_b = int((constituents_df["selected_tier"] == AttestationTier.B.value).sum())
-    n_c = int((constituents_df["selected_tier"] == AttestationTier.C.value).sum())
-    weight_a = float(
-        constituents_df.loc[
-            constituents_df["selected_tier"] == AttestationTier.A.value, "weight"
-        ].sum()
-        / total_weight
-    )
-    weight_b = float(
-        constituents_df.loc[
-            constituents_df["selected_tier"] == AttestationTier.B.value, "weight"
-        ].sum()
-        / total_weight
-    )
-    weight_c = float(
-        constituents_df.loc[
-            constituents_df["selected_tier"] == AttestationTier.C.value, "weight"
-        ].sum()
-        / total_weight
-    )
-
-    # 8. Emit included=True decision rows with full instrumentation.
-    for _, srs in constituents_df.iterrows():
-        distance_pct = (
-            abs(float(srs["price"]) - tier_median) / tier_median
-            if tier_median > 0
-            else float("nan")
+    # 7. Tier-level instrumentation. Under continuous blending, each
+    # constituent's combined weight (w_vol_combined x w_exp) decomposes
+    # across tiers via per-tier w_vol_contribution. tier_X_weight_share is
+    # the share of that decomposition attributable to tier X.
+    weight_a = (
+        sum(
+            float(r["per_tier_data"][AttestationTier.A]["w_vol_contribution"])
+            * float(r["w_exp"])
+            for r in rows
+            if AttestationTier.A in r["per_tier_data"]
         )
-        pending_decisions.append(
-            _decision_row(
-                as_of_date=as_of_date_value,
-                index_code=tier.value,
-                version=version,
-                ordering=ordering,
-                constituent_id=str(srs["constituent_id"]),
-                included=True,
-                exclusion_reason="",
-                selected_attestation_tier=str(srs["selected_tier"]),
-                raw_volume_mtok=float(srs["raw_volume"]),
-                within_tier_volume_share=float(srs["within_tier_volume_share"]),
-                constituent_price_usd_mtok=float(srs["price"]),
-                tier_median_price_usd_mtok=tier_median,
-                price_distance_from_median_pct=distance_pct,
-                w_vol=float(srs["w_vol"]),
-                w_exp=float(srs["w_exp"]),
-                combined_weight=float(srs["weight"]),
-                weight_share_within_tier=float(srs["weight"]) / total_weight,
-                contributor_count=int(srs["contributor_count"]),
+        / total_weight
+    )
+    weight_b = (
+        sum(
+            float(r["per_tier_data"][AttestationTier.B]["w_vol_contribution"])
+            * float(r["w_exp"])
+            for r in rows
+            if AttestationTier.B in r["per_tier_data"]
+        )
+        / total_weight
+    )
+    weight_c = (
+        sum(
+            float(r["per_tier_data"][AttestationTier.C]["w_vol_contribution"])
+            * float(r["w_exp"])
+            for r in rows
+            if AttestationTier.C in r["per_tier_data"]
+        )
+        / total_weight
+    )
+
+    # 8. Emit included=True decision rows — one per (constituent, contributing
+    # tier). Constituent-level fields (price, median, w_exp, w_vol, combined_weight)
+    # repeat across the constituent's per-tier rows for query convenience.
+    for r in rows:
+        cid = str(r["constituent_id"])
+        per_tier = r["per_tier_data"]
+        assert isinstance(per_tier, dict)
+        distance_pct = abs(float(r["price"]) - tier_median) / tier_median
+        for tier_t, info in per_tier.items():
+            pending_decisions.append(
+                _decision_row(
+                    as_of_date=as_of_date_value,
+                    index_code=tier.value,
+                    version=version,
+                    ordering=ordering,
+                    constituent_id=cid,
+                    included=True,
+                    exclusion_reason="",
+                    attestation_tier=tier_t.value,
+                    coefficient=float(info["coefficient"]),
+                    raw_volume_mtok=float(info["raw_volume"]),
+                    within_tier_volume_share=float(info["share"]),
+                    tier_collapsed_price_usd_mtok=float(info["tier_price"]),
+                    w_vol_contribution=float(info["w_vol_contribution"]),
+                    constituent_price_usd_mtok=float(r["price"]),
+                    tier_median_price_usd_mtok=tier_median,
+                    price_distance_from_median_pct=distance_pct,
+                    w_vol=float(r["w_vol"]),
+                    w_exp=float(r["w_exp"]),
+                    combined_weight=float(r["weight"]),
+                    contributor_count=int(info["contributor_count"]),
+                )
             )
-        )
     _publish(pending_decisions)
 
     return {
@@ -912,15 +986,15 @@ def _compute_weight_then_twap_index(
     exclusions_lookup = _build_exclusions_lookup_local(excluded_slots_df)
     as_of_ts = pd.Timestamp(as_of_date_value)
 
-    # 4. Per-constituent: daily tier resolution + per-contributor slot arrays.
-    # Each row in ``constituents`` carries the daily metadata + slot arrays
-    # to feed the slot loop.
+    # 4. Per-constituent: blended tier resolution + per-tier per-contributor
+    # slot arrays. Each entry in ``constituents`` carries daily metadata
+    # (per_tier_data) plus slot arrays per tier per contributor.
     constituents: list[dict[str, Any]] = []
     for constituent_id in tier_panel["constituent_id"].unique():
         const_id = str(constituent_id)
         sub = tier_panel[tier_panel["constituent_id"] == const_id]
 
-        tier_result = compute_tier_volume(
+        blended_volumes = compute_blended_tier_volumes(
             constituent_id=const_id,
             as_of_date=as_of_date_value,
             panel_df=sub,
@@ -928,7 +1002,7 @@ def _compute_weight_then_twap_index(
             tier_b_config=tier_b_config,
             tier_b_volume_fn=tier_b_volume_fn,
         )
-        if tier_result is None:
+        if blended_volumes is None:
             pending_decisions.append(
                 _decision_row(
                     as_of_date=as_of_date_value,
@@ -943,21 +1017,49 @@ def _compute_weight_then_twap_index(
             )
             continue
 
-        selected_tier, raw_volume = tier_result
-        if selected_tier == AttestationTier.A:
-            price_rows = sub[
-                (sub["attestation_tier"] == AttestationTier.A.value)
-                & (sub["volume_mtok_7d"] > 0)
-            ]
-        elif selected_tier == AttestationTier.B:
-            price_rows = sub[sub["attestation_tier"] == AttestationTier.B.value]
-        else:  # AttestationTier.C
-            price_rows = sub[
-                (sub["attestation_tier"] == AttestationTier.C.value)
-                & (sub["volume_mtok_7d"] > 0)
-            ]
+        # Per-tier: filter price rows + build slot arrays per contributor.
+        per_tier_data: dict[AttestationTier, dict[str, Any]] = {}
+        for tier_t, raw_v in blended_volumes.items():
+            if tier_t == AttestationTier.A:
+                price_rows = sub[
+                    (sub["attestation_tier"] == AttestationTier.A.value)
+                    & (sub["volume_mtok_7d"] > 0)
+                ]
+            elif tier_t == AttestationTier.B:
+                price_rows = sub[sub["attestation_tier"] == AttestationTier.B.value]
+            else:  # AttestationTier.C
+                price_rows = sub[
+                    (sub["attestation_tier"] == AttestationTier.C.value)
+                    & (sub["volume_mtok_7d"] > 0)
+                ]
+            if price_rows.empty:
+                continue
 
-        if price_rows.empty:
+            contributor_slot_data: list[
+                tuple[str, npt.NDArray[np.float64], float]
+            ] = []
+            for _, prow in price_rows.iterrows():
+                contributor_id = str(prow["contributor_id"])
+                key = (contributor_id, const_id, as_of_ts)
+                slots = _build_slot_arrays_for_pair(
+                    contributor_id=contributor_id,
+                    constituent_id=const_id,
+                    as_of_date=as_of_date_value,
+                    panel_row=prow,
+                    events=event_lookup.get(key),
+                    excluded_slot_indices=exclusions_lookup.get(key),
+                    blended=blended,
+                )
+                vol = float(prow["volume_mtok_7d"])
+                contributor_slot_data.append((contributor_id, slots, vol))
+
+            per_tier_data[tier_t] = {
+                "raw_volume": float(raw_v),
+                "contributor_slots": contributor_slot_data,
+                "contributor_count": int(price_rows["contributor_id"].nunique()),
+            }
+
+        if not per_tier_data:
             pending_decisions.append(
                 _decision_row(
                     as_of_date=as_of_date_value,
@@ -967,39 +1069,15 @@ def _compute_weight_then_twap_index(
                     constituent_id=const_id,
                     included=False,
                     exclusion_reason=ConstituentExclusionReason.SELECTED_TIER_NO_PRICE_ROWS.value,
-                    selected_attestation_tier=selected_tier.value,
-                    raw_volume_mtok=float(raw_volume),
                     contributor_count=int(sub["contributor_id"].nunique()),
                 )
             )
             continue
 
-        # Build per-contributor slot arrays.
-        contributor_slot_data: list[tuple[str, npt.NDArray[np.float64], float]] = []
-        for _, prow in price_rows.iterrows():
-            contributor_id = str(prow["contributor_id"])
-            key = (contributor_id, const_id, as_of_ts)
-            slots = _build_slot_arrays_for_pair(
-                contributor_id=contributor_id,
-                constituent_id=const_id,
-                as_of_date=as_of_date_value,
-                panel_row=prow,
-                events=event_lookup.get(key),
-                excluded_slot_indices=exclusions_lookup.get(key),
-                blended=blended,
-            )
-            volume = float(prow["volume_mtok_7d"])
-            contributor_slot_data.append((contributor_id, slots, volume))
-
-        # w_vol deferred — computed in the within-tier-share normalization
-        # pass below (Phase 7H Batch A, DL 2026-04-30).
         constituents.append(
             {
                 "constituent_id": const_id,
-                "selected_tier": selected_tier.value,
-                "raw_volume": raw_volume,
-                "contributor_slots": contributor_slot_data,
-                "contributor_count": int(price_rows["contributor_id"].nunique()),
+                "per_tier_data": per_tier_data,
             }
         )
 
@@ -1016,26 +1094,41 @@ def _compute_weight_then_twap_index(
             prior_raw_value=prior_raw_value,
         )
 
-    # Within-tier-share normalization pass (Phase 7H Batch A).
-    volumes_by_tier: dict[str, dict[str, float]] = {
-        AttestationTier.A.value: {},
-        AttestationTier.B.value: {},
-        AttestationTier.C.value: {},
+    # Within-tier shares + coefficients per constituent (daily, applied at
+    # every slot — DL 2026-04-30 Batch E choice 1+2: volumes/coefficients
+    # are daily, only prices vary per slot).
+    volumes_by_tier_b: dict[AttestationTier, dict[str, float]] = {
+        AttestationTier.A: {},
+        AttestationTier.B: {},
+        AttestationTier.C: {},
     }
     for c in constituents:
-        volumes_by_tier[str(c["selected_tier"])][str(c["constituent_id"])] = float(
-            c["raw_volume"]
-        )
-    shares_by_tier: dict[str, dict[str, float]] = {
-        tier_value: compute_within_tier_share(vols)
-        for tier_value, vols in volumes_by_tier.items()
+        per_tier = c["per_tier_data"]
+        for tier_t, info in per_tier.items():
+            volumes_by_tier_b[tier_t][str(c["constituent_id"])] = float(
+                info["raw_volume"]
+            )
+    shares_by_tier_b: dict[AttestationTier, dict[str, float]] = {
+        tier_t: compute_within_tier_share(vols)
+        for tier_t, vols in volumes_by_tier_b.items()
     }
     for c in constituents:
         cid = str(c["constituent_id"])
-        sel = str(c["selected_tier"])
-        share = shares_by_tier[sel][cid]
-        c["within_tier_volume_share"] = share
-        c["w_vol"] = volume_weight(share, AttestationTier(sel), config)
+        per_tier = c["per_tier_data"]
+        coefficients = redistribute_blending_coefficients(
+            available_tiers=set(per_tier.keys()),
+            default_coefficients=config.tier_blending_coefficients,
+        )
+        combined_w_vol = 0.0
+        for tier_t, info in per_tier.items():
+            share = shares_by_tier_b[tier_t][cid]
+            coef = coefficients[tier_t]
+            w_vol_contribution = coef * volume_weight(share, tier_t, config)
+            combined_w_vol += w_vol_contribution
+            info["share"] = share
+            info["coefficient"] = coef
+            info["w_vol_contribution"] = w_vol_contribution
+        c["w_vol"] = combined_w_vol
 
     # 5. Slot-level loop.
     # For each slot s: collapse contributor prices per constituent (volume-
@@ -1043,77 +1136,100 @@ def _compute_weight_then_twap_index(
     n_constituents_resolved = len(constituents)
     min_constituents = config.min_constituents_per_tier
 
-    # Per-constituent accumulators for daily-averaged audit fields.
-    per_constituent_acc: dict[str, dict[str, Any]] = {
-        c["constituent_id"]: {
-            "selected_tier": c["selected_tier"],
-            "raw_volume": float(c["raw_volume"]),
-            "within_tier_volume_share": float(c["within_tier_volume_share"]),
-            "w_vol": float(c["w_vol"]),
-            "contributor_count": int(c["contributor_count"]),
-            "slot_prices": [],
-            "slot_w_exp": [],
-            "slot_combined_weight": [],
-            "slot_weight_share": [],
-            "slot_median": [],
-            "slot_distance_pct": [],
-            "n_active_slots": 0,
-        }
-        for c in constituents
-    }
+    # Phase 7H Batch B continuous blending at slot level: per slot,
+    # per constituent, per tier compute slot-level price, blend across
+    # tiers via daily coefficients (renormalised over tiers with valid
+    # slot data), check min-3, slot aggregate, average across slots.
+    per_tier_slot_prices: dict[tuple[str, AttestationTier], list[float]] = {}
+    per_constituent_slot_prices: dict[str, list[float]] = {}
+    per_constituent_slot_w_exp: dict[str, list[float]] = {}
+    per_constituent_slot_combined_weight: dict[str, list[float]] = {}
+    per_constituent_slot_median: dict[str, list[float]] = {}
+    per_constituent_slot_distance: dict[str, list[float]] = {}
+    for c in constituents:
+        cid_init = str(c["constituent_id"])
+        per_constituent_slot_prices[cid_init] = []
+        per_constituent_slot_w_exp[cid_init] = []
+        per_constituent_slot_combined_weight[cid_init] = []
+        per_constituent_slot_median[cid_init] = []
+        per_constituent_slot_distance[cid_init] = []
+        for tier_t in c["per_tier_data"]:
+            per_tier_slot_prices[(cid_init, tier_t)] = []
 
     slot_aggregates: list[float] = []
-    slot_tier_shares: list[tuple[float, float, float]] = []  # (a, b, c) per surviving slot
+
+    def _collapse_tier_slot_price(
+        contributor_slots: list[tuple[str, npt.NDArray[np.float64], float]],
+        slot_idx: int,
+    ) -> float:
+        """Volume-weighted slot-s price across this tier's slot-surviving
+        contributors. NaN when no contributor has a non-NaN slot-s value."""
+        total_v = 0.0
+        total_pv = 0.0
+        n_surviving = 0
+        simple_sum = 0.0
+        for _contrib_id, slots_arr, vol in contributor_slots:
+            p = float(slots_arr[slot_idx])
+            if not np.isnan(p):
+                total_v += vol
+                total_pv += vol * p
+                simple_sum += p
+                n_surviving += 1
+        if n_surviving == 0:
+            return float("nan")
+        if total_v > 0:
+            return total_pv / total_v
+        return simple_sum / n_surviving
 
     for s in range(_TWAP_SLOTS_PER_DAY):
-        # Per-constituent slot-s price: volume-weighted across slot-surviving
-        # contributors. Falls back to simple mean if total volume is zero
-        # (mirrors collapse_constituent_price's defensive branch).
-        constituent_slot_price: dict[str, float] = {}
+        # Per constituent: per-tier slot-s price + blended slot-s price
+        # (renormalised coefficients over tiers with valid slot data).
+        per_constituent_blend: dict[str, dict[str, Any]] = {}
         for c in constituents:
-            const_id = str(c["constituent_id"])
-            total_v = 0.0
-            total_pv = 0.0
-            n_surviving = 0
-            simple_sum = 0.0
-            for _, slots_arr, vol in c["contributor_slots"]:
-                p = float(slots_arr[s])
-                if not np.isnan(p):
-                    total_v += vol
-                    total_pv += vol * p
-                    simple_sum += p
-                    n_surviving += 1
-            if n_surviving == 0:
+            cid_loop = str(c["constituent_id"])
+            per_tier = c["per_tier_data"]
+            tier_prices_at_slot: dict[AttestationTier, float] = {}
+            for tier_t, info in per_tier.items():
+                p_t_s = _collapse_tier_slot_price(info["contributor_slots"], s)
+                if not np.isnan(p_t_s):
+                    tier_prices_at_slot[tier_t] = p_t_s
+            if not tier_prices_at_slot:
                 continue
-            if total_v > 0:
-                constituent_slot_price[const_id] = total_pv / total_v
-            else:
-                constituent_slot_price[const_id] = simple_sum / n_surviving
+            slot_coefs = redistribute_blending_coefficients(
+                available_tiers=set(tier_prices_at_slot.keys()),
+                default_coefficients=config.tier_blending_coefficients,
+            )
+            blended_slot_price = sum(
+                slot_coefs[t] * tier_prices_at_slot[t] for t in tier_prices_at_slot
+            )
+            per_constituent_blend[cid_loop] = {
+                "blended_price": blended_slot_price,
+                "tier_prices": tier_prices_at_slot,
+            }
 
-        if len(constituent_slot_price) < min_constituents:
+        if len(per_constituent_blend) < min_constituents:
             continue
 
-        # Slot-s tier median.
         slot_prices_arr = np.array(
-            list(constituent_slot_price.values()), dtype=np.float64
+            [v["blended_price"] for v in per_constituent_blend.values()],
+            dtype=np.float64,
         )
         median_s = float(np.median(slot_prices_arr))
         if median_s <= 0:
-            # Defensive: methodology assumes positive prices.
             continue
 
-        # Slot-s w_exp + dual-weighted aggregate.
         numer = 0.0
         denom = 0.0
         per_slot_weights: dict[str, float] = {}
-        for const_id, p_s in constituent_slot_price.items():
-            c_record = next(c for c in constituents if c["constituent_id"] == const_id)
+        for cid_w, blend_info in per_constituent_blend.items():
+            c_record = next(c for c in constituents if c["constituent_id"] == cid_w)
             w_vol_c = float(c_record["w_vol"])
+            p_s = float(blend_info["blended_price"])
             w_exp_s = exponential_weight(p_s, median_s, config.lambda_)
             w_combined = w_vol_c * w_exp_s
             numer += w_combined * p_s
             denom += w_combined
-            per_slot_weights[const_id] = w_combined
+            per_slot_weights[cid_w] = w_combined
 
         if denom <= 0:
             continue
@@ -1121,68 +1237,78 @@ def _compute_weight_then_twap_index(
         slot_value = numer / denom
         slot_aggregates.append(slot_value)
 
-        # Slot-level tier shares.
-        share_a = sum(
-            w
-            for cid, w in per_slot_weights.items()
-            if next(c for c in constituents if c["constituent_id"] == cid)[
-                "selected_tier"
-            ]
-            == AttestationTier.A.value
-        ) / denom
-        share_b = sum(
-            w
-            for cid, w in per_slot_weights.items()
-            if next(c for c in constituents if c["constituent_id"] == cid)[
-                "selected_tier"
-            ]
-            == AttestationTier.B.value
-        ) / denom
-        share_c = sum(
-            w
-            for cid, w in per_slot_weights.items()
-            if next(c for c in constituents if c["constituent_id"] == cid)[
-                "selected_tier"
-            ]
-            == AttestationTier.C.value
-        ) / denom
-        slot_tier_shares.append((share_a, share_b, share_c))
-
-        # Per-constituent slot accumulators (for audit averaging).
-        for const_id, p_s in constituent_slot_price.items():
-            acc = per_constituent_acc[const_id]
+        for cid_acc, blend_info in per_constituent_blend.items():
+            p_s = float(blend_info["blended_price"])
             distance_pct = abs(p_s - median_s) / median_s
             w_exp_s = exponential_weight(p_s, median_s, config.lambda_)
-            w_combined = per_slot_weights[const_id]
-            weight_share = w_combined / denom
-            acc["slot_prices"].append(p_s)
-            acc["slot_w_exp"].append(w_exp_s)
-            acc["slot_combined_weight"].append(w_combined)
-            acc["slot_weight_share"].append(weight_share)
-            acc["slot_median"].append(median_s)
-            acc["slot_distance_pct"].append(distance_pct)
-            acc["n_active_slots"] += 1
+            w_combined = per_slot_weights[cid_acc]
+            per_constituent_slot_prices[cid_acc].append(p_s)
+            per_constituent_slot_w_exp[cid_acc].append(w_exp_s)
+            per_constituent_slot_combined_weight[cid_acc].append(w_combined)
+            per_constituent_slot_median[cid_acc].append(median_s)
+            per_constituent_slot_distance[cid_acc].append(distance_pct)
+            for tier_tx, p_t_s in blend_info["tier_prices"].items():
+                per_tier_slot_prices[(cid_acc, tier_tx)].append(p_t_s)
 
-    # 6. Daily fix from surviving slots.
-    if not slot_aggregates:
-        # Every slot fell below min-3 (or zero-weight defense). Tier suspends.
-        # Emit included-but-tier-suspended audit rows for resolved constituents.
-        for c in constituents:
+    n_a = sum(1 for c in constituents if AttestationTier.A in c["per_tier_data"])
+    n_b = sum(1 for c in constituents if AttestationTier.B in c["per_tier_data"])
+    n_c = sum(1 for c in constituents if AttestationTier.C in c["per_tier_data"])
+
+    def _emit_per_tier_audit_rows_w2t(
+        c: dict[str, Any],
+        *,
+        included: bool,
+        exclusion_reason: str = "",
+        constituent_price: float = float("nan"),
+        avg_median: float = float("nan"),
+        avg_distance: float = float("nan"),
+        avg_w_exp: float = float("nan"),
+        avg_combined: float = float("nan"),
+    ) -> None:
+        """Emit one per-tier audit row per (constituent, contributing tier)
+        in the weight-then-TWAP path. tier_collapsed_price_usd_mtok is the
+        average over surviving slots of this tier's collapsed slot price."""
+        cid_inner = str(c["constituent_id"])
+        per_tier = c["per_tier_data"]
+        for tier_t, info in per_tier.items():
+            slot_prices_for_tier = per_tier_slot_prices.get((cid_inner, tier_t), [])
+            avg_tier_price = (
+                float(np.mean(slot_prices_for_tier))
+                if slot_prices_for_tier
+                else float("nan")
+            )
             pending_decisions.append(
                 _decision_row(
                     as_of_date=as_of_date_value,
                     index_code=tier.value,
                     version=version,
                     ordering=ordering,
-                    constituent_id=str(c["constituent_id"]),
-                    included=False,
-                    exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
-                    selected_attestation_tier=str(c["selected_tier"]),
-                    raw_volume_mtok=float(c["raw_volume"]),
-                    within_tier_volume_share=float(c["within_tier_volume_share"]),
+                    constituent_id=cid_inner,
+                    included=included,
+                    exclusion_reason=exclusion_reason,
+                    attestation_tier=tier_t.value,
+                    coefficient=float(info["coefficient"]),
+                    raw_volume_mtok=float(info["raw_volume"]),
+                    within_tier_volume_share=float(info["share"]),
+                    tier_collapsed_price_usd_mtok=avg_tier_price,
+                    w_vol_contribution=float(info["w_vol_contribution"]),
+                    constituent_price_usd_mtok=constituent_price,
+                    tier_median_price_usd_mtok=avg_median,
+                    price_distance_from_median_pct=avg_distance,
                     w_vol=float(c["w_vol"]),
-                    contributor_count=int(c["contributor_count"]),
+                    w_exp=avg_w_exp,
+                    combined_weight=avg_combined,
+                    contributor_count=int(info["contributor_count"]),
                 )
+            )
+
+    # 6. Daily fix from surviving slots.
+    if not slot_aggregates:
+        for c in constituents:
+            _emit_per_tier_audit_rows_w2t(
+                c,
+                included=False,
+                exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
             )
         _publish(pending_decisions)
         return _suspended_row(
@@ -1194,83 +1320,68 @@ def _compute_weight_then_twap_index(
             reason=SuspensionReason.INSUFFICIENT_CONSTITUENTS,
             n_constituents=n_constituents_total,
             n_constituents_active=n_constituents_resolved,
-            n_a=sum(
-                1 for c in constituents if c["selected_tier"] == AttestationTier.A.value
-            ),
-            n_b=sum(
-                1 for c in constituents if c["selected_tier"] == AttestationTier.B.value
-            ),
-            n_c=sum(
-                1 for c in constituents if c["selected_tier"] == AttestationTier.C.value
-            ),
+            n_a=n_a,
+            n_b=n_b,
+            n_c=n_c,
             prior_raw_value=prior_raw_value,
         )
 
     raw_value = float(np.mean(slot_aggregates))
 
-    # Tier-level instrumentation: average across surviving slots.
-    shares_arr = np.array(slot_tier_shares, dtype=np.float64)
-    weight_a = float(shares_arr[:, 0].mean())
-    weight_b = float(shares_arr[:, 1].mean())
-    weight_c = float(shares_arr[:, 2].mean())
-
-    n_a = sum(1 for c in constituents if c["selected_tier"] == AttestationTier.A.value)
-    n_b = sum(1 for c in constituents if c["selected_tier"] == AttestationTier.B.value)
-    n_c = sum(1 for c in constituents if c["selected_tier"] == AttestationTier.C.value)
-
-    # 7. Per-constituent audit rows (daily averaged numeric fields).
+    # Tier-level instrumentation under continuous blending: each tier's
+    # contribution is its w_vol_contribution x avg_w_exp summed across
+    # constituents. Approximation — for daily-coefficient consistency in
+    # the slot-level path, we use the daily w_vol_contribution x the
+    # constituent's avg slot w_exp.
+    weight_a, weight_b, weight_c = 0.0, 0.0, 0.0
     for c in constituents:
-        const_id = str(c["constituent_id"])
-        acc = per_constituent_acc[const_id]
-        if acc["n_active_slots"] == 0:
-            # Constituent resolved daily but contributed to zero surviving
-            # slots — every slot they appeared in was below min-3 or they
-            # never had a non-NaN price. Treat as TIER_AGGREGATION_SUSPENDED
-            # at the per-constituent level (the daily index still computed).
-            pending_decisions.append(
-                _decision_row(
-                    as_of_date=as_of_date_value,
-                    index_code=tier.value,
-                    version=version,
-                    ordering=ordering,
-                    constituent_id=const_id,
-                    included=False,
-                    exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
-                    selected_attestation_tier=str(c["selected_tier"]),
-                    raw_volume_mtok=float(c["raw_volume"]),
-                    within_tier_volume_share=float(c["within_tier_volume_share"]),
-                    w_vol=float(c["w_vol"]),
-                    contributor_count=int(c["contributor_count"]),
-                )
+        cid_w = str(c["constituent_id"])
+        slot_w_exp = per_constituent_slot_w_exp.get(cid_w, [])
+        if not slot_w_exp:
+            continue
+        avg_w_exp_c = float(np.mean(slot_w_exp))
+        per_tier = c["per_tier_data"]
+        for tier_t, info in per_tier.items():
+            piece = float(info["w_vol_contribution"]) * avg_w_exp_c
+            if tier_t == AttestationTier.A:
+                weight_a += piece
+            elif tier_t == AttestationTier.B:
+                weight_b += piece
+            else:
+                weight_c += piece
+    weight_total = weight_a + weight_b + weight_c
+    if weight_total > 0:
+        weight_a /= weight_total
+        weight_b /= weight_total
+        weight_c /= weight_total
+
+    # 7. Per-constituent per-tier audit rows.
+    for c in constituents:
+        cid_audit = str(c["constituent_id"])
+        slot_prices = per_constituent_slot_prices[cid_audit]
+        if not slot_prices:
+            _emit_per_tier_audit_rows_w2t(
+                c,
+                included=False,
+                exclusion_reason=ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value,
             )
             continue
-        avg_price = float(np.mean(acc["slot_prices"]))
-        avg_median = float(np.mean(acc["slot_median"]))
-        avg_distance = float(np.mean(acc["slot_distance_pct"]))
-        avg_w_exp = float(np.mean(acc["slot_w_exp"]))
-        avg_combined = float(np.mean(acc["slot_combined_weight"]))
-        avg_weight_share = float(np.mean(acc["slot_weight_share"]))
-        pending_decisions.append(
-            _decision_row(
-                as_of_date=as_of_date_value,
-                index_code=tier.value,
-                version=version,
-                ordering=ordering,
-                constituent_id=const_id,
-                included=True,
-                exclusion_reason="",
-                selected_attestation_tier=str(c["selected_tier"]),
-                raw_volume_mtok=float(c["raw_volume"]),
-                within_tier_volume_share=float(c["within_tier_volume_share"]),
-                constituent_price_usd_mtok=avg_price,
-                tier_median_price_usd_mtok=avg_median,
-                price_distance_from_median_pct=avg_distance,
-                w_vol=float(c["w_vol"]),
-                w_exp=avg_w_exp,
-                combined_weight=avg_combined,
-                weight_share_within_tier=avg_weight_share,
-                contributor_count=int(c["contributor_count"]),
-            )
+        avg_price = float(np.mean(slot_prices))
+        avg_median = float(np.mean(per_constituent_slot_median[cid_audit]))
+        avg_distance = float(np.mean(per_constituent_slot_distance[cid_audit]))
+        avg_w_exp = float(np.mean(per_constituent_slot_w_exp[cid_audit]))
+        avg_combined = float(
+            np.mean(per_constituent_slot_combined_weight[cid_audit])
+        )
+        _emit_per_tier_audit_rows_w2t(
+            c,
+            included=True,
+            exclusion_reason="",
+            constituent_price=avg_price,
+            avg_median=avg_median,
+            avg_distance=avg_distance,
+            avg_w_exp=avg_w_exp,
+            avg_combined=avg_combined,
         )
 
     _publish(pending_decisions)
