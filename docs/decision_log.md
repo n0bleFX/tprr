@@ -880,6 +880,8 @@ If results are substantively different, the methodology should specify which ord
 
 For F-tier, the cascade also hits but Tier A coverage remains stronger (3/6 F-tier constituents survive in Tier A through base-date per Phase 7 Batch C report). F-tier price decline is therefore less dramatic than E-tier's, which means FPR (F/S) compresses less than the pre-cascade entry suggested.
 
+**Clarification (added during Phase 9 Batch C visual diagnostic)**: "F retains 3 Tier-A-active constituents through base date" refers to *count* (n_constituents_a = 3), not *weight share* (tier_a_weight_share ≈ 0.001 by base date). The 3 surviving Tier-A constituents contribute sub-1% of F-tier index weight; the remaining ~99% comes from the 3 Tier-B fall-through constituents via revenue-derived volumes. See DL 2026-04-30 "Phase 9 visual diagnostic" entry below for the full trajectory.
+
 **Phase 11 narrative implications**:
 - "SER tripled" framing from the pre-cascade entry should be updated to "SER 7×'d" for accuracy
 - The cross-tier cascade affects F, S, and E asymmetrically — F-tier coverage is more robust than E-tier, which means the cascade transition produces a magnified S/E divergence rather than a uniform shift
@@ -920,4 +922,51 @@ This shows the validation work surfaced the gap AND delivered a specification pr
 **Methodology section**: gap — should be addressed in Section 4.2.2 (manipulation resistance) or new sub-section 4.2.5 (reinstatement criteria)
 
 **Phase 7G implementation timing**: After Phase 9 dashboard close, before Phase 10 sensitivity sweep work begins. Approximately 2-hour implementation: extend src/tprr/index/quality.py to compute reinstatement-eligible dates per pair, modify suspension consumption logic in src/tprr/index/aggregation.py to honor reinstatement, add tests for symmetric exclude/reinstate behavior, re-run scripts/compute_indices.py to produce reinstatement-enabled baseline output for Phase 10 consumption.
+
+## 2026-04-30 — Phase 9 visual diagnostic: cliff-edge weight share dynamics + asymmetric E-tier exclusion paths
+
+**Observations**: Phase 9 dashboard visual verification surfaced two findings worth documenting before Phase 11 writeup begins.
+
+**Finding 1 — Cliff-edge weight share dynamics at the Tier A min-3 boundary**:
+
+The cascade transition from 100% Tier A weight share to ~99% Tier B weight share appears abrupt in the dashboard (Row 3 panels) because the *magnitude* of the transition is abrupt, not because the cascade fires all at once. Trajectory diagnostic on TPRR_F:
+
+| Date | tier_a_share | tier_b_share | n_A | n_B |
+|------|-------------|-------------|-----|-----|
+| 2025-01-01 | 1.0000 | 0.0000 | 6 | 0 |
+| 2025-02-01 | 1.0000 | 0.0000 | 6 | 0 |
+| 2025-03-01 | 0.0067 | 0.9933 | 3 | 3 |
+| 2026-01-01 | 0.0012 | 0.9988 | 3 | 3 |
+
+The transition between February and March 2025 represents 3 F-tier constituents crossing the Tier A min-3 boundary into Tier B fall-through. After that transition, F-tier *still has 3 Tier-A-active constituents* (n_A=3 throughout) — but their collective weight contribution is ~0.7% because the 3 cascaded Tier B constituents contribute ~99.3% via revenue-derived volumes 4-5 orders of magnitude larger than panel-sum volumes.
+
+**Methodological consequence**: TPRR's tier weight share is *discontinuous* at the min-3 boundary. There is no smooth "partly Tier A, partly Tier B" regime — once any constituent crosses the boundary, the dual-weighted aggregation reshapes index weight distribution dramatically. This is a load-bearing property of literal-canon Section 3.3.2 priority fall-through combined with the cross-tier magnitude gap (DL 2026-04-29 priority fall-through entry, ~66,000:1 ratio).
+
+**Phase 11 narrative implication**: This finding refines the cross-tier magnitude finding from "Tier B has bigger volumes than Tier A" to "the methodology produces discontinuous weight-share dynamics at the min-3 boundary." Index Committee members reviewing TPRR for adoption should understand this as a methodology property, not a statistical artifact. v1.3 specification work on cross-tier magnitude commensurability should explicitly address whether this discontinuity is desired (clean tier delineation) or undesirable (smooth degradation preferred).
+
+**Finding 2 — Asymmetric exclusion paths for E-tier constituents lacking Tier B coverage**:
+
+TPRR_E's active constituent count drops from 6 to 4 over the backtest. Two E-tier constituents have no Tier B revenue config per Phase 4b decisions (meta/llama-4-70b-hosted excluded from Tier B because Llama is free-distributed; xiaomi/mimo-v2-pro excluded due to no public revenue disclosure). Both constituents drop out of TPRR_E during the cascade, but via *different* exclusion paths:
+
+| Constituent | First excluded | Days excluded | Exclusion path |
+|-------------|---------------|---------------|----------------|
+| meta/llama-4-70b-hosted | 2025-05-19 | 227 | all_pairs_suspended |
+| xiaomi/mimo-v2-pro | 2025-07-17 | 169 | tier_volume_unavailable |
+
+Meta hits `all_pairs_suspended` because all its covering contributor pairs accumulate 3-consecutive-day gate firings before tier resolution can even run. The constituent disappears from the pre-loop panel filter (DL 2026-04-30 Batch D Q4 mechanism). Xiaomi hits `tier_volume_unavailable` because at least one contributor pair survives but Tier A has fewer than 3 contributors AND no fall-through tier resolves; compute_tier_volume returns None and the audit row records the exclusion.
+
+Same upstream cause (no Tier B revenue config means no fall-through path), different audit-trail expression depending on which condition fires first. **Both consequences are correct given v0.1 design**.
+
+**Phase 11 narrative implication**: The two exclusion reasons are NOT redundant — they distinguish "constituent lost ALL contributor coverage" (all_pairs_suspended) from "constituent has SOME contributor coverage but not enough for Tier A AND no fall-through tier" (tier_volume_unavailable). Phase 10 sensitivity analysis can use this distinction to characterize different failure modes under different parameter sweeps.
+
+**Phase 11 narrative implication, broader**: The v0.1 backtest's TPRR_E active count of 4 (vs the registered 6) reflects v0.1's explicit decision to exclude Meta and Xiaomi from Tier B (DL 2026-04-29 Tier B revenue config entry). This is a Tier B coverage gap, not a methodology gap. v0.2 universe expansion should consider whether to add Tier-B-or-equivalent coverage for free-distributed open-weight models (Meta, future open-weight providers) — currently a v0.2 enhancement path queued in DL 2026-04-29 Tier B revenue config entry under "v0.2 paths."
+
+**Cross-reference to existing entries**:
+- DL 2026-04-29 priority fall-through (cross-tier magnitude gap, ~66,000:1)
+- DL 2026-04-29 Tier B revenue config (Meta and Xiaomi exclusions)
+- DL 2026-04-30 Phase 7 Batch C empirical (cascade cross-tier transition)
+- DL 2026-04-30 Phase 9 visual verification (post-cascade FPR/SER trajectories)
+- DL 2026-04-30 suspension reinstatement gap (Phase 7G queued)
+
+**Methodology section**: 3.3.2 (priority fall-through), 4.2.4 (min_constituents_per_tier)
 

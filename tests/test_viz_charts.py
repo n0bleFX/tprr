@@ -17,13 +17,16 @@ import pytest
 from plotly.subplots import make_subplots
 
 from tprr.viz.charts import (
+    ATTESTATION_TIER_COLOURS,
     BLENDED_REFERENCE_RATIO,
     GRID_COLOUR,
     SUSPENDED_MARKER_COLOUR,
     TIER_COLOURS,
     build_blended_overlay_subplot,
     build_index_level_subplot,
+    build_n_constituents_subplot,
     build_ratio_subplot,
+    build_tier_share_subplot,
 )
 
 
@@ -536,3 +539,256 @@ def test_build_blended_overlay_subplot_each_tier(core: str, blended: str) -> Non
     # One ratio line + one reference line
     assert len(fig.data) == 2
     assert fig.data[0].name == f"{blended} / {core}"
+
+
+# ---------------------------------------------------------------------------
+# build_tier_share_subplot — Batch C (Group 2)
+# ---------------------------------------------------------------------------
+
+
+def _index_value_row_with_shares(
+    *,
+    as_of_date: date,
+    index_code: str = "TPRR_F",
+    share_a: float = 1.0,
+    share_b: float = 0.0,
+    share_c: float = 0.0,
+    n_a: int = 6,
+    n_b: int = 0,
+    n_c: int = 0,
+    suspended: bool = False,
+) -> dict[str, Any]:
+    return {
+        "as_of_date": pd.Timestamp(as_of_date),
+        "index_code": index_code,
+        "version": "v0_1",
+        "lambda": 3.0,
+        "ordering": "twap_then_weight",
+        "raw_value_usd_mtok": 56.0,
+        "index_level": 100.0,
+        "n_constituents": n_a + n_b + n_c,
+        "n_constituents_active": n_a + n_b + n_c,
+        "n_constituents_a": n_a,
+        "n_constituents_b": n_b,
+        "n_constituents_c": n_c,
+        "tier_a_weight_share": share_a,
+        "tier_b_weight_share": share_b,
+        "tier_c_weight_share": share_c,
+        "suspended": suspended,
+        "suspension_reason": "insufficient_constituents" if suspended else "",
+        "notes": "",
+    }
+
+
+def _shares_df_three_days(
+    *,
+    index_code: str = "TPRR_F",
+    daily: list[tuple[float, float, float]] | None = None,
+    suspended_dates: list[date] | None = None,
+) -> pd.DataFrame:
+    """Build a 3-day DF with per-day (share_a, share_b, share_c) tuples.
+
+    Default trajectory shows the cascade: 100% A → 50/50 → 100% B."""
+    daily = daily if daily is not None else [
+        (1.0, 0.0, 0.0),
+        (0.5, 0.5, 0.0),
+        (0.0, 1.0, 0.0),
+    ]
+    suspended_set = set(suspended_dates or [])
+    rows = []
+    for offset, (sa, sb, sc) in enumerate(daily):
+        d = date(2025, 12, 30) + pd.Timedelta(days=offset)
+        d = d.date() if hasattr(d, "date") else d
+        rows.append(
+            _index_value_row_with_shares(
+                as_of_date=d,
+                index_code=index_code,
+                share_a=sa,
+                share_b=sb,
+                share_c=sc,
+                suspended=d in suspended_set,
+            )
+        )
+    return pd.DataFrame(rows)
+
+
+def test_build_tier_share_subplot_emits_three_stacked_traces() -> None:
+    """Three stacked-area traces, one per attestation tier (A/B/C)."""
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days()
+    build_tier_share_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    assert len(fig.data) == 3
+    expected_names = {
+        "TPRR_F Tier A",
+        "TPRR_F Tier B",
+        "TPRR_F Tier C",
+    }
+    assert {t.name for t in fig.data} == expected_names
+
+
+def test_build_tier_share_subplot_uses_attestation_tier_palette() -> None:
+    """Each trace's fillcolor matches ATTESTATION_TIER_COLOURS."""
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days()
+    build_tier_share_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    fillcolors = {t.name.split()[-1]: t.fillcolor for t in fig.data}
+    assert fillcolors["A"] == ATTESTATION_TIER_COLOURS["A"]
+    assert fillcolors["B"] == ATTESTATION_TIER_COLOURS["B"]
+    assert fillcolors["C"] == ATTESTATION_TIER_COLOURS["C"]
+
+
+def test_build_tier_share_subplot_traces_use_stackgroup() -> None:
+    """All three traces share the same stackgroup so Plotly stacks them
+    cumulatively rather than drawing them as overlapping fills."""
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days()
+    build_tier_share_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    stackgroups = {t.stackgroup for t in fig.data}
+    assert len(stackgroups) == 1
+    assert "share_TPRR_F" in stackgroups
+
+
+def test_build_tier_share_subplot_y_range_clamped_to_0_1() -> None:
+    """Weight shares sum to 1.0 by definition; y-axis pinned to that range
+    so the panel reads at consistent scale across tiers."""
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days()
+    build_tier_share_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    assert tuple(fig.layout.yaxis.range) == (0.0, 1.0)
+
+
+def test_build_tier_share_subplot_suspended_day_produces_nan() -> None:
+    """Suspended days are NaN'd out so the stacked area gaps rather than
+    misleadingly stacking 0+0+0=0 (which would draw a flat baseline)."""
+    import numpy as np
+
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days(suspended_dates=[date(2025, 12, 31)])
+    build_tier_share_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    # Day index 1 is suspended → NaN in all three traces
+    for trace in fig.data:
+        assert np.isnan(list(trace.y)[1])
+
+
+def test_build_tier_share_subplot_handles_empty_df_silently() -> None:
+    fig = _empty_subplot_fig()
+    build_tier_share_subplot(
+        fig, row=1, col=1, indices_df=pd.DataFrame(), tier_code="TPRR_F"
+    )
+    assert len(fig.data) == 0
+
+
+def test_build_tier_share_subplot_y_axis_label_says_tier_weight_share() -> None:
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days()
+    build_tier_share_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    assert "Tier weight share" in fig.layout.yaxis.title.text
+
+
+@pytest.mark.parametrize("tier_code", ["TPRR_F", "TPRR_S", "TPRR_E"])
+def test_build_tier_share_subplot_each_tier(tier_code: str) -> None:
+    """Stackgroup is unique per tier so multi-tier rendering on the same
+    figure doesn't accidentally cross-stack."""
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days(index_code=tier_code)
+    build_tier_share_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code=tier_code
+    )
+    assert all(t.stackgroup == f"share_{tier_code}" for t in fig.data)
+
+
+# ---------------------------------------------------------------------------
+# build_n_constituents_subplot — Batch C (Group 2)
+# ---------------------------------------------------------------------------
+
+
+def test_build_n_constituents_subplot_emits_four_lines() -> None:
+    """Three per-attestation lines (A/B/C) plus one total-active line."""
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days()
+    build_n_constituents_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    assert len(fig.data) == 4
+    names = {t.name for t in fig.data}
+    assert names == {
+        "TPRR_F n Tier A",
+        "TPRR_F n Tier B",
+        "TPRR_F n Tier C",
+        "TPRR_F n active total",
+    }
+
+
+def test_build_n_constituents_subplot_active_total_line_is_thicker() -> None:
+    """The total-active line is the headline series and reads thicker so
+    a viewer's eye lands on it first."""
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days()
+    build_n_constituents_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    by_name = {t.name: t for t in fig.data}
+    total_width = by_name["TPRR_F n active total"].line.width
+    a_width = by_name["TPRR_F n Tier A"].line.width
+    assert total_width > a_width
+
+
+def test_build_n_constituents_subplot_uses_attestation_palette() -> None:
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days()
+    build_n_constituents_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    by_name = {t.name: t for t in fig.data}
+    assert by_name["TPRR_F n Tier A"].line.color == ATTESTATION_TIER_COLOURS["A"]
+    assert by_name["TPRR_F n Tier B"].line.color == ATTESTATION_TIER_COLOURS["B"]
+    assert by_name["TPRR_F n Tier C"].line.color == ATTESTATION_TIER_COLOURS["C"]
+
+
+def test_build_n_constituents_subplot_handles_empty_df_silently() -> None:
+    fig = _empty_subplot_fig()
+    build_n_constituents_subplot(
+        fig, row=1, col=1, indices_df=pd.DataFrame(), tier_code="TPRR_F"
+    )
+    assert len(fig.data) == 0
+
+
+def test_build_n_constituents_subplot_y_axis_says_constituent_count() -> None:
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days()
+    build_n_constituents_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
+    )
+    assert "constituent count" in fig.layout.yaxis.title.text.lower()
+
+
+@pytest.mark.parametrize("tier_code", ["TPRR_F", "TPRR_S", "TPRR_E"])
+def test_build_n_constituents_subplot_each_tier(tier_code: str) -> None:
+    fig = _empty_subplot_fig()
+    df = _shares_df_three_days(index_code=tier_code)
+    build_n_constituents_subplot(
+        fig, row=1, col=1, indices_df=df, tier_code=tier_code
+    )
+    names = {t.name for t in fig.data}
+    assert f"{tier_code} n Tier A" in names
+    assert f"{tier_code} n active total" in names
+
+
+def test_attestation_tier_colours_distinct_from_tier_colours() -> None:
+    """The attestation palette must not overlap with the tier-index palette
+    so a reader doesn't conflate 'TPRR_F level' with 'Tier A weight share'."""
+    attestation_set = set(ATTESTATION_TIER_COLOURS.values())
+    tier_set = set(TIER_COLOURS.values())
+    assert attestation_set.isdisjoint(tier_set)

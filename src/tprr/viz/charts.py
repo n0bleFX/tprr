@@ -41,6 +41,16 @@ SUSPENDED_MARKER_COLOUR = "#cc0000"
 GRID_COLOUR = "#dddddd"
 AXIS_LINE_COLOUR = "#888888"
 
+# Attestation-tier palette: sequential teal gradient. Distinct from the
+# tier-index palette (TIER_COLOURS) so a reader doesn't conflate
+# "TPRR_F level" with "Tier A weight share". Sequence A>B>C reads as
+# decreasing confidence.
+ATTESTATION_TIER_COLOURS: dict[str, str] = {
+    "A": "#1a5f7a",  # dark teal — highest confidence
+    "B": "#4d8a9e",  # medium teal
+    "C": "#80b5c2",  # light teal — lowest confidence
+}
+
 
 def build_index_level_subplot(
     fig: go.Figure,
@@ -340,6 +350,169 @@ def build_blended_overlay_subplot(
     fig.update_yaxes(
         title_text=f"{blended_code} / {core_code} (raw value ratio)",
         range=[0.0, 1.2],
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )
+
+
+def build_tier_share_subplot(
+    fig: go.Figure,
+    *,
+    row: int,
+    col: int,
+    indices_df: pd.DataFrame,
+    tier_code: str,
+) -> None:
+    """Stacked area chart of tier_a/b/c weight share over time for one tier.
+
+    Visualises the cross-tier dominance cascade (DL 2026-04-30 Phase 7
+    Batch C empirical entry): the seed-42 backtest transitions from
+    100% Tier A weight share at first valid fix to 99-100% Tier B by
+    base_date as pair-level suspensions push Tier A constituents below
+    the min-3 threshold and force fall-through.
+
+    Three stacked areas in attestation-tier order (A, B, C) — the
+    A-on-bottom convention reads "highest confidence at the floor". Sum
+    is 1.0 on every non-suspended day; suspended days have NaN shares
+    (DL 2026-04-30 Phase 7 Batch D — FPR/SER carry NaN, but core tier
+    indices populate the share columns even when suspended → check
+    tier_a + tier_b + tier_c == 0 vs 1 to distinguish).
+    """
+    if indices_df.empty:
+        return
+
+    df = indices_df.sort_values("as_of_date").copy()
+
+    # Mask suspended rows: NaN out the shares so the stacked area
+    # produces a gap rather than a misleading 0-stack.
+    suspended_mask = df["suspended"]
+    for col_name in ("tier_a_weight_share", "tier_b_weight_share", "tier_c_weight_share"):
+        df.loc[suspended_mask, col_name] = float("nan")
+
+    for attestation, share_col in [
+        ("A", "tier_a_weight_share"),
+        ("B", "tier_b_weight_share"),
+        ("C", "tier_c_weight_share"),
+    ]:
+        fig.add_trace(
+            go.Scatter(
+                x=df["as_of_date"],
+                y=df[share_col],
+                mode="lines",
+                name=f"{tier_code} Tier {attestation}",
+                line={"color": ATTESTATION_TIER_COLOURS[attestation], "width": 0},
+                stackgroup=f"share_{tier_code}",
+                fillcolor=ATTESTATION_TIER_COLOURS[attestation],
+                hovertemplate=(
+                    f"<b>{tier_code} Tier {attestation}</b><br>"
+                    "Date: %{x|%Y-%m-%d}<br>"
+                    "Weight share: %{y:.3f}<br>"
+                    "<extra></extra>"
+                ),
+            ),
+            row=row,
+            col=col,
+        )
+
+    fig.update_xaxes(
+        title_text="",
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )
+    fig.update_yaxes(
+        title_text="Tier weight share",
+        range=[0.0, 1.0],
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )
+
+
+def build_n_constituents_subplot(
+    fig: go.Figure,
+    *,
+    row: int,
+    col: int,
+    indices_df: pd.DataFrame,
+    tier_code: str,
+) -> None:
+    """Lines for n_constituents_a/b/c plus n_constituents_active for one tier.
+
+    Companion to ``build_tier_share_subplot``: weight share captures the
+    aggregation-level dominance signal; constituent counts capture the
+    underlying coverage. A tier can have ≥3 active constituents but with
+    most weight in Tier B (cascade); or have many Tier A constituents
+    near the median with limited weight (median-distance dampening).
+
+    The total ``n_constituents_active`` line is plotted last (on top) and
+    in black so it reads as the "headline" series with the per-attestation
+    counts below it.
+    """
+    if indices_df.empty:
+        return
+
+    df = indices_df.sort_values("as_of_date").copy()
+
+    for attestation, count_col in [
+        ("A", "n_constituents_a"),
+        ("B", "n_constituents_b"),
+        ("C", "n_constituents_c"),
+    ]:
+        fig.add_trace(
+            go.Scatter(
+                x=df["as_of_date"],
+                y=df[count_col],
+                mode="lines",
+                name=f"{tier_code} n Tier {attestation}",
+                line={"color": ATTESTATION_TIER_COLOURS[attestation], "width": 1.2},
+                hovertemplate=(
+                    f"<b>{tier_code} Tier {attestation}</b><br>"
+                    "Date: %{x|%Y-%m-%d}<br>"
+                    "Count: %{y}<br>"
+                    "<extra></extra>"
+                ),
+            ),
+            row=row,
+            col=col,
+        )
+
+    # Total active count, plotted in black on top of the per-tier lines.
+    fig.add_trace(
+        go.Scatter(
+            x=df["as_of_date"],
+            y=df["n_constituents_active"],
+            mode="lines",
+            name=f"{tier_code} n active total",
+            line={"color": "#222222", "width": 1.8},
+            hovertemplate=(
+                f"<b>{tier_code} active total</b><br>"
+                "Date: %{x|%Y-%m-%d}<br>"
+                "Count: %{y}<br>"
+                "<extra></extra>"
+            ),
+        ),
+        row=row,
+        col=col,
+    )
+
+    fig.update_xaxes(
+        title_text="",
+        showgrid=True,
+        gridcolor=GRID_COLOUR,
+        linecolor=AXIS_LINE_COLOUR,
+        row=row,
+        col=col,
+    )
+    fig.update_yaxes(
+        title_text="Active constituent count",
         showgrid=True,
         gridcolor=GRID_COLOUR,
         linecolor=AXIS_LINE_COLOUR,

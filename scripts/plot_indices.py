@@ -55,7 +55,9 @@ from tprr.reference.openrouter import (
 from tprr.viz.charts import (
     build_blended_overlay_subplot,
     build_index_level_subplot,
+    build_n_constituents_subplot,
     build_ratio_subplot,
+    build_tier_share_subplot,
 )
 from tprr.viz.dashboard import PanelSpec, plot_tprr_dashboard
 
@@ -341,6 +343,81 @@ def main() -> int:
                 blended_df=pipeline.indices["TPRR_B_F"],
                 core_code="TPRR_F",
                 blended_code="TPRR_B_F",
+            ),
+        ),
+        # Group 2 (Batch C): tier weight share row + n_constituents row.
+        # Row 3: stacked area showing the cross-tier cascade per tier.
+        # Row 4: per-attestation constituent counts + total active line.
+        PanelSpec(
+            title="TPRR-F — tier weight share (A / B / C)",
+            row=3,
+            col=1,
+            builder=lambda fig, row, col: build_tier_share_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_F"],
+                tier_code="TPRR_F",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-S — tier weight share (A / B / C)",
+            row=3,
+            col=2,
+            builder=lambda fig, row, col: build_tier_share_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_S"],
+                tier_code="TPRR_S",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-E — tier weight share (A / B / C)",
+            row=3,
+            col=3,
+            builder=lambda fig, row, col: build_tier_share_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_E"],
+                tier_code="TPRR_E",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-F — active constituent count",
+            row=4,
+            col=1,
+            builder=lambda fig, row, col: build_n_constituents_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_F"],
+                tier_code="TPRR_F",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-S — active constituent count",
+            row=4,
+            col=2,
+            builder=lambda fig, row, col: build_n_constituents_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_S"],
+                tier_code="TPRR_S",
+            ),
+        ),
+        PanelSpec(
+            title="TPRR-E — active constituent count",
+            row=4,
+            col=3,
+            builder=lambda fig, row, col: build_n_constituents_subplot(
+                fig,
+                row=row,
+                col=col,
+                indices_df=pipeline.indices["TPRR_E"],
+                tier_code="TPRR_E",
             ),
         ),
     ]
