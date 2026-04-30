@@ -8,6 +8,7 @@ __pycache__/
 data/raw/
 data/processed/
 data/indices/*.db
+data/indices/charts/
 *.db-journal
 .env
 .DS_Store
