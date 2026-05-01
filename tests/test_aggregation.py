@@ -520,10 +520,17 @@ def test_compute_tier_index_priority_fallthrough_preserved_under_within_tier_nor
                 )
             )
     panel = pd.DataFrame(rows)
+    # Override the tier-eligibility threshold (DL 2026-05-01 Phase 10 Batch
+    # 10A) to 1 so this test exercises pre-threshold within-tier-share +
+    # priority fall-through semantics in isolation. The threshold-aware
+    # behaviour is tested elsewhere.
+    permissive_config = _index_config().model_copy(
+        update={"tier_min_constituents_for_blending": 1}
+    )
     result = compute_tier_index(
         panel_day_df=panel,
         tier=Tier.TPRR_F,
-        config=_index_config(),
+        config=permissive_config,
         registry=_registry(),
         tier_b_config=_tier_b_config_with_openai(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(value=20_000_000.0),
@@ -1300,10 +1307,17 @@ def test_decisions_out_tier_aggregation_suspended_when_min_3_fails() -> None:
             )
     panel = pd.DataFrame(rows)
     decisions: list[dict[str, Any]] = []
+    # Override tier-eligibility threshold to 1 so this test exercises the
+    # min_constituents_per_tier (index-tier) path. Under default threshold=3,
+    # Tier A's 2-constituent coverage would fire TIER_INELIGIBLE_FOR_BLENDING
+    # first; that threshold-aware exclusion is tested separately.
+    permissive_config = _index_config().model_copy(
+        update={"tier_min_constituents_for_blending": 1}
+    )
     compute_tier_index(
         panel_day_df=panel,
         tier=Tier.TPRR_F,
-        config=_index_config(),
+        config=permissive_config,
         registry=_registry(),
         tier_b_config=_empty_tier_b_config(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(),

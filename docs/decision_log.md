@@ -1255,3 +1255,80 @@ None of these v0.2+ enhancements eliminate bias; they reduce magnitude and impro
 
 **Methodology section**: 3.3.2 (three-tier hierarchy framing)
 
+## 2026-05-01 — Phase 10 Batch 10A: Tier C enrich-call bug fix + tier-eligibility threshold for continuous blending
+
+**Decision**: Two methodology-adjacent changes landed together as part of Phase 10 Batch 10A scaffolding. (a) A latent argument-type bug in `enrich_with_rankings_volume` calls at `scripts/plot_indices.py`, `scripts/compute_indices.py`, and the new `src/tprr/sensitivity/baseline.py` was fixed — rankings_json (raw dict) is now passed instead of the flattened rankings_df DataFrame. The bug had silently produced zero Tier C volumes for all v0.1 indices because `DataFrame.get("models", [])` returns the `[]` default. (b) The fix surfaced an empirical question — under correct Tier C volumes, deepseek-v3-2 (the only v0.1 constituent with Tier C rankings data) drove TPRR_E's `tier_c_weight_share` to 48.8% at base_date — which was traced to a methodology specification gap from Phase 7H Batch B. The gap is closed by adding `tier_min_constituents_for_blending: int = 3` to `IndexConfig`: an attestation tier with fewer than this many constituents within an index tier is dormant globally for that index; its blending coefficient redistributes to remaining eligible tiers via the existing `redistribute_blending_coefficients` rule.
+
+**Context — bug discovery**: While implementing `src/tprr/sensitivity/baseline.py` for Phase 10 Batch 10A, the canonical pipeline-input loader, the function-call signature mismatch became visible: `enrich_with_rankings_volume(panel, rankings_df, registry)` expected `rankings_json: dict[str, Any]` but received a flattened DataFrame. Mypy strict caught it on the new file; investigation showed the same pattern in `scripts/plot_indices.py:144` and `scripts/compute_indices.py:92` — undetected because Python's duck typing accepts `DataFrame.get("models", [])` returning the default `[]` without raising, and zero Tier C contribution looked superficially consistent with v0.1's known sparse Tier C coverage (1 of 16 constituents).
+
+**Empirical impact of the fix in isolation (pre-threshold)**:
+- TPRR_E `tier_c_weight_share` at base_date: 0.0000 → 0.4883 (deepseek-v3-2 drives 48.8% of TPRR_E weight)
+- TPRR_E days with `tier_c_weight_share > 0`: 0 / 366 → 366 / 366 (universal, not episodic)
+- TPRR_E `tier_c_weight_share` range across backtest: 0.000 → 0.0339-0.6801 (3.4%-68.0%)
+- TPRR_F / TPRR_S: unchanged (no F/S-tier constituent has Tier C data)
+
+**Why a single-Tier-C constituent dominated**: Continuous blending (Phase 7H Batch B, DL 2026-04-30) was specified for multi-constituent tier overlap. With one constituent in a tier, within-tier-share = 1.0 by mathematical construction. Combined with Tier C haircut 0.8 and coefficient 0.3, deepseek's per-day Tier C contribution alone is `0.3 × 1.0 × 0.8 = 0.24` weight units — roughly 1.5× a typical Tier-A-only constituent's contribution. The single-constituent edge case wasn't anticipated in Phase 7H design discussions; it surfaced empirically only because the Tier C bug fix made deepseek's rankings-derived volume actually flow into the blending math.
+
+**Methodology resolution — minimum-observation principle at different aggregation layers**:
+
+The TPRR methodology already requires minimum independent observations at the contributor → constituent layer (Tier A activation requires ≥3 contributors per constituent). The single-Tier-C-constituent finding identifies the same epistemic principle missing at the constituent → tier layer. Phase 10 Batch 10A completes the principle's per-layer application:
+
+- **Contributor → constituent (Tier A activation, existing)**: ≥3 contributors per constituent for Tier A to apply to that constituent. With 1-2 contributors, the constituent-level price collapse is degenerate (single contributor's TWAP IS the collapse) — Tier A doesn't activate; constituent falls through (under continuous blending, contributes via Tier B/C if available).
+
+- **Constituent → attestation-tier (NEW)**: ≥`tier_min_constituents_for_blending` constituents within an index tier for that attestation tier to contribute under continuous blending. With 1-2 constituents, within-tier-share is degenerate (the single constituent has share = 1.0 by construction) — tier is dormant; coefficient redistributes to other eligible tiers.
+
+This is "completing the methodology's per-layer minimum-observation requirements" — the same epistemic principle, applied at both layers continuous blending touches. Not a new principle; not a redesign; a specification gap-fill from Phase 7H Batch B.
+
+**Implementation**:
+- Added `tier_min_constituents_for_blending: int = 3` to `IndexConfig` with docstring distinguishing it from `min_constituents_per_tier` (the existing index-tier-level threshold)
+- Added `ConstituentExclusionReason.TIER_INELIGIBLE_FOR_BLENDING` for the edge case where a constituent's only tiers are all ineligible (vacuous in v0.1; reserved for v0.2+ Tier-C-only constituents)
+- Threshold check applied symmetrically in `compute_tier_index` (twap-then-weight ordering), `_compute_weight_then_twap_index` (weight-then-twap ordering), and `_recompute_one_day_active` (Phase 10 sensitivity recompute) so all three orderings produce identical results at the same config
+- Audit trail preservation: rows for ineligible-tier constituents emit with `coefficient=0`, `w_vol_contribution=0`, `included=True` (the constituent is included via its eligible tiers; the tier-specific row records "Tier X had data here but contributed nothing"). raw_volume_mtok and tier_collapsed_price_usd_mtok are populated normally so Phase 10 sweeps and Phase 11 writeup can query "constituents with Tier X data but Tier X dormant" without re-running the pipeline.
+
+**Empirical resolution of single-Tier-C-constituent dominance under threshold=3**:
+- TPRR_E `tier_c_weight_share` at base_date: 0.4883 → 0.0000 (Tier C dormant; only 1 constituent)
+- TPRR_E `n_constituents_c` at base_date: 1 → 0 (eligibility-aware count)
+- TPRR_E `tier_a_weight_share`: 0.4718 → 0.9322 (Tier C's would-be weight redistributes to Tier A)
+- TPRR_F base_date `tier_a_weight_share`: 0.9261 (unchanged — F-tier had no Tier C constituents; matches DL 2026-04-30 Phase 7H Batch D exactly)
+- All 8 indices still rebase to 100.0000 at base_date
+- ConstituentDecisionDF preserves all 732 deepseek-v3-2 Tier C audit rows (366 dates × TPRR_E + TPRR_B_E) with raw_volume_mtok=599,284 each, coefficient=0, w_vol_contribution=0, included=True
+
+**v0.2+ implications**:
+
+In v0.2 with broader Tier C coverage, the threshold activates Tier C automatically:
+- v0.2 Tier C ≥3 constituents in TPRR_E → Tier C contributes (coefficient redistribution stops excluding it)
+- v0.2 Tier C constituents that exist in only Tier C (not Tier A or B) → contribute via Tier C only when threshold met; else excluded with TIER_INELIGIBLE_FOR_BLENDING
+- The threshold is the methodology's mechanism for "smooth activation" of Tier C as coverage expands — not a special rule for v0.1, a structural specification.
+
+**v1.3 specification implications**:
+
+This entry establishes the ninth v1.3 specification gap surfaced through Phase 7H + Phase 10 validation work:
+
+1. Cliff-edge dynamics under priority fall-through (resolved: continuous blending — DL 2026-04-30 Phase 7H Batch B)
+2. Cross-tier magnitude commensurability (resolved: within-tier-share normalization — DL 2026-04-30 Phase 7H Batch A)
+3. Tier B confidence calibration (resolved: 0.9 → 0.5 haircut — DL 2026-04-30 Phase 7H Batch C)
+4. Tier B revenue derivation chain — bias profile documented (DL 2026-04-30 Phase 7H Batch C; bias-aware confidence haircut)
+5. One-way suspension ratchet (resolved: bidirectional reinstatement — DL 2026-04-30 Phase 7H Batch D)
+6. v0.1 Tier C coverage sparseness (Phase 4 close-out; structural)
+7. Continuous blending price-aggregation specification (resolved: coefficient × tier_price symmetric with volume — DL 2026-04-30 Phase 7H Batch B addendum)
+8. Three-tier hierarchy bias profiles (DL 2026-05-01 — framing decision)
+9. **Tier-eligibility threshold for continuous blending (this entry)** — single-constituent within-tier-share is degenerate; threshold completes the per-layer minimum-observation requirements
+
+v1.3 should specify the threshold value alongside the other Phase 7H methodology refinements. Phase 10 sensitivity sweeps will quantify how index dynamics depend on the threshold value (e.g., 2 / 3 / 4) and whether v0.2's expanded Tier C coverage activates Tier C smoothly under each value.
+
+**Test coverage** (Phase 10 Batch 10A):
+- `tests/test_tier_eligibility_threshold.py`: 5 new tests covering single-Tier-C dormancy under default threshold, single-Tier-C activation under permissive threshold, audit row preservation with coefficient=0, TIER_INELIGIBLE_FOR_BLENDING for constituents with only ineligible tiers, recompute-vs-pipeline parity at default threshold
+- `tests/test_aggregation.py` + `tests/test_compute.py`: legacy fixtures using ≥1-but-<3-tier setups (5 affected tests) updated to opt into permissive threshold via a new `_permissive_config()` helper, preserving each test's documented intent on pre-threshold semantics
+
+**Phase 11 narrative implications**:
+
+Phase 11 writeup frames this as "Phase 10 Batch 10A surfaced a methodology specification gap from Phase 7H Batch B — single-constituent within-tier-share is degenerate; the methodology's existing minimum-observation principle (≥3 contributors at the contributor→constituent layer) generalises naturally to the constituent→attestation-tier layer." The framing positions the v1.3 specification refinement as completing per-layer requirements rather than introducing a new principle.
+
+**Cross-references**:
+- DL 2026-05-01 three-tier bias profiles entry (Tier C structural limitations; the threshold formalises "Tier C is dormant in v0.1, designed to activate in v0.2+")
+- DL 2026-04-30 Phase 7H Batch B (continuous blending — gap addressed by this entry)
+- DL 2026-04-30 Phase 7H Batch B audit trail design (long-format audit shape — preserved here, augmented with coefficient=0 rows)
+- DL 2026-04-29 Phase 4 close-out (1 of 16 Tier C coverage — informs why threshold matters in v0.1)
+
+**Methodology section**: 3.3.2 (three-tier hierarchy — tier eligibility under continuous blending), 3.3.3 (within-tier-share normalization — the layer where degeneracy surfaces with 1 constituent)
+

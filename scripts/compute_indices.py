@@ -87,9 +87,8 @@ def _load_tier_c_panel(registry: ModelRegistry) -> pd.DataFrame:
     snapshot_date = date.fromisoformat(cache_dates[-1])
     models_json = fetch_models(as_of_date=snapshot_date)
     rankings_json = fetch_rankings(as_of_date=snapshot_date)
-    rankings_df = _rankings_json_to_df(rankings_json)
     panel = normalise_models_to_panel(models_json, registry, snapshot_date)
-    panel = enrich_with_rankings_volume(panel, rankings_df, registry)
+    panel = enrich_with_rankings_volume(panel, rankings_json, registry)
     return panel
 
 

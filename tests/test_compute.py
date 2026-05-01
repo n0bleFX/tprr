@@ -166,6 +166,13 @@ def _config(base_date: date = date(2025, 1, 1)) -> IndexConfig:
     return IndexConfig(base_date=base_date)
 
 
+def _permissive_config(base_date: date = date(2025, 1, 1)) -> IndexConfig:
+    """Test helper: tier-eligibility threshold = 1 (DL 2026-05-01 Phase 10
+    Batch 10A). Tests using this exercise pre-threshold semantics where the
+    threshold-aware filtering is not the focus of the assertion."""
+    return IndexConfig(base_date=base_date, tier_min_constituents_for_blending=1)
+
+
 # ---------------------------------------------------------------------------
 # Clean-panel pipeline (no gate firings, no suspensions)
 # ---------------------------------------------------------------------------
@@ -219,10 +226,14 @@ def test_pair_suspension_granular_only_targeted_pair_drops() -> None:
             "suspension_date": [pd.Timestamp(d)],
         }
     )
+    # Permissive tier-eligibility threshold (=1) so the index-level
+    # min-3-active-constituents path fires cleanly without threshold
+    # interference. The per-pair-suspension semantics this test verifies
+    # are orthogonal to the tier-eligibility threshold.
     result = compute_tier_index(
         panel_day_df=panel,
         tier=Tier.TPRR_F,
-        config=_config(date(2025, 1, 1)),
+        config=_permissive_config(date(2025, 1, 1)),
         registry=_registry_three_tiers(),
         tier_b_config=_empty_tier_b_config(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
@@ -245,7 +256,7 @@ def test_pair_suspension_granular_only_targeted_pair_drops() -> None:
     s_result = compute_tier_index(
         panel_day_df=panel,
         tier=Tier.TPRR_S,
-        config=_config(date(2025, 1, 1)),
+        config=_permissive_config(date(2025, 1, 1)),
         registry=_registry_three_tiers(),
         tier_b_config=_empty_tier_b_config(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
@@ -318,10 +329,13 @@ def test_pair_suspension_falls_through_to_tier_b() -> None:
             "suspension_date": [pd.Timestamp(d)] * 2,
         }
     )
+    # Permissive tier-eligibility threshold (=1) lets Tier B contribute with
+    # one constituent — this test verifies the priority fall-through cascade
+    # SELECTION mechanism, not the tier-eligibility threshold.
     result = compute_tier_index(
         panel_day_df=panel,
         tier=Tier.TPRR_F,
-        config=_config(date(2025, 1, 1)),
+        config=_permissive_config(date(2025, 1, 1)),
         registry=_registry_three_tiers(),
         tier_b_config=_tier_b_config_one_provider("openai"),
         tier_b_volume_fn=_stub_tier_b_volume_fn(value=10_000_000.0),
@@ -358,10 +372,13 @@ def test_tier_suspends_with_insufficient_constituents() -> None:
             )
     susp = pd.DataFrame(susp_rows)
 
+    # Permissive tier-eligibility threshold so the index-tier
+    # min-3-active-constituents path fires cleanly. Threshold-aware behavior
+    # is tested separately.
     result = compute_tier_index(
         panel_day_df=panel,
         tier=Tier.TPRR_F,
-        config=_config(date(2025, 1, 1)),
+        config=_permissive_config(date(2025, 1, 1)),
         registry=_registry_three_tiers(),
         tier_b_config=_empty_tier_b_config(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
@@ -680,11 +697,16 @@ def test_aggregation_honors_reinstatement_in_suspended_pairs_df() -> None:
         ]
     )
 
+    # Permissive tier-eligibility threshold (=1) — this test exercises the
+    # reinstatement-interval semantics, not the threshold filter. Default
+    # threshold=3 would block this fixture's Tier A coverage in r2.
+    permissive = _permissive_config(date(2025, 1, 1))
+
     # Before the interval: pair is active.
     r1 = compute_tier_index(
         panel_day_df=panel_active,
         tier=Tier.TPRR_F,
-        config=_config(date(2025, 1, 1)),
+        config=permissive,
         registry=_registry_three_tiers(),
         tier_b_config=_empty_tier_b_config(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
@@ -700,7 +722,7 @@ def test_aggregation_honors_reinstatement_in_suspended_pairs_df() -> None:
     r2 = compute_tier_index(
         panel_day_df=panel_suspended,
         tier=Tier.TPRR_F,
-        config=_config(date(2025, 1, 1)),
+        config=permissive,
         registry=_registry_three_tiers(),
         tier_b_config=_empty_tier_b_config(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
@@ -713,7 +735,7 @@ def test_aggregation_honors_reinstatement_in_suspended_pairs_df() -> None:
     r3 = compute_tier_index(
         panel_day_df=panel_reinstated,
         tier=Tier.TPRR_F,
-        config=_config(date(2025, 1, 1)),
+        config=permissive,
         registry=_registry_three_tiers(),
         tier_b_config=_empty_tier_b_config(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
@@ -1174,10 +1196,14 @@ def test_run_full_pipeline_constituent_decisions_propagates_pair_suspension_casc
                     )
                 )
     panel = pd.DataFrame(rows)
+    # Permissive tier-eligibility threshold so the post-suspension
+    # tier_aggregation_suspended path fires (otherwise the threshold filter
+    # would reroute opus+gemini to TIER_INELIGIBLE_FOR_BLENDING since Tier A
+    # would only have 2 surviving constituents).
     result = run_full_pipeline(
         panel_df=panel,
         change_events_df=_empty_change_events(),
-        config=_config(date(2025, 1, 1)),
+        config=_permissive_config(date(2025, 1, 1)),
         registry=_registry_three_tiers(),
         tier_b_config=_empty_tier_b_config(),
         tier_b_volume_fn=_stub_tier_b_volume_fn(),

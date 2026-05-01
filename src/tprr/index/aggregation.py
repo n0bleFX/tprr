@@ -115,6 +115,15 @@ class ConstituentExclusionReason(StrEnum):
     the published index level. Distinct from per-constituent
     exclusion: the constituent's data is real and queryable."""
 
+    TIER_INELIGIBLE_FOR_BLENDING = "tier_ineligible_for_blending"
+    """Every attestation tier the constituent has data in fell below
+    ``IndexConfig.tier_min_constituents_for_blending`` on this date —
+    the constituent has tier coverage but every covering tier is
+    dormant globally. Vacuous in v0.1 (no constituent has Tier C
+    only); reserved for v0.2+ scenarios where Tier-C-only constituents
+    enter the universe before broader Tier C coverage activates the
+    tier (DL 2026-05-01 Phase 10 Batch 10A tier-eligibility threshold)."""
+
 
 _DECISION_FIELDS = (
     "as_of_date",
@@ -536,20 +545,75 @@ def compute_tier_index(
         for tier_t, vols in volumes_by_tier_b.items()
     }
 
+    # Tier-eligibility threshold (DL 2026-05-01 Phase 10 Batch 10A). An
+    # attestation tier with fewer than ``tier_min_constituents_for_blending``
+    # constituents on this date is dormant globally for this index — its
+    # blending coefficient redistributes to the remaining eligible tiers.
+    # Audit rows for ineligible tiers still emit (with coefficient=0,
+    # w_vol_contribution=0) so deepseek-style single-Tier-C constituents
+    # remain queryable in ConstituentDecisionDF.
+    eligible_tiers: set[AttestationTier] = {
+        tier_t
+        for tier_t, vols in volumes_by_tier_b.items()
+        if len(vols) >= config.tier_min_constituents_for_blending
+    }
+
+    # Constituents whose every tier is ineligible: emit per-tier audit rows
+    # with ``TIER_INELIGIBLE_FOR_BLENDING`` and remove from active rows.
+    ineligible_only_rows: list[dict[str, Any]] = []
+    surviving_rows: list[dict[str, Any]] = []
+    for r in rows:
+        per_tier = r["per_tier_data"]
+        assert isinstance(per_tier, dict)
+        if any(t in eligible_tiers for t in per_tier):
+            surviving_rows.append(r)
+        else:
+            ineligible_only_rows.append(r)
+    for r in ineligible_only_rows:
+        cid = str(r["constituent_id"])
+        per_tier = r["per_tier_data"]
+        assert isinstance(per_tier, dict)
+        for tier_t, info in per_tier.items():
+            share = shares_by_tier_b[tier_t][cid]
+            pending_decisions.append(
+                _decision_row(
+                    as_of_date=as_of_date_value,
+                    index_code=tier.value,
+                    version=version,
+                    ordering=ordering,
+                    constituent_id=cid,
+                    included=False,
+                    exclusion_reason=ConstituentExclusionReason.TIER_INELIGIBLE_FOR_BLENDING.value,
+                    attestation_tier=tier_t.value,
+                    coefficient=0.0,
+                    raw_volume_mtok=float(info["raw_volume"]),
+                    within_tier_volume_share=float(share),
+                    tier_collapsed_price_usd_mtok=float(info["tier_price"]),
+                    w_vol_contribution=0.0,
+                    contributor_count=int(info["contributor_count"]),
+                )
+            )
+    rows = surviving_rows
+
     for r in rows:
         cid = str(r["constituent_id"])
         per_tier = r["per_tier_data"]
         assert isinstance(per_tier, dict)
+        eligible_in_per_tier = {t for t in per_tier if t in eligible_tiers}
         coefficients = redistribute_blending_coefficients(
-            available_tiers=set(per_tier.keys()),
+            available_tiers=eligible_in_per_tier,
             default_coefficients=config.tier_blending_coefficients,
         )
         combined_w_vol = 0.0
         combined_price = 0.0
         for tier_t, info in per_tier.items():
             share = shares_by_tier_b[tier_t][cid]
-            coef = coefficients[tier_t]
-            w_vol_contribution = coef * volume_weight(share, tier_t, config)
+            if tier_t in eligible_tiers:
+                coef = coefficients[tier_t]
+                w_vol_contribution = coef * volume_weight(share, tier_t, config)
+            else:
+                coef = 0.0
+                w_vol_contribution = 0.0
             combined_w_vol += w_vol_contribution
             combined_price += coef * float(info["tier_price"])
             info["share"] = share
@@ -563,12 +627,24 @@ def compute_tier_index(
 
     n_active = len(rows)
 
-    # n_a/n_b/n_c under continuous blending: count of constituents with ANY
-    # non-zero contribution from each tier (constituents may overlap across
-    # tiers under blending).
-    n_a = sum(1 for r in rows if AttestationTier.A in r["per_tier_data"])
-    n_b = sum(1 for r in rows if AttestationTier.B in r["per_tier_data"])
-    n_c = sum(1 for r in rows if AttestationTier.C in r["per_tier_data"])
+    # n_a/n_b/n_c under continuous blending count constituents with eligible
+    # contribution to each tier — ineligible-tier coverage doesn't count
+    # because it carries coefficient=0 and contributes nothing to the index.
+    n_a = (
+        sum(1 for r in rows if AttestationTier.A in r["per_tier_data"])
+        if AttestationTier.A in eligible_tiers
+        else 0
+    )
+    n_b = (
+        sum(1 for r in rows if AttestationTier.B in r["per_tier_data"])
+        if AttestationTier.B in eligible_tiers
+        else 0
+    )
+    n_c = (
+        sum(1 for r in rows if AttestationTier.C in r["per_tier_data"])
+        if AttestationTier.C in eligible_tiers
+        else 0
+    )
 
     def _emit_tier_aggregation_suspended_rows(
         rows_in: list[dict[str, Any]],
@@ -1131,18 +1207,67 @@ def _compute_weight_then_twap_index(
         tier_t: compute_within_tier_share(vols)
         for tier_t, vols in volumes_by_tier_b.items()
     }
+    # Tier-eligibility threshold (DL 2026-05-01 Phase 10 Batch 10A) applied
+    # symmetrically to the canonical TWAP-then-weight path: tiers with fewer
+    # than ``tier_min_constituents_for_blending`` constituents are dormant
+    # globally; their coefficient redistributes to remaining eligible tiers.
+    eligible_tiers: set[AttestationTier] = {
+        tier_t
+        for tier_t, vols in volumes_by_tier_b.items()
+        if len(vols) >= config.tier_min_constituents_for_blending
+    }
+
+    ineligible_only_constituents: list[dict[str, Any]] = []
+    surviving_constituents: list[dict[str, Any]] = []
+    for c in constituents:
+        per_tier = c["per_tier_data"]
+        if any(t in eligible_tiers for t in per_tier):
+            surviving_constituents.append(c)
+        else:
+            ineligible_only_constituents.append(c)
+    for c in ineligible_only_constituents:
+        cid_inel = str(c["constituent_id"])
+        per_tier = c["per_tier_data"]
+        for tier_t, info in per_tier.items():
+            share = shares_by_tier_b[tier_t][cid_inel]
+            avg_tier_price = float("nan")
+            pending_decisions.append(
+                _decision_row(
+                    as_of_date=as_of_date_value,
+                    index_code=tier.value,
+                    version=version,
+                    ordering=ordering,
+                    constituent_id=cid_inel,
+                    included=False,
+                    exclusion_reason=ConstituentExclusionReason.TIER_INELIGIBLE_FOR_BLENDING.value,
+                    attestation_tier=tier_t.value,
+                    coefficient=0.0,
+                    raw_volume_mtok=float(info["raw_volume"]),
+                    within_tier_volume_share=float(share),
+                    tier_collapsed_price_usd_mtok=avg_tier_price,
+                    w_vol_contribution=0.0,
+                    contributor_count=int(info["contributor_count"]),
+                )
+            )
+    constituents = surviving_constituents
+
     for c in constituents:
         cid = str(c["constituent_id"])
         per_tier = c["per_tier_data"]
+        eligible_in_per_tier = {t for t in per_tier if t in eligible_tiers}
         coefficients = redistribute_blending_coefficients(
-            available_tiers=set(per_tier.keys()),
+            available_tiers=eligible_in_per_tier,
             default_coefficients=config.tier_blending_coefficients,
         )
         combined_w_vol = 0.0
         for tier_t, info in per_tier.items():
             share = shares_by_tier_b[tier_t][cid]
-            coef = coefficients[tier_t]
-            w_vol_contribution = coef * volume_weight(share, tier_t, config)
+            if tier_t in eligible_tiers:
+                coef = coefficients[tier_t]
+                w_vol_contribution = coef * volume_weight(share, tier_t, config)
+            else:
+                coef = 0.0
+                w_vol_contribution = 0.0
             combined_w_vol += w_vol_contribution
             info["share"] = share
             info["coefficient"] = coef
@@ -1202,13 +1327,16 @@ def _compute_weight_then_twap_index(
 
     for s in range(_TWAP_SLOTS_PER_DAY):
         # Per constituent: per-tier slot-s price + blended slot-s price
-        # (renormalised coefficients over tiers with valid slot data).
+        # (renormalised coefficients over tiers with valid slot data AND
+        # eligible under the tier-min-constituents threshold).
         per_constituent_blend: dict[str, dict[str, Any]] = {}
         for c in constituents:
             cid_loop = str(c["constituent_id"])
             per_tier = c["per_tier_data"]
             tier_prices_at_slot: dict[AttestationTier, float] = {}
             for tier_t, info in per_tier.items():
+                if tier_t not in eligible_tiers:
+                    continue
                 p_t_s = _collapse_tier_slot_price(info["contributor_slots"], s)
                 if not np.isnan(p_t_s):
                     tier_prices_at_slot[tier_t] = p_t_s
@@ -1269,9 +1397,23 @@ def _compute_weight_then_twap_index(
             for tier_tx, p_t_s in blend_info["tier_prices"].items():
                 per_tier_slot_prices[(cid_acc, tier_tx)].append(p_t_s)
 
-    n_a = sum(1 for c in constituents if AttestationTier.A in c["per_tier_data"])
-    n_b = sum(1 for c in constituents if AttestationTier.B in c["per_tier_data"])
-    n_c = sum(1 for c in constituents if AttestationTier.C in c["per_tier_data"])
+    # Eligibility-aware n_a/n_b/n_c: tiers below threshold contribute 0 and
+    # don't count as "active constituents" for that tier.
+    n_a = (
+        sum(1 for c in constituents if AttestationTier.A in c["per_tier_data"])
+        if AttestationTier.A in eligible_tiers
+        else 0
+    )
+    n_b = (
+        sum(1 for c in constituents if AttestationTier.B in c["per_tier_data"])
+        if AttestationTier.B in eligible_tiers
+        else 0
+    )
+    n_c = (
+        sum(1 for c in constituents if AttestationTier.C in c["per_tier_data"])
+        if AttestationTier.C in eligible_tiers
+        else 0
+    )
 
     def _emit_per_tier_audit_rows_w2t(
         c: dict[str, Any],

@@ -53,6 +53,26 @@ class IndexConfig(BaseModel):
     quality_gate_pct: float = 0.15
     continuity_check_pct: float = 0.25
     min_constituents_per_tier: int = 3
+    """Index-tier activation threshold: the number of active constituents
+    required across ALL attestation tiers in a single index tier (TPRR_F /
+    TPRR_S / TPRR_E). Below this, the tier suspends with
+    ``insufficient_constituents``. Acts at the (date, index_code) layer."""
+
+    tier_min_constituents_for_blending: int = 3
+    """Per-attestation-tier eligibility threshold under continuous blending:
+    the number of constituents within an index tier that must have data in
+    a given attestation tier (A / B / C) for that attestation tier to
+    contribute to the dual-weighted aggregation. Below this, the tier is
+    dormant and its blending coefficient redistributes to the remaining
+    eligible tiers via the existing ``redistribute_blending_coefficients``
+    rule. Acts at the (date, index_code, attestation_tier) layer.
+
+    Distinct from ``min_constituents_per_tier`` (DL 2026-05-01 Phase 10
+    Batch 10A tier-eligibility threshold): same epistemic principle (≥N
+    independent observations) applied at different aggregation layers —
+    contributor → constituent (Tier A's existing rule) and constituent →
+    attestation-tier (this rule)."""
+
     staleness_max_days: int = 3
     suspension_threshold_days: int = 3
     reinstatement_threshold_days: int = 10
