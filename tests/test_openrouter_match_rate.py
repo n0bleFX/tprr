@@ -28,9 +28,7 @@ def real_models_panel():  # type: ignore[no-untyped-def]
     """Real OpenRouter /models response, normalised against the production registry."""
     cfg = load_all()
     models_json = fetch_models()  # cached after first call
-    df = normalise_models_to_panel(
-        models_json, cfg.model_registry, date.today()
-    )
+    df = normalise_models_to_panel(models_json, cfg.model_registry, date.today())
     return cfg, models_json, df
 
 
@@ -97,8 +95,7 @@ def test_matched_prices_within_50pct_of_registry_baselines(
     """
     cfg, _, df = real_models_panel
     baselines = {
-        m.constituent_id: m.baseline_output_price_usd_mtok
-        for m in cfg.model_registry.models
+        m.constituent_id: m.baseline_output_price_usd_mtok for m in cfg.model_registry.models
     }
 
     discrepancies: list[tuple[str, float, float, float]] = []  # (cid, baseline, or_price, ratio)
@@ -120,10 +117,7 @@ def test_matched_prices_within_50pct_of_registry_baselines(
     for cid, baseline, or_price in spot_checks[:10]:
         ratio = or_price / baseline if baseline > 0 else float("nan")
         flag = " (off)" if ratio < 0.5 or ratio > 2.0 else ""
-        print(
-            f"  {cid:<35} {baseline:>10.4f} {or_price:>10.4f} "
-            f"{ratio:>8.2f}{flag}"
-        )
+        print(f"  {cid:<35} {baseline:>10.4f} {or_price:>10.4f} {ratio:>8.2f}{flag}")
 
     if discrepancies:
         formatted = "\n".join(

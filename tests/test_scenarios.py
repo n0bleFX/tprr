@@ -222,9 +222,7 @@ def _correlated_blackout_spec(
             "kind": "correlated_blackout",
             "description": "test",
             "target": {
-                "contributor_ids": (
-                    contributor_ids or ["contrib_alpha", "contrib_beta"]
-                ),
+                "contributor_ids": (contributor_ids or ["contrib_alpha", "contrib_beta"]),
             },
             "timing": {
                 "day_offset_start": day_offset_start,
@@ -353,18 +351,14 @@ def _new_model_launch_spec(
                 "baseline_output_price_usd_mtok": baseline_output,
             },
             "coverage": {
-                "contributor_ids": (
-                    coverage_ids or ["contrib_alpha", "contrib_beta"]
-                ),
+                "contributor_ids": (coverage_ids or ["contrib_alpha", "contrib_beta"]),
             },
             "timing": {"day_offset": day_offset},
         }
     )
 
 
-def _panel_row(
-    panel: pd.DataFrame, contrib: str, constituent: str, dt: date
-) -> pd.Series:
+def _panel_row(panel: pd.DataFrame, contrib: str, constituent: str, dt: date) -> pd.Series:
     ts = pd.Timestamp(dt)
     matches = panel[
         (panel["observation_date"] == ts)
@@ -389,8 +383,14 @@ def test_compose_fat_finger_high_panel_twap_matches_expected() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, registry_out = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     expected_twap = (16 * base_out + 1 * 10.0 * base_out + 15 * base_out) / 32
@@ -415,14 +415,18 @@ def test_compose_fat_finger_low_panel_twap_matches_expected() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     expected_twap = (20 * base_out + 1 * 0.1 * base_out + 11 * base_out) / 32
-    post = _panel_row(
-        panel_out, "contrib_alpha", "anthropic/claude-haiku-4-5", event_date
-    )
+    post = _panel_row(panel_out, "contrib_alpha", "anthropic/claude-haiku-4-5", event_date)
     assert post["output_price_usd_mtok"] == pytest.approx(expected_twap)
 
 
@@ -433,8 +437,14 @@ def test_compose_fat_finger_injects_two_events() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     assert len(events_out) == n_before + 2
@@ -450,8 +460,14 @@ def test_compose_fat_finger_revert_slot_overflow_raises() -> None:
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     with pytest.raises(ValueError, match="exceeds maximum slot index"):
         compose_scenario(
-            spec, panel, events, registry, contributors,
-            BACKTEST_START, seed=42, manifest=manifest,
+            spec,
+            panel,
+            events,
+            registry,
+            contributors,
+            BACKTEST_START,
+            seed=42,
+            manifest=manifest,
         )
 
 
@@ -462,8 +478,14 @@ def test_compose_fat_finger_other_panel_rows_unchanged() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     untouched_mask = ~(
@@ -471,12 +493,16 @@ def test_compose_fat_finger_other_panel_rows_unchanged() -> None:
         & (panel["contributor_id"] == "contrib_alpha")
         & (panel["constituent_id"] == "openai/gpt-5-mini")
     )
-    orig = panel.loc[untouched_mask].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
-    after = panel_out.loc[untouched_mask].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
+    orig = (
+        panel.loc[untouched_mask]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
+    after = (
+        panel_out.loc[untouched_mask]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(orig, after)
 
 
@@ -490,16 +516,20 @@ def test_compose_stale_quote_freezes_panel_to_entry_day_price() -> None:
     spec = _stale_quote_spec(day_offset_start=20, duration_days=14)
     entry_day = BACKTEST_START + timedelta(days=20)
     end_day = BACKTEST_START + timedelta(days=33)
-    entry = _panel_row(
-        panel, "contrib_alpha", "google/gemini-flash-lite", entry_day
-    )
+    entry = _panel_row(panel, "contrib_alpha", "google/gemini-flash-lite", entry_day)
     entry_out = float(entry["output_price_usd_mtok"])
     entry_in = float(entry["input_price_usd_mtok"])
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     frozen = panel_out[
@@ -521,8 +551,14 @@ def test_compose_stale_quote_suppresses_in_window_events() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     in_window = events_out[
@@ -542,8 +578,14 @@ def test_compose_stale_quote_outside_window_unchanged() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     pair_mask_orig = (
@@ -562,12 +604,8 @@ def test_compose_stale_quote_outside_window_unchanged() -> None:
             | (panel_out["observation_date"] > pd.Timestamp(end_day))
         )
     )
-    orig = panel.loc[pair_mask_orig].sort_values("observation_date").reset_index(
-        drop=True
-    )
-    after = panel_out.loc[pair_mask_out].sort_values("observation_date").reset_index(
-        drop=True
-    )
+    orig = panel.loc[pair_mask_orig].sort_values("observation_date").reset_index(drop=True)
+    after = panel_out.loc[pair_mask_out].sort_values("observation_date").reset_index(drop=True)
     pd.testing.assert_frame_equal(orig, after)
 
 
@@ -586,22 +624,24 @@ def test_compose_intraday_spike_panel_twap_matches_expected() -> None:
         revert_at_slot=13,
     )
     event_date = BACKTEST_START + timedelta(days=25)
-    pre = _panel_row(
-        panel, "contrib_alpha", "anthropic/claude-haiku-4-5", event_date
-    )
+    pre = _panel_row(panel, "contrib_alpha", "anthropic/claude-haiku-4-5", event_date)
     base_out = float(pre["output_price_usd_mtok"])
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     # Slots [0,10) base + [10,13) base*1.25 + [13,32) base = 32 slots.
     expected_twap = (10 * base_out + 3 * 1.25 * base_out + 19 * base_out) / 32
-    post = _panel_row(
-        panel_out, "contrib_alpha", "anthropic/claude-haiku-4-5", event_date
-    )
+    post = _panel_row(panel_out, "contrib_alpha", "anthropic/claude-haiku-4-5", event_date)
     assert post["output_price_usd_mtok"] == pytest.approx(expected_twap)
 
     new_events = events_out.tail(2)
@@ -612,13 +652,21 @@ def test_compose_intraday_spike_panel_twap_matches_expected() -> None:
 def test_compose_intraday_spike_revert_at_slot_mismatch_raises() -> None:
     panel, events, registry, contributors = _build_pipeline(n_days=60)
     spec = _intraday_spike_spec(
-        slot_start=10, slot_end=12, revert_at_slot=15  # off by 2
+        slot_start=10,
+        slot_end=12,
+        revert_at_slot=15,  # off by 2
     )
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     with pytest.raises(ValueError, match="must be slot_end \\+ 1"):
         compose_scenario(
-            spec, panel, events, registry, contributors,
-            BACKTEST_START, seed=42, manifest=manifest,
+            spec,
+            panel,
+            events,
+            registry,
+            contributors,
+            BACKTEST_START,
+            seed=42,
+            manifest=manifest,
         )
 
 
@@ -638,8 +686,14 @@ def test_compose_scenario_dispatches_simple_kinds() -> None:
     for spec in specs:
         manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
         panel_out, events_out, registry_out = compose_scenario(
-            spec, panel, events, registry, contributors,
-            BACKTEST_START, seed=42, manifest=manifest,
+            spec,
+            panel,
+            events,
+            registry,
+            contributors,
+            BACKTEST_START,
+            seed=42,
+            manifest=manifest,
         )
         assert isinstance(panel_out, pd.DataFrame)
         assert isinstance(events_out, pd.DataFrame)
@@ -663,8 +717,14 @@ def test_compose_outputs_validate_dataframe_schemas() -> None:
     spec = _ff_spec(day_offset=30, slot=16, multiplier=10.0, after_slots=1)
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
     PanelObservationDF.validate(panel_out)
     ChangeEventDF.validate(events_out)
@@ -675,8 +735,14 @@ def test_manifest_records_ops_for_each_composer() -> None:
 
     ff_manifest = ScenarioManifest(scenario_id="ff", seed=42)
     compose_scenario(
-        _ff_spec(), panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=ff_manifest,
+        _ff_spec(),
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=ff_manifest,
     )
     assert ff_manifest.events_injected == 2
     assert len(ff_manifest.operations_applied) == 1  # single inject_change_events
@@ -684,8 +750,14 @@ def test_manifest_records_ops_for_each_composer() -> None:
 
     sq_manifest = ScenarioManifest(scenario_id="sq", seed=42)
     compose_scenario(
-        _stale_quote_spec(), panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=sq_manifest,
+        _stale_quote_spec(),
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=sq_manifest,
     )
     # freeze_pair_in_window emits two op_records: suppress + override.
     assert len(sq_manifest.operations_applied) == 2
@@ -694,8 +766,14 @@ def test_manifest_records_ops_for_each_composer() -> None:
 
     is_manifest = ScenarioManifest(scenario_id="is", seed=42)
     compose_scenario(
-        _intraday_spike_spec(), panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=is_manifest,
+        _intraday_spike_spec(),
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=is_manifest,
     )
     assert is_manifest.events_injected == 2
 
@@ -706,12 +784,24 @@ def test_compose_fat_finger_deterministic() -> None:
     spec = _ff_spec(day_offset=30, slot=16, multiplier=10.0, after_slots=1)
 
     panel_a, events_a, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=ScenarioManifest(scenario_id="a", seed=42),
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=ScenarioManifest(scenario_id="a", seed=42),
     )
     panel_b, events_b, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=ScenarioManifest(scenario_id="b", seed=42),
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=ScenarioManifest(scenario_id="b", seed=42),
     )
     pd.testing.assert_frame_equal(panel_a, panel_b)
     pd.testing.assert_frame_equal(events_a, events_b)
@@ -728,8 +818,14 @@ def test_compose_fat_finger_input_and_output_prices_both_scaled() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     expected_twap_out = (16 * base_out + 1 * 10.0 * base_out + 15 * base_out) / 32
@@ -756,8 +852,14 @@ def test_compose_correlated_blackout_removes_panel_rows() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     blackout_rows = panel_out[
@@ -780,8 +882,14 @@ def test_compose_correlated_blackout_suppresses_events() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     in_window_blackout = events_out[
@@ -804,28 +912,38 @@ def test_compose_correlated_blackout_outside_window_unchanged() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
-    outside_orig = panel[
-        (panel["contributor_id"].isin(["contrib_alpha", "contrib_beta"]))
-        & (
-            (panel["observation_date"] < pd.Timestamp(start))
-            | (panel["observation_date"] > pd.Timestamp(end))
-        )
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
-    outside_out = panel_out[
-        (panel_out["contributor_id"].isin(["contrib_alpha", "contrib_beta"]))
-        & (
-            (panel_out["observation_date"] < pd.Timestamp(start))
-            | (panel_out["observation_date"] > pd.Timestamp(end))
-        )
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
+    outside_orig = (
+        panel[
+            (panel["contributor_id"].isin(["contrib_alpha", "contrib_beta"]))
+            & (
+                (panel["observation_date"] < pd.Timestamp(start))
+                | (panel["observation_date"] > pd.Timestamp(end))
+            )
+        ]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
+    outside_out = (
+        panel_out[
+            (panel_out["contributor_id"].isin(["contrib_alpha", "contrib_beta"]))
+            & (
+                (panel_out["observation_date"] < pd.Timestamp(start))
+                | (panel_out["observation_date"] > pd.Timestamp(end))
+            )
+        ]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(outside_orig, outside_out)
 
 
@@ -840,8 +958,14 @@ def test_compose_correlated_blackout_records_four_ops() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     op_kinds = [r["op"] for r in manifest.operations_applied]
@@ -866,8 +990,14 @@ def test_compose_shock_price_cut_fans_out_to_all_covering_contribs() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     covering = [
@@ -891,8 +1021,14 @@ def test_compose_shock_price_cut_applies_multiplier_to_both_axes() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     new_events = events_out[events_out["reason"] == "outlier_injection"]
@@ -913,8 +1049,14 @@ def test_compose_shock_price_cut_events_have_outlier_injection_reason() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     new_events = events_out.tail(len(events_out) - n_before)
@@ -928,8 +1070,14 @@ def test_compose_shock_price_cut_slot_indices_in_range() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     new_events = events_out.tail(len(events_out) - n_before)
@@ -942,12 +1090,24 @@ def test_compose_shock_price_cut_deterministic() -> None:
     spec = _shock_price_cut_spec(day_offset=30, multiplier=0.5)
 
     panel_a, events_a, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=ScenarioManifest(scenario_id="a", seed=42),
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=ScenarioManifest(scenario_id="a", seed=42),
     )
     panel_b, events_b, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=ScenarioManifest(scenario_id="b", seed=42),
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=ScenarioManifest(scenario_id="b", seed=42),
     )
     pd.testing.assert_frame_equal(panel_a, panel_b)
     pd.testing.assert_frame_equal(events_a, events_b)
@@ -959,8 +1119,14 @@ def test_compose_shock_price_cut_records_notes_in_manifest() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
     assert "test note" in manifest.notes
 
@@ -982,8 +1148,14 @@ def test_compose_shock_price_cut_no_covering_contribs_raises() -> None:
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     with pytest.raises(ValueError, match="no contributors cover"):
         compose_scenario(
-            spec, panel, events, registry, contributors,
-            BACKTEST_START, seed=42, manifest=manifest,
+            spec,
+            panel,
+            events,
+            registry,
+            contributors,
+            BACKTEST_START,
+            seed=42,
+            manifest=manifest,
         )
 
 
@@ -1109,8 +1281,14 @@ def test_compose_sustained_manipulation_overrides_to_median_times_multiplier() -
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     start = BACKTEST_START + timedelta(days=5)
@@ -1147,8 +1325,14 @@ def test_compose_sustained_manipulation_excludes_target_from_median_pool() -> No
     )
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     in_window = panel_out[
@@ -1173,18 +1357,29 @@ def test_compose_sustained_manipulation_other_contribs_on_target_unchanged() -> 
     )
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
-    beta_target = panel_out[
-        (panel_out["contributor_id"] == "contrib_beta")
-        & (panel_out["constituent_id"] == target)
-    ].sort_values("observation_date").reset_index(drop=True)
-    beta_target_orig = panel[
-        (panel["contributor_id"] == "contrib_beta")
-        & (panel["constituent_id"] == target)
-    ].sort_values("observation_date").reset_index(drop=True)
+    beta_target = (
+        panel_out[
+            (panel_out["contributor_id"] == "contrib_beta")
+            & (panel_out["constituent_id"] == target)
+        ]
+        .sort_values("observation_date")
+        .reset_index(drop=True)
+    )
+    beta_target_orig = (
+        panel[(panel["contributor_id"] == "contrib_beta") & (panel["constituent_id"] == target)]
+        .sort_values("observation_date")
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(beta_target, beta_target_orig)
 
 
@@ -1199,21 +1394,27 @@ def test_compose_sustained_manipulation_other_constituents_unchanged() -> None:
     )
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     other_constituents = ["openai/gpt-5-mini", "google/gemini-2-flash"]
-    other_orig = panel[
-        panel["constituent_id"].isin(other_constituents)
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
-    other_out = panel_out[
-        panel_out["constituent_id"].isin(other_constituents)
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
+    other_orig = (
+        panel[panel["constituent_id"].isin(other_constituents)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
+    other_out = (
+        panel_out[panel_out["constituent_id"].isin(other_constituents)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(other_orig, other_out)
 
 
@@ -1243,8 +1444,14 @@ def test_compose_sustained_manipulation_no_other_s_raises() -> None:
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     with pytest.raises(ValueError, match="no S constituents other than"):
         compose_scenario(
-            spec, panel, events, minimal_registry, contributors,
-            BACKTEST_START, seed=42, manifest=manifest,
+            spec,
+            panel,
+            events,
+            minimal_registry,
+            contributors,
+            BACKTEST_START,
+            seed=42,
+            manifest=manifest,
         )
 
 
@@ -1282,8 +1489,14 @@ def test_compose_sustained_manipulation_in_window_events_suppressed() -> None:
     )
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, events_out, _ = compose_scenario(
-        spec, panel, events_with_fake, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events_with_fake,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     in_window = events_out[
@@ -1306,8 +1519,14 @@ def test_compose_sustained_manipulation_records_suppress_and_override() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     op_kinds = {r["op"] for r in manifest.operations_applied}
@@ -1324,12 +1543,24 @@ def test_compose_sustained_manipulation_deterministic() -> None:
     )
 
     panel_a, events_a, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=ScenarioManifest(scenario_id="a", seed=42),
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=ScenarioManifest(scenario_id="a", seed=42),
     )
     panel_b, events_b, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=ScenarioManifest(scenario_id="b", seed=42),
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=ScenarioManifest(scenario_id="b", seed=42),
     )
     pd.testing.assert_frame_equal(panel_a, panel_b)
     pd.testing.assert_frame_equal(events_a, events_b)
@@ -1351,13 +1582,17 @@ def test_compose_new_model_launch_panel_rows_appear_from_launch_day() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
-    new_rows = panel_out[
-        panel_out["constituent_id"] == "anthropic/claude-haiku-5"
-    ]
+    new_rows = panel_out[panel_out["constituent_id"] == "anthropic/claude-haiku-5"]
     assert len(new_rows) > 0
     assert new_rows["observation_date"].min() >= pd.Timestamp(launch_date)
 
@@ -1373,8 +1608,14 @@ def test_compose_new_model_launch_no_panel_rows_before_launch() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     pre_launch = panel_out[
@@ -1394,8 +1635,14 @@ def test_compose_new_model_launch_registry_includes_new_constituent() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, _events_out, registry_out = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     new_ids = {m.constituent_id for m in registry_out.models}
@@ -1415,17 +1662,27 @@ def test_compose_new_model_launch_other_constituents_unchanged() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     existing_ids = {m.constituent_id for m in registry.models}
-    existing_orig = panel[panel["constituent_id"].isin(existing_ids)].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
-    existing_out = panel_out[panel_out["constituent_id"].isin(existing_ids)].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
+    existing_orig = (
+        panel[panel["constituent_id"].isin(existing_ids)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
+    existing_out = (
+        panel_out[panel_out["constituent_id"].isin(existing_ids)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(existing_orig, existing_out)
 
 
@@ -1439,8 +1696,14 @@ def test_compose_new_model_launch_records_mutate_and_regen_ops() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     op_kinds = {r["op"] for r in manifest.operations_applied}
@@ -1457,8 +1720,14 @@ def test_compose_new_model_launch_resulting_panel_validates_schema() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
     PanelObservationDF.validate(panel_out)
     ChangeEventDF.validate(events_out)
@@ -1479,15 +1748,19 @@ def test_compose_scenario_dispatches_all_batch_c_kinds() -> None:
             duration_days=5,
         ),
         _shock_price_cut_spec(day_offset=30, multiplier=0.5),
-        _new_model_launch_spec(
-            coverage_ids=["contrib_alpha", "contrib_beta"], day_offset=30
-        ),
+        _new_model_launch_spec(coverage_ids=["contrib_alpha", "contrib_beta"], day_offset=30),
     ]
     for spec in specs:
         manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
         panel_out, events_out, _ = compose_scenario(
-            spec, panel, events, registry, contributors,
-            BACKTEST_START, seed=42, manifest=manifest,
+            spec,
+            panel,
+            events,
+            registry,
+            contributors,
+            BACKTEST_START,
+            seed=42,
+            manifest=manifest,
         )
         assert isinstance(panel_out, pd.DataFrame)
         assert isinstance(events_out, pd.DataFrame)
@@ -1503,8 +1776,14 @@ def test_compose_scenario_dispatches_all_batch_c_kinds() -> None:
     )
     sm_manifest = ScenarioManifest(scenario_id=sm_spec.id, seed=42)
     sm_panel_out, sm_events_out, _ = compose_scenario(
-        sm_spec, panel_m, events_m, registry_m, contribs_m,
-        BACKTEST_START, seed=42, manifest=sm_manifest,
+        sm_spec,
+        panel_m,
+        events_m,
+        registry_m,
+        contribs_m,
+        BACKTEST_START,
+        seed=42,
+        manifest=sm_manifest,
     )
     assert isinstance(sm_panel_out, pd.DataFrame)
     assert isinstance(sm_events_out, pd.DataFrame)
@@ -1517,15 +1796,19 @@ def test_compose_scenario_dispatches_all_batch_c_kinds() -> None:
 
 def test_compose_tier_reshuffle_pre_effective_rows_keep_old_tier_code() -> None:
     panel, events, registry, contributors = _build_pipeline(n_days=60)
-    spec = _tier_reshuffle_spec(
-        constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30
-    )
+    spec = _tier_reshuffle_spec(constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30)
     effective_date = BACKTEST_START + timedelta(days=30)
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     pre = panel_out[
@@ -1538,15 +1821,19 @@ def test_compose_tier_reshuffle_pre_effective_rows_keep_old_tier_code() -> None:
 
 def test_compose_tier_reshuffle_post_effective_rows_have_new_tier_code() -> None:
     panel, events, registry, contributors = _build_pipeline(n_days=60)
-    spec = _tier_reshuffle_spec(
-        constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30
-    )
+    spec = _tier_reshuffle_spec(constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30)
     effective_date = BACKTEST_START + timedelta(days=30)
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     post = panel_out[
@@ -1559,22 +1846,30 @@ def test_compose_tier_reshuffle_post_effective_rows_have_new_tier_code() -> None
 
 def test_compose_tier_reshuffle_prices_unchanged_across_boundary() -> None:
     panel, events, registry, contributors = _build_pipeline(n_days=60)
-    spec = _tier_reshuffle_spec(
-        constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30
-    )
+    spec = _tier_reshuffle_spec(constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30)
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
-    target_orig = panel[panel["constituent_id"] == "openai/gpt-5-pro"].sort_values(
-        ["observation_date", "contributor_id"]
-    ).reset_index(drop=True)
-    target_out = panel_out[
-        panel_out["constituent_id"] == "openai/gpt-5-pro"
-    ].sort_values(["observation_date", "contributor_id"]).reset_index(drop=True)
+    target_orig = (
+        panel[panel["constituent_id"] == "openai/gpt-5-pro"]
+        .sort_values(["observation_date", "contributor_id"])
+        .reset_index(drop=True)
+    )
+    target_out = (
+        panel_out[panel_out["constituent_id"] == "openai/gpt-5-pro"]
+        .sort_values(["observation_date", "contributor_id"])
+        .reset_index(drop=True)
+    )
 
     np.testing.assert_array_equal(
         target_orig["output_price_usd_mtok"].to_numpy(),
@@ -1588,63 +1883,73 @@ def test_compose_tier_reshuffle_prices_unchanged_across_boundary() -> None:
 
 def test_compose_tier_reshuffle_other_constituents_unchanged() -> None:
     panel, events, registry, contributors = _build_pipeline(n_days=60)
-    spec = _tier_reshuffle_spec(
-        constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30
-    )
+    spec = _tier_reshuffle_spec(constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30)
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     other_ids = [
-        m.constituent_id
-        for m in registry.models
-        if m.constituent_id != "openai/gpt-5-pro"
+        m.constituent_id for m in registry.models if m.constituent_id != "openai/gpt-5-pro"
     ]
-    other_orig = panel[panel["constituent_id"].isin(other_ids)].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
-    other_out = panel_out[panel_out["constituent_id"].isin(other_ids)].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
+    other_orig = (
+        panel[panel["constituent_id"].isin(other_ids)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
+    other_out = (
+        panel_out[panel_out["constituent_id"].isin(other_ids)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(other_orig, other_out)
 
 
 def test_compose_tier_reshuffle_registry_reflects_new_tier() -> None:
     panel, events, registry, contributors = _build_pipeline(n_days=60)
-    spec = _tier_reshuffle_spec(
-        constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30
-    )
+    spec = _tier_reshuffle_spec(constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30)
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, _events_out, registry_out = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
-    target = next(
-        m for m in registry_out.models if m.constituent_id == "openai/gpt-5-pro"
-    )
+    target = next(m for m in registry_out.models if m.constituent_id == "openai/gpt-5-pro")
     assert target.tier == Tier.TPRR_S
     # Original registry untouched (composer returns a new registry).
-    orig_target = next(
-        m for m in registry.models if m.constituent_id == "openai/gpt-5-pro"
-    )
+    orig_target = next(m for m in registry.models if m.constituent_id == "openai/gpt-5-pro")
     assert orig_target.tier == Tier.TPRR_F
 
 
 def test_compose_tier_reshuffle_records_op_and_warning_note() -> None:
     panel, events, registry, contributors = _build_pipeline(n_days=60)
-    spec = _tier_reshuffle_spec(
-        constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30
-    )
+    spec = _tier_reshuffle_spec(constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30)
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     op_kinds = {r["op"] for r in manifest.operations_applied}
@@ -1658,18 +1963,20 @@ def test_compose_tier_reshuffle_records_op_and_warning_note() -> None:
 def test_compose_tier_reshuffle_events_unchanged() -> None:
     """Events carry no tier_code -> events_df is byte-identical post-composition."""
     panel, events, registry, contributors = _build_pipeline(n_days=60)
-    spec = _tier_reshuffle_spec(
-        constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30
-    )
+    spec = _tier_reshuffle_spec(constituent_id="openai/gpt-5-pro", new_tier="TPRR_S", day_offset=30)
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     _panel_out, events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
-    pd.testing.assert_frame_equal(
-        events.reset_index(drop=True), events_out.reset_index(drop=True)
-    )
+    pd.testing.assert_frame_equal(events.reset_index(drop=True), events_out.reset_index(drop=True))
 
 
 # ---------------------------------------------------------------------------
@@ -1701,25 +2008,35 @@ def test_compose_regime_shift_in_window_prices_differ_from_phase2() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     s_ids = {m.constituent_id for m in registry.models if m.tier == Tier.TPRR_S}
-    in_window_orig = panel[
-        panel["constituent_id"].isin(s_ids)
-        & (panel["observation_date"] >= start)
-        & (panel["observation_date"] <= end)
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
-    in_window_out = panel_out[
-        panel_out["constituent_id"].isin(s_ids)
-        & (panel_out["observation_date"] >= start)
-        & (panel_out["observation_date"] <= end)
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
+    in_window_orig = (
+        panel[
+            panel["constituent_id"].isin(s_ids)
+            & (panel["observation_date"] >= start)
+            & (panel["observation_date"] <= end)
+        ]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
+    in_window_out = (
+        panel_out[
+            panel_out["constituent_id"].isin(s_ids)
+            & (panel_out["observation_date"] >= start)
+            & (panel_out["observation_date"] <= end)
+        ]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
     assert not np.allclose(
         in_window_orig["output_price_usd_mtok"].to_numpy(),
         in_window_out["output_price_usd_mtok"].to_numpy(),
@@ -1733,23 +2050,27 @@ def test_compose_regime_shift_pre_window_byte_identical() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     s_ids = {m.constituent_id for m in registry.models if m.tier == Tier.TPRR_S}
-    pre_orig = panel[
-        panel["constituent_id"].isin(s_ids)
-        & (panel["observation_date"] < start)
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
-    pre_out = panel_out[
-        panel_out["constituent_id"].isin(s_ids)
-        & (panel_out["observation_date"] < start)
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
+    pre_orig = (
+        panel[panel["constituent_id"].isin(s_ids) & (panel["observation_date"] < start)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
+    pre_out = (
+        panel_out[panel_out["constituent_id"].isin(s_ids) & (panel_out["observation_date"] < start)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(pre_orig, pre_out)
 
 
@@ -1761,23 +2082,27 @@ def test_compose_regime_shift_post_window_byte_identical_no_reanchor() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     s_ids = {m.constituent_id for m in registry.models if m.tier == Tier.TPRR_S}
-    post_orig = panel[
-        panel["constituent_id"].isin(s_ids)
-        & (panel["observation_date"] > end)
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
-    post_out = panel_out[
-        panel_out["constituent_id"].isin(s_ids)
-        & (panel_out["observation_date"] > end)
-    ].sort_values(
-        ["observation_date", "contributor_id", "constituent_id"]
-    ).reset_index(drop=True)
+    post_orig = (
+        panel[panel["constituent_id"].isin(s_ids) & (panel["observation_date"] > end)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
+    post_out = (
+        panel_out[panel_out["constituent_id"].isin(s_ids) & (panel_out["observation_date"] > end)]
+        .sort_values(["observation_date", "contributor_id", "constituent_id"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(post_orig, post_out)
 
 
@@ -1790,8 +2115,14 @@ def test_compose_regime_shift_pairwise_correlation_low() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     panel_out, _events_out, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     # contrib_alpha covers both S constituents — sample one contributor's
@@ -1816,8 +2147,14 @@ def test_compose_regime_shift_records_one_op_per_s_constituent() -> None:
 
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=manifest,
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=manifest,
     )
 
     op_kinds = [r["op"] for r in manifest.operations_applied]
@@ -1826,14 +2163,18 @@ def test_compose_regime_shift_records_one_op_per_s_constituent() -> None:
 
 def test_compose_regime_shift_step_rate_nonzero_raises() -> None:
     panel, events, registry, contributors = _build_pipeline(n_days=180, seed=42)
-    spec = _regime_shift_spec(
-        day_offset_start=60, duration_days=90, step_rate_per_year=2.0
-    )
+    spec = _regime_shift_spec(day_offset_start=60, duration_days=90, step_rate_per_year=2.0)
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     with pytest.raises(ValueError, match="step_rate_per_year == 0"):
         compose_scenario(
-            spec, panel, events, registry, contributors,
-            BACKTEST_START, seed=42, manifest=manifest,
+            spec,
+            panel,
+            events,
+            registry,
+            contributors,
+            BACKTEST_START,
+            seed=42,
+            manifest=manifest,
         )
 
 
@@ -1856,8 +2197,14 @@ def test_compose_regime_shift_no_constituents_in_tier_raises() -> None:
     manifest = ScenarioManifest(scenario_id=spec.id, seed=42)
     with pytest.raises(ValueError, match="no constituents in tier"):
         compose_scenario(
-            spec, panel, events, empty_s_registry, contributors,
-            BACKTEST_START, seed=42, manifest=manifest,
+            spec,
+            panel,
+            events,
+            empty_s_registry,
+            contributors,
+            BACKTEST_START,
+            seed=42,
+            manifest=manifest,
         )
 
 
@@ -1866,12 +2213,24 @@ def test_compose_regime_shift_deterministic() -> None:
     spec = _regime_shift_spec(day_offset_start=60, duration_days=90)
 
     panel_a, events_a, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=ScenarioManifest(scenario_id="a", seed=42),
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=ScenarioManifest(scenario_id="a", seed=42),
     )
     panel_b, events_b, _ = compose_scenario(
-        spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=ScenarioManifest(scenario_id="b", seed=42),
+        spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=ScenarioManifest(scenario_id="b", seed=42),
     )
     pd.testing.assert_frame_equal(panel_a, panel_b)
     pd.testing.assert_frame_equal(events_a, events_b)
@@ -1890,8 +2249,14 @@ def test_compose_scenario_dispatches_all_batch_d_kinds() -> None:
     )
     tr_manifest = ScenarioManifest(scenario_id=tr_spec.id, seed=42)
     tr_panel, tr_events, tr_registry = compose_scenario(
-        tr_spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=tr_manifest,
+        tr_spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=tr_manifest,
     )
     assert isinstance(tr_panel, pd.DataFrame)
     assert isinstance(tr_events, pd.DataFrame)
@@ -1900,8 +2265,14 @@ def test_compose_scenario_dispatches_all_batch_d_kinds() -> None:
     rs_spec = _regime_shift_spec(day_offset_start=60, duration_days=90)
     rs_manifest = ScenarioManifest(scenario_id=rs_spec.id, seed=42)
     rs_panel, rs_events, _ = compose_scenario(
-        rs_spec, panel, events, registry, contributors,
-        BACKTEST_START, seed=42, manifest=rs_manifest,
+        rs_spec,
+        panel,
+        events,
+        registry,
+        contributors,
+        BACKTEST_START,
+        seed=42,
+        manifest=rs_manifest,
     )
     assert isinstance(rs_panel, pd.DataFrame)
     assert isinstance(rs_events, pd.DataFrame)
@@ -1988,9 +2359,7 @@ def test_preflight_fat_finger_collision_within_window_raises() -> None:
         ]
     )
     with pytest.raises(ValueError, match="pre-flight event-clear-day check FAILED"):
-        preflight_event_clear_check(
-            spec, events_with_collision, contributors, BACKTEST_START
-        )
+        preflight_event_clear_check(spec, events_with_collision, contributors, BACKTEST_START)
 
 
 def test_preflight_fat_finger_outside_window_passes() -> None:
@@ -2026,9 +2395,7 @@ def test_preflight_intraday_spike_collision_raises() -> None:
         ]
     )
     with pytest.raises(ValueError, match="pre-flight event-clear-day check FAILED"):
-        preflight_event_clear_check(
-            spec, events_with_collision, contributors, BACKTEST_START
-        )
+        preflight_event_clear_check(spec, events_with_collision, contributors, BACKTEST_START)
 
 
 def test_preflight_shock_price_cut_skipped_no_event_clear_required() -> None:
@@ -2076,9 +2443,7 @@ def test_preflight_error_message_names_scenario_pair_and_event_date() -> None:
         ]
     )
     with pytest.raises(ValueError) as excinfo:
-        preflight_event_clear_check(
-            spec, events_with_collision, contributors, BACKTEST_START
-        )
+        preflight_event_clear_check(spec, events_with_collision, contributors, BACKTEST_START)
     msg = str(excinfo.value)
     assert "ff_collide" in msg
     assert "contrib_alpha" in msg

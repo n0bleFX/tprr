@@ -89,18 +89,14 @@ def _baseline(registry: ModelRegistry, n_days: int = 100) -> pd.DataFrame:
 def test_panel_validates_against_panel_observation_df() -> None:
     registry = _registry()
     baseline = _baseline(registry, n_days=30)
-    panel = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
+    panel = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
     PanelObservationDF.validate(panel)
 
 
 def test_contributors_only_have_rows_for_covered_models() -> None:
     registry = _registry()
     baseline = _baseline(registry, n_days=30)
-    panel = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
+    panel = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
     high = panel[panel["contributor_id"] == "contrib_high_bias"]
     low = panel[panel["contributor_id"] == "contrib_low_bias"]
     assert set(high["constituent_id"].unique()) == {
@@ -123,16 +119,12 @@ def test_bias_is_multiplicative_not_additive() -> None:
     """
     registry = _registry()
     baseline = _baseline(registry, n_days=200)
-    panel = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
+    panel = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
     high_pro = panel[
         (panel["contributor_id"] == "contrib_high_bias")
         & (panel["constituent_id"] == "openai/gpt-5-pro")
     ].sort_values("observation_date")
-    base_pro = baseline[
-        baseline["constituent_id"] == "openai/gpt-5-pro"
-    ].sort_values("date")
+    base_pro = baseline[baseline["constituent_id"] == "openai/gpt-5-pro"].sort_values("date")
     ratios = (
         high_pro["output_price_usd_mtok"].to_numpy()
         / base_pro["baseline_output_price_usd_mtok"].to_numpy()
@@ -146,9 +138,7 @@ def test_bias_is_multiplicative_not_additive() -> None:
 def test_high_bias_mean_above_low_bias_mean_on_shared_model() -> None:
     registry = _registry()
     baseline = _baseline(registry, n_days=200)
-    panel = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
+    panel = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
     high_pro = panel[
         (panel["contributor_id"] == "contrib_high_bias")
         & (panel["constituent_id"] == "openai/gpt-5-pro")
@@ -157,10 +147,7 @@ def test_high_bias_mean_above_low_bias_mean_on_shared_model() -> None:
         (panel["contributor_id"] == "contrib_low_bias")
         & (panel["constituent_id"] == "openai/gpt-5-pro")
     ]
-    assert (
-        high_pro["output_price_usd_mtok"].mean()
-        > low_pro["output_price_usd_mtok"].mean()
-    )
+    assert high_pro["output_price_usd_mtok"].mean() > low_pro["output_price_usd_mtok"].mean()
 
 
 def test_per_contributor_noise_std_matches_configured_sigma() -> None:
@@ -179,13 +166,9 @@ def test_per_contributor_noise_std_matches_configured_sigma() -> None:
             ),
         ]
     )
-    panel = generate_contributor_panel(
-        baseline, quiet_panel, registry, seed=42
-    )
+    panel = generate_contributor_panel(baseline, quiet_panel, registry, seed=42)
     panel_pro = panel.sort_values("observation_date")
-    base_pro = baseline[
-        baseline["constituent_id"] == "openai/gpt-5-pro"
-    ].sort_values("date")
+    base_pro = baseline[baseline["constituent_id"] == "openai/gpt-5-pro"].sort_values("date")
     ratios = (
         panel_pro["output_price_usd_mtok"].to_numpy()
         / base_pro["baseline_output_price_usd_mtok"].to_numpy()
@@ -200,37 +183,26 @@ def test_per_contributor_noise_std_matches_configured_sigma() -> None:
 def test_seeded_determinism() -> None:
     registry = _registry()
     baseline = _baseline(registry, n_days=60)
-    a = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
-    b = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
+    a = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
+    b = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
     pd.testing.assert_frame_equal(a, b)
 
 
 def test_different_seeds_produce_different_observations() -> None:
     registry = _registry()
     baseline = _baseline(registry, n_days=60)
-    a = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
-    b = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=43
-    )
+    a = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
+    b = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=43)
     assert len(a) == len(b)
     assert not (
-        a["output_price_usd_mtok"].to_numpy()
-        == b["output_price_usd_mtok"].to_numpy()
+        a["output_price_usd_mtok"].to_numpy() == b["output_price_usd_mtok"].to_numpy()
     ).all()
 
 
 def test_attestation_tier_and_source_are_constants() -> None:
     registry = _registry()
     baseline = _baseline(registry, n_days=30)
-    panel = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
+    panel = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
     assert (panel["attestation_tier"] == AttestationTier.A.value).all()
     assert (panel["source"] == "contributor_mock").all()
 
@@ -238,9 +210,7 @@ def test_attestation_tier_and_source_are_constants() -> None:
 def test_volume_placeholder_is_zero() -> None:
     registry = _registry()
     baseline = _baseline(registry, n_days=30)
-    panel = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
+    panel = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
     assert (panel["volume_mtok_7d"] == 0.0).all()
 
 
@@ -248,23 +218,17 @@ def test_input_output_share_noise_per_day() -> None:
     """Input and output ratios over baseline should match exactly per row."""
     registry = _registry()
     baseline = _baseline(registry, n_days=60)
-    panel = generate_contributor_panel(
-        baseline, _two_contributor_panel(), registry, seed=42
-    )
+    panel = generate_contributor_panel(baseline, _two_contributor_panel(), registry, seed=42)
     pro = panel[
         (panel["contributor_id"] == "contrib_high_bias")
         & (panel["constituent_id"] == "openai/gpt-5-pro")
     ].sort_values("observation_date")
-    base = baseline[baseline["constituent_id"] == "openai/gpt-5-pro"].sort_values(
-        "date"
-    )
+    base = baseline[baseline["constituent_id"] == "openai/gpt-5-pro"].sort_values("date")
     in_ratio = (
-        pro["input_price_usd_mtok"].to_numpy()
-        / base["baseline_input_price_usd_mtok"].to_numpy()
+        pro["input_price_usd_mtok"].to_numpy() / base["baseline_input_price_usd_mtok"].to_numpy()
     )
     out_ratio = (
-        pro["output_price_usd_mtok"].to_numpy()
-        / base["baseline_output_price_usd_mtok"].to_numpy()
+        pro["output_price_usd_mtok"].to_numpy() / base["baseline_output_price_usd_mtok"].to_numpy()
     )
     assert np.allclose(in_ratio, out_ratio, atol=1e-12)
 
@@ -301,9 +265,7 @@ def test_error_rate_amplifies_noise_sigma_by_ten() -> None:
     )
     a = generate_contributor_panel(baseline, quiet, registry, seed=42)
     b = generate_contributor_panel(baseline, erroring, registry, seed=42)
-    base = baseline[baseline["constituent_id"] == "openai/gpt-5-pro"].sort_values(
-        "date"
-    )
+    base = baseline[baseline["constituent_id"] == "openai/gpt-5-pro"].sort_values("date")
     a_std = float(
         np.std(
             a.sort_values("observation_date")["output_price_usd_mtok"].to_numpy()
@@ -319,9 +281,7 @@ def test_error_rate_amplifies_noise_sigma_by_ten() -> None:
         )
     )
     ratio = b_std / a_std
-    assert 7.0 < ratio < 13.0, (
-        f"erroring/quiet std ratio {ratio:.2f} not in expected ~10x band"
-    )
+    assert 7.0 < ratio < 13.0, f"erroring/quiet std ratio {ratio:.2f} not in expected ~10x band"
 
 
 def test_unknown_covered_model_raises() -> None:
@@ -377,13 +337,8 @@ def test_adding_a_contributor_does_not_perturb_others() -> None:
     )
     a = generate_contributor_panel(baseline, base_panel, registry, seed=42)
     b = generate_contributor_panel(baseline, extended_panel, registry, seed=42)
-    a_alpha = a[a["contributor_id"] == "contrib_alpha"].sort_values(
-        "observation_date"
-    )
-    b_alpha = b[b["contributor_id"] == "contrib_alpha"].sort_values(
-        "observation_date"
-    )
+    a_alpha = a[a["contributor_id"] == "contrib_alpha"].sort_values("observation_date")
+    b_alpha = b[b["contributor_id"] == "contrib_alpha"].sort_values("observation_date")
     assert (
-        a_alpha["output_price_usd_mtok"].to_numpy()
-        == b_alpha["output_price_usd_mtok"].to_numpy()
+        a_alpha["output_price_usd_mtok"].to_numpy() == b_alpha["output_price_usd_mtok"].to_numpy()
     ).all()

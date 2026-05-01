@@ -225,18 +225,18 @@ def test_tier_b_revenue_entry_accepts_valid_period() -> None:
 @pytest.mark.parametrize(
     "bad_period",
     [
-        "2025-q1",     # lowercase q
-        "25-Q1",       # two-digit year
-        "2025-Q5",     # invalid quarter (high)
-        "2025-Q0",     # invalid quarter (low)
-        "2025-Q01",    # extra digit on quarter
-        "2025-Q1 ",    # trailing whitespace
-        " 2025-Q1",    # leading whitespace
-        "2025_Q1",     # underscore separator
-        "2025-1",      # missing Q
-        "Q1-2025",     # reversed
-        "",            # empty
-        "2025-QQ",     # garbage
+        "2025-q1",  # lowercase q
+        "25-Q1",  # two-digit year
+        "2025-Q5",  # invalid quarter (high)
+        "2025-Q0",  # invalid quarter (low)
+        "2025-Q01",  # extra digit on quarter
+        "2025-Q1 ",  # trailing whitespace
+        " 2025-Q1",  # leading whitespace
+        "2025_Q1",  # underscore separator
+        "2025-1",  # missing Q
+        "Q1-2025",  # reversed
+        "",  # empty
+        "2025-QQ",  # garbage
     ],
 )
 def test_tier_b_revenue_entry_rejects_malformed_period(bad_period: str) -> None:
@@ -263,12 +263,8 @@ def test_tier_b_revenue_entry_accepts_each_valid_quarter() -> None:
 def test_get_provider_revenue_interpolates_between_quarters() -> None:
     cfg = TierBRevenueConfig(
         entries=[
-            TierBRevenueEntry(
-                provider="openai", period="2025-Q1", amount_usd=1_000.0, source="x"
-            ),
-            TierBRevenueEntry(
-                provider="openai", period="2025-Q2", amount_usd=2_000.0, source="x"
-            ),
+            TierBRevenueEntry(provider="openai", period="2025-Q1", amount_usd=1_000.0, source="x"),
+            TierBRevenueEntry(provider="openai", period="2025-Q2", amount_usd=2_000.0, source="x"),
         ]
     )
     midpoint = date(2025, 5, 15)
@@ -282,12 +278,8 @@ def test_get_provider_revenue_interpolates_between_quarters() -> None:
 def test_get_provider_revenue_exact_at_anchor_dates() -> None:
     cfg = TierBRevenueConfig(
         entries=[
-            TierBRevenueEntry(
-                provider="openai", period="2025-Q1", amount_usd=1_000.0, source="x"
-            ),
-            TierBRevenueEntry(
-                provider="openai", period="2025-Q2", amount_usd=2_000.0, source="x"
-            ),
+            TierBRevenueEntry(provider="openai", period="2025-Q1", amount_usd=1_000.0, source="x"),
+            TierBRevenueEntry(provider="openai", period="2025-Q2", amount_usd=2_000.0, source="x"),
         ]
     )
     assert cfg.get_provider_revenue("openai", date(2025, 3, 31)) == 1_000.0
@@ -297,9 +289,7 @@ def test_get_provider_revenue_exact_at_anchor_dates() -> None:
 def test_get_provider_revenue_clamps_below_earliest() -> None:
     cfg = TierBRevenueConfig(
         entries=[
-            TierBRevenueEntry(
-                provider="openai", period="2025-Q2", amount_usd=2_000.0, source="x"
-            ),
+            TierBRevenueEntry(provider="openai", period="2025-Q2", amount_usd=2_000.0, source="x"),
         ]
     )
     assert cfg.get_provider_revenue("openai", date(2024, 1, 1)) == 2_000.0
@@ -308,9 +298,7 @@ def test_get_provider_revenue_clamps_below_earliest() -> None:
 def test_get_provider_revenue_clamps_above_latest() -> None:
     cfg = TierBRevenueConfig(
         entries=[
-            TierBRevenueEntry(
-                provider="openai", period="2025-Q1", amount_usd=1_000.0, source="x"
-            ),
+            TierBRevenueEntry(provider="openai", period="2025-Q1", amount_usd=1_000.0, source="x"),
         ]
     )
     assert cfg.get_provider_revenue("openai", date(2027, 1, 1)) == 1_000.0
@@ -325,9 +313,7 @@ def test_get_provider_revenue_raises_on_unknown_provider() -> None:
 def test_get_provider_revenue_filters_to_matching_provider_only() -> None:
     cfg = TierBRevenueConfig(
         entries=[
-            TierBRevenueEntry(
-                provider="openai", period="2025-Q1", amount_usd=1_000.0, source="x"
-            ),
+            TierBRevenueEntry(provider="openai", period="2025-Q1", amount_usd=1_000.0, source="x"),
             TierBRevenueEntry(
                 provider="anthropic",
                 period="2025-Q1",
@@ -459,9 +445,7 @@ def test_production_tier_b_revenue_interpolates_between_quarters() -> None:
     mid_q2 = cfg.get_provider_revenue("openai", date(2025, 5, 15))
     span_days = (date(2025, 6, 30) - date(2025, 3, 31)).days
     days_in = (date(2025, 5, 15) - date(2025, 3, 31)).days
-    expected = 300_000_000.0 + (days_in / span_days) * (
-        440_000_000.0 - 300_000_000.0
-    )
+    expected = 300_000_000.0 + (days_in / span_days) * (440_000_000.0 - 300_000_000.0)
     assert abs(mid_q2 - expected) < 1.0
 
 

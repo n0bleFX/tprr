@@ -154,9 +154,7 @@ def run_full_pipeline(
     # suspensions are unchanged); aggregation simply sees one fewer Tier A
     # contributor on that day, and the priority fall-through handles the
     # downstream effect.
-    panel_filtered, exclusions_filtered = _drop_fully_excluded_rows(
-        panel_df, excluded_slots
-    )
+    panel_filtered, exclusions_filtered = _drop_fully_excluded_rows(panel_df, excluded_slots)
 
     panel_with_twap = compute_panel_twap(
         panel_filtered,
@@ -183,19 +181,23 @@ def run_full_pipeline(
             change_events_df=change_events_df,
             excluded_slots_df=exclusions_filtered,
         )
-        rebased, anchor = rebase_index_level(
-            tier_indices, base_date=config.base_date
-        )
+        rebased, anchor = rebase_index_level(tier_indices, base_date=config.base_date)
         indices[tier.value] = rebased
         anchors[tier.value] = anchor
 
     fpr_df, fpr_anchor = compute_fpr(
-        indices["TPRR_F"], indices["TPRR_S"], config,
-        version=version, ordering=ordering,
+        indices["TPRR_F"],
+        indices["TPRR_S"],
+        config,
+        version=version,
+        ordering=ordering,
     )
     ser_df, ser_anchor = compute_ser(
-        indices["TPRR_S"], indices["TPRR_E"], config,
-        version=version, ordering=ordering,
+        indices["TPRR_S"],
+        indices["TPRR_E"],
+        config,
+        version=version,
+        ordering=ordering,
     )
     indices["TPRR_FPR"] = fpr_df
     indices["TPRR_SER"] = ser_df
@@ -261,9 +263,7 @@ def _drop_fully_excluded_rows(
     """
     if excluded_slots_df.empty:
         return panel_df, excluded_slots_df
-    per_key = excluded_slots_df.groupby(
-        ["contributor_id", "constituent_id", "date"]
-    ).size()
+    per_key = excluded_slots_df.groupby(["contributor_id", "constituent_id", "date"]).size()
     fully_excluded_keys = per_key[per_key >= _TWAP_SLOTS_PER_DAY].index
     if len(fully_excluded_keys) == 0:
         return panel_df, excluded_slots_df

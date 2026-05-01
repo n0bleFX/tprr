@@ -86,9 +86,7 @@ def compute_within_tier_share(raw_volumes: dict[str, float]) -> dict[str, float]
         return {}
     for cid, v in raw_volumes.items():
         if v < 0:
-            raise ValueError(
-                f"compute_within_tier_share: negative volume for {cid!r}: {v}"
-            )
+            raise ValueError(f"compute_within_tier_share: negative volume for {cid!r}: {v}")
     total = sum(raw_volumes.values())
     if total <= 0:
         return {cid: 0.0 for cid in raw_volumes}
@@ -129,9 +127,7 @@ def redistribute_blending_coefficients(
         # branch. Distribute uniformly so the constituent still contributes.
         n = len(available_tiers)
         return {t: 1.0 / n for t in available_tiers}
-    return {
-        t: default_coefficients[t] / subset_total for t in available_tiers
-    }
+    return {t: default_coefficients[t] / subset_total for t in available_tiers}
 
 
 def compute_blended_tier_volumes(
@@ -418,8 +414,7 @@ def compute_dual_weights(
         for tier_t, raw_v in per_tier.items():
             volumes_by_tier[tier_t][cid] = raw_v
     shares_by_tier: dict[AttestationTier, dict[str, float]] = {
-        tier: compute_within_tier_share(vols)
-        for tier, vols in volumes_by_tier.items()
+        tier: compute_within_tier_share(vols) for tier, vols in volumes_by_tier.items()
     }
 
     # Pass 3: per (constituent, tier) emit one row.

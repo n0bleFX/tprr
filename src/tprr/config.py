@@ -156,9 +156,7 @@ class TierBRevenueEntry(BaseModel):
     @classmethod
     def _validate_period_format(cls, v: str) -> str:
         if not _PERIOD_PATTERN.fullmatch(v):
-            raise ValueError(
-                f"period must match 'YYYY-Qn' (n in 1..4), got {v!r}"
-            )
+            raise ValueError(f"period must match 'YYYY-Qn' (n in 1..4), got {v!r}")
         return v
 
 
@@ -184,9 +182,7 @@ class TierBRevenueConfig(BaseModel):
             key=lambda e: _period_to_quarter_end(e.period),
         )
         if not provider_entries:
-            raise ValueError(
-                f"no Tier B revenue entries for provider {provider!r}"
-            )
+            raise ValueError(f"no Tier B revenue entries for provider {provider!r}")
         anchors = [_period_to_quarter_end(e.period) for e in provider_entries]
         amounts = [e.amount_usd for e in provider_entries]
         if target_date <= anchors[0]:
@@ -224,9 +220,7 @@ class _TargetContributorList(BaseModel):
     @classmethod
     def _at_least_two_unique(cls, v: list[str]) -> list[str]:
         if len(v) < 2:
-            raise ValueError(
-                "contributor_ids must list at least 2 entries (correlated blackout)"
-            )
+            raise ValueError("contributor_ids must list at least 2 entries (correlated blackout)")
         if len(set(v)) != len(v):
             raise ValueError("contributor_ids must be unique")
         return v
@@ -284,8 +278,7 @@ class _TimingSlotRange(BaseModel):
     def _start_le_end(self) -> _TimingSlotRange:
         if self.slot_start > self.slot_end:
             raise ValueError(
-                f"slot_start ({self.slot_start}) must be <= slot_end "
-                f"({self.slot_end})"
+                f"slot_start ({self.slot_start}) must be <= slot_end ({self.slot_end})"
             )
         return self
 
@@ -494,9 +487,7 @@ class ScenariosConfig(BaseModel):
         ids = [s.id for s in v]
         if len(ids) != len(set(ids)):
             duplicates = sorted({i for i in ids if ids.count(i) > 1})
-            raise ValueError(
-                f"scenario ids must be unique; duplicates: {duplicates}"
-            )
+            raise ValueError(f"scenario ids must be unique; duplicates: {duplicates}")
         return v
 
 
@@ -524,10 +515,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:  # YAML may hold heterogeneous val
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
-        raise ValueError(
-            f"{path}: expected YAML mapping at top level, "
-            f"got {type(loaded).__name__}"
-        )
+        raise ValueError(f"{path}: expected YAML mapping at top level, got {type(loaded).__name__}")
     return loaded
 
 
@@ -561,9 +549,7 @@ def load_scenarios(path: Path | None = None) -> ScenariosConfig:
     return ScenariosConfig.model_validate(_read_yaml(path))
 
 
-def _cross_validate_covered_models(
-    contributors: ContributorPanel, registry: ModelRegistry
-) -> None:
+def _cross_validate_covered_models(contributors: ContributorPanel, registry: ModelRegistry) -> None:
     valid_ids = {m.constituent_id for m in registry.models}
     for profile in contributors.contributors:
         unknown = sorted(set(profile.covered_models) - valid_ids)
@@ -625,10 +611,7 @@ def _cross_validate_scenario_references(
 
         if isinstance(
             s,
-            FatFingerSpec
-            | StaleQuoteSpec
-            | SustainedManipulationSpec
-            | IntradaySpikeSpec,
+            FatFingerSpec | StaleQuoteSpec | SustainedManipulationSpec | IntradaySpikeSpec,
         ):
             refs_contrib.append(s.target.contributor_id)
             refs_constituent.append(s.target.constituent_id)
@@ -645,14 +628,12 @@ def _cross_validate_scenario_references(
         unknown_contribs = sorted(set(refs_contrib) - contrib_ids)
         if unknown_contribs:
             raise ValueError(
-                f"scenario {s.id!r}: contributor_ids {unknown_contribs} "
-                f"not in contributor panel"
+                f"scenario {s.id!r}: contributor_ids {unknown_contribs} not in contributor panel"
             )
         unknown_constituents = sorted(set(refs_constituent) - constituent_ids)
         if unknown_constituents:
             raise ValueError(
-                f"scenario {s.id!r}: constituent_ids {unknown_constituents} "
-                f"not in model registry"
+                f"scenario {s.id!r}: constituent_ids {unknown_constituents} not in model registry"
             )
         if new_constituent is not None and new_constituent in constituent_ids:
             raise ValueError(
@@ -700,9 +681,7 @@ def load_all(
     if backtest_end is None:
         backtest_end = date.today()
     scenarios_yaml_path = (
-        scenarios_path
-        if scenarios_path is not None
-        else config_dir / "scenarios.yaml"
+        scenarios_path if scenarios_path is not None else config_dir / "scenarios.yaml"
     )
     bundle = AllConfig(
         index=load_index_config(config_dir / "index_config.yaml"),

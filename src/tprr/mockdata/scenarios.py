@@ -138,9 +138,7 @@ def preflight_event_clear_check(
             & (events_df["event_date"] < pd.Timestamp(window_end))
         )
         for ev_date in events_df.loc[mask, "event_date"].unique():
-            collisions.append(
-                (contrib_id, constituent_id, pd.Timestamp(ev_date))
-            )
+            collisions.append((contrib_id, constituent_id, pd.Timestamp(ev_date)))
 
     if not collisions:
         return
@@ -150,16 +148,11 @@ def preflight_event_clear_check(
         f"natural events collide with the day_offset annotation",
         f"  scenario kind:    {spec.kind}",
         f"  target day_offset: {day_offset} ({target_date.isoformat()})",
-        f"  +/-{window_days}-day window: [{window_start.isoformat()}, "
-        f"{window_end.isoformat()}]",
+        f"  +/-{window_days}-day window: [{window_start.isoformat()}, {window_end.isoformat()}]",
         "  colliding events:",
     ]
-    for c, m, d in sorted(
-        collisions, key=lambda t: (t[2].toordinal(), t[0], t[1])
-    ):
-        msg_lines.append(
-            f"    ({c!r}, {m!r}) on {d.date().isoformat()}"
-        )
+    for c, m, d in sorted(collisions, key=lambda t: (t[2].toordinal(), t[0], t[1])):
+        msg_lines.append(f"    ({c!r}, {m!r}) on {d.date().isoformat()}")
     msg_lines.extend(
         [
             "",
@@ -167,8 +160,7 @@ def preflight_event_clear_check(
             "  1. Re-verify scenarios.yaml against the current seed — confirm",
             "     the day_offset annotation is still accurate after any seed",
             "     or registry change.",
-            "  2. Shift day_offset in scenarios.yaml manually to a "
-            "verified-clear day,",
+            "  2. Shift day_offset in scenarios.yaml manually to a verified-clear day,",
             "     and log the shift in the scenario's `notes` field.",
             "  3. Change seed — but then re-verify ALL scenarios against the",
             "     new seed, since their event-clear-day annotations are seed-",
@@ -197,13 +189,9 @@ def compose_scenario(
     _ = seed  # reserved for stochastic kinds (regenerate_constituent_slice)
 
     if isinstance(spec, FatFingerSpec):
-        return _compose_fat_finger(
-            spec, panel_df, events_df, registry, backtest_start, manifest
-        )
+        return _compose_fat_finger(spec, panel_df, events_df, registry, backtest_start, manifest)
     if isinstance(spec, StaleQuoteSpec):
-        return _compose_stale_quote(
-            spec, panel_df, events_df, registry, backtest_start, manifest
-        )
+        return _compose_stale_quote(spec, panel_df, events_df, registry, backtest_start, manifest)
     if isinstance(spec, IntradaySpikeSpec):
         return _compose_intraday_spike(
             spec, panel_df, events_df, registry, backtest_start, manifest
@@ -214,8 +202,14 @@ def compose_scenario(
         )
     if isinstance(spec, ShockPriceCutSpec):
         return _compose_shock_price_cut(
-            spec, panel_df, events_df, registry, contributors,
-            backtest_start, seed, manifest,
+            spec,
+            panel_df,
+            events_df,
+            registry,
+            contributors,
+            backtest_start,
+            seed,
+            manifest,
         )
     if isinstance(spec, SustainedManipulationSpec):
         return _compose_sustained_manipulation(
@@ -223,8 +217,14 @@ def compose_scenario(
         )
     if isinstance(spec, NewModelLaunchSpec):
         return _compose_new_model_launch(
-            spec, panel_df, events_df, registry, contributors,
-            backtest_start, seed, manifest,
+            spec,
+            panel_df,
+            events_df,
+            registry,
+            contributors,
+            backtest_start,
+            seed,
+            manifest,
         )
     if isinstance(spec, TierReshuffleSpec):
         return _compose_tier_reshuffle(
@@ -232,8 +232,14 @@ def compose_scenario(
         )
     if isinstance(spec, RegimeShiftSpec):
         return _compose_regime_shift(
-            spec, panel_df, events_df, registry, contributors,
-            backtest_start, seed, manifest,
+            spec,
+            panel_df,
+            events_df,
+            registry,
+            contributors,
+            backtest_start,
+            seed,
+            manifest,
         )
     # Defensive: a new ScenarioEntry subclass added without a composer.
     raise NotImplementedError(  # pragma: no cover
@@ -277,9 +283,7 @@ def _compose_fat_finger(
             f"maximum slot index {_MAX_SLOT_IDX}"
         )
 
-    base_in, base_out = _get_panel_prices(
-        panel_df, contrib, constituent, event_date
-    )
+    base_in, base_out = _get_panel_prices(panel_df, contrib, constituent, event_date)
     spiked_in = base_in * spec.magnitude.multiplier
     spiked_out = base_out * spec.magnitude.multiplier
 
@@ -310,9 +314,7 @@ def _compose_fat_finger(
     )
     manifest.record(op_record)
 
-    panel_out = _retwap_for_key(
-        panel_df, events_out, contrib, constituent, event_date
-    )
+    panel_out = _retwap_for_key(panel_df, events_out, contrib, constituent, event_date)
     return panel_out, events_out, registry
 
 
@@ -371,9 +373,7 @@ def _compose_intraday_spike(
     contrib = spec.target.contributor_id
     constituent = spec.target.constituent_id
 
-    base_in, base_out = _get_panel_prices(
-        panel_df, contrib, constituent, event_date
-    )
+    base_in, base_out = _get_panel_prices(panel_df, contrib, constituent, event_date)
     spiked_in = base_in * spec.magnitude.multiplier
     spiked_out = base_out * spec.magnitude.multiplier
 
@@ -404,9 +404,7 @@ def _compose_intraday_spike(
     )
     manifest.record(op_record)
 
-    panel_out = _retwap_for_key(
-        panel_df, events_out, contrib, constituent, event_date
-    )
+    panel_out = _retwap_for_key(panel_df, events_out, contrib, constituent, event_date)
     return panel_out, events_out, registry
 
 
@@ -482,14 +480,10 @@ def _compose_shock_price_cut(
     multiplier = spec.magnitude.multiplier
 
     covering = [
-        p.contributor_id
-        for p in contributors.contributors
-        if constituent_id in p.covered_models
+        p.contributor_id for p in contributors.contributors if constituent_id in p.covered_models
     ]
     if not covering:
-        raise ValueError(
-            f"scenario {spec.id!r}: no contributors cover {constituent_id!r}"
-        )
+        raise ValueError(f"scenario {spec.id!r}: no contributors cover {constituent_id!r}")
 
     publication_slot = _draw_publication_slot(
         seed, constituent_id, event_date, tag="scenario_shock_cut"
@@ -505,9 +499,7 @@ def _compose_shock_price_cut(
             publication_slot,
             tag="scenario_shock_cut_jitter",
         )
-        base_in, base_out = _get_panel_prices(
-            panel_df, contrib_id, constituent_id, event_date
-        )
+        base_in, base_out = _get_panel_prices(panel_df, contrib_id, constituent_id, event_date)
         new_in = base_in * multiplier
         new_out = base_out * multiplier
         new_events.append(
@@ -528,9 +520,7 @@ def _compose_shock_price_cut(
 
     panel_out = panel_df
     for contrib_id in covering:
-        panel_out = _retwap_for_key(
-            panel_out, events_out, contrib_id, constituent_id, event_date
-        )
+        panel_out = _retwap_for_key(panel_out, events_out, contrib_id, constituent_id, event_date)
     return panel_out, events_out, registry
 
 
@@ -650,9 +640,7 @@ def _compose_new_model_launch(
         baseline_output_price_usd_mtok=spec.new_model.baseline_output_price_usd_mtok,
     )
 
-    registry_out, mutate_rec = mutate_registry(
-        registry, {"type": "add_model", "model": new_model}
-    )
+    registry_out, mutate_rec = mutate_registry(registry, {"type": "add_model", "model": new_model})
     manifest.record(mutate_rec)
 
     coverage_set = set(spec.coverage.contributor_ids)
@@ -730,9 +718,7 @@ def _compose_tier_reshuffle(
     )
     manifest.record(mutate_rec)
 
-    panel_out = _rewrite_panel_tier_code(
-        panel_df, constituent_id, new_tier, effective_date
-    )
+    panel_out = _rewrite_panel_tier_code(panel_df, constituent_id, new_tier, effective_date)
 
     manifest.add_note(
         f"tier_reshuffle: registry holds single-valued tier "
@@ -793,9 +779,7 @@ def _compose_regime_shift(
 
     target_constituents = [m for m in registry.models if m.tier == spec.tier]
     if not target_constituents:
-        raise ValueError(
-            f"scenario {spec.id!r}: no constituents in tier {spec.tier!r}"
-        )
+        raise ValueError(f"scenario {spec.id!r}: no constituents in tier {spec.tier!r}")
 
     panel_out = panel_df
     events_out = events_df
@@ -837,8 +821,7 @@ def _get_panel_prices(
     rows = panel_df.loc[mask]
     if len(rows) == 0:
         raise ValueError(
-            f"no panel row for ({contributor_id!r}, {constituent_id!r}, "
-            f"{event_date.isoformat()})"
+            f"no panel row for ({contributor_id!r}, {constituent_id!r}, {event_date.isoformat()})"
         )
     row = rows.iloc[0]
     return float(row["input_price_usd_mtok"]), float(row["output_price_usd_mtok"])
@@ -902,24 +885,19 @@ def _rewrite_panel_tier_code(
     category before assignment if needed.
     """
     out = panel_df.copy()
-    mask = (
-        (out["constituent_id"] == constituent_id)
-        & (out["observation_date"] >= pd.Timestamp(effective_date))
+    mask = (out["constituent_id"] == constituent_id) & (
+        out["observation_date"] >= pd.Timestamp(effective_date)
     )
     if (
         isinstance(out["tier_code"].dtype, pd.CategoricalDtype)
         and new_tier.value not in out["tier_code"].cat.categories
     ):
-        out["tier_code"] = out["tier_code"].cat.add_categories(
-            [new_tier.value]
-        )
+        out["tier_code"] = out["tier_code"].cat.add_categories([new_tier.value])
     out.loc[mask, "tier_code"] = new_tier.value
     return out
 
 
-def _draw_publication_slot(
-    seed: int, constituent_id: str, event_date: date, *, tag: str
-) -> int:
+def _draw_publication_slot(seed: int, constituent_id: str, event_date: date, *, tag: str) -> int:
     """Draw a publication slot from ``Normal(16, 6)`` clipped to ``[0, 31]``.
 
     Mirrors the Phase 2b propagated-event publication-slot draw. ``tag``
@@ -927,8 +905,7 @@ def _draw_publication_slot(
     cannot collide.
     """
     ss = np.random.SeedSequence(
-        [seed, _stable_int(tag), _stable_int(constituent_id),
-         pd.Timestamp(event_date).toordinal()]
+        [seed, _stable_int(tag), _stable_int(constituent_id), pd.Timestamp(event_date).toordinal()]
     )
     rng = np.random.default_rng(ss)
     return int(
@@ -999,9 +976,9 @@ def _compute_daily_tier_medians(
         ],
     ]
 
-    constituent_medians = s_window.groupby(
-        ["observation_date", "constituent_id"], observed=True
-    )[["input_price_usd_mtok", "output_price_usd_mtok"]].median()
+    constituent_medians = s_window.groupby(["observation_date", "constituent_id"], observed=True)[
+        ["input_price_usd_mtok", "output_price_usd_mtok"]
+    ].median()
     date_medians = constituent_medians.groupby(level="observation_date").median()
 
     expected_days = pd.date_range(start_ts, end_ts, freq="D")

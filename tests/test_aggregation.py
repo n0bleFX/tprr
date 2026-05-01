@@ -463,7 +463,9 @@ def test_compute_tier_index_volume_weighted_collapse_pulls_constituent_price() -
 # ---------------------------------------------------------------------------
 
 
-def test_compute_tier_index_priority_fallthrough_preserved_under_within_tier_normalization() -> None:
+def test_compute_tier_index_priority_fallthrough_preserved_under_within_tier_normalization() -> (
+    None
+):
     """Phase 7H Batch A (DL 2026-04-30) replaces ``w_vol = raw_volume x haircut``
     with ``w_vol = within_tier_share x haircut``. Priority fall-through
     SELECTION is preserved (gpt-5-pro still falls to Tier B because it has
@@ -524,9 +526,7 @@ def test_compute_tier_index_priority_fallthrough_preserved_under_within_tier_nor
     # 10A) to 1 so this test exercises pre-threshold within-tier-share +
     # priority fall-through semantics in isolation. The threshold-aware
     # behaviour is tested elsewhere.
-    permissive_config = _index_config().model_copy(
-        update={"tier_min_constituents_for_blending": 1}
-    )
+    permissive_config = _index_config().model_copy(update={"tier_min_constituents_for_blending": 1})
     result = compute_tier_index(
         panel_day_df=panel,
         tier=Tier.TPRR_F,
@@ -578,12 +578,8 @@ def test_run_tier_pipeline_carries_prior_raw_value_through_suspension() -> None:
     """Day 1 produces a valid fix; day 2 has only 2 constituents → suspended
     but carries day 1's raw_value forward."""
     rows_d1 = _three_contributors_per_constituent_panel(date(2025, 1, 1))
-    rows_d2_partial = _three_contributors_per_constituent_panel(
-        date(2025, 1, 2)
-    )
-    rows_d2_partial = rows_d2_partial[
-        rows_d2_partial["constituent_id"] != "google/gemini-3-pro"
-    ]
+    rows_d2_partial = _three_contributors_per_constituent_panel(date(2025, 1, 2))
+    rows_d2_partial = rows_d2_partial[rows_d2_partial["constituent_id"] != "google/gemini-3-pro"]
     panel = pd.concat([rows_d1, rows_d2_partial], ignore_index=True)
     out = run_tier_pipeline(
         panel_df=panel,
@@ -597,10 +593,7 @@ def test_run_tier_pipeline_carries_prior_raw_value_through_suspension() -> None:
     d1_value = float(out.iloc[0]["raw_value_usd_mtok"])
     assert not out.iloc[0]["suspended"]
     assert out.iloc[1]["suspended"]
-    assert (
-        out.iloc[1]["suspension_reason"]
-        == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
-    )
+    assert out.iloc[1]["suspension_reason"] == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
     assert float(out.iloc[1]["raw_value_usd_mtok"]) == pytest.approx(d1_value)
 
 
@@ -711,8 +704,12 @@ def test_rebase_index_level_skips_suspended_anchor() -> None:
 
     df = pd.DataFrame(
         [
-            _index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=float("nan"), suspended=True),
-            _index_value_df_row(as_of_date=date(2026, 1, 2), raw_value=float("nan"), suspended=True),
+            _index_value_df_row(
+                as_of_date=date(2026, 1, 1), raw_value=float("nan"), suspended=True
+            ),
+            _index_value_df_row(
+                as_of_date=date(2026, 1, 2), raw_value=float("nan"), suspended=True
+            ),
             _index_value_df_row(as_of_date=date(2026, 1, 3), raw_value=70.0),
         ]
     )
@@ -731,8 +728,12 @@ def test_rebase_index_level_no_eligible_anchor_returns_none() -> None:
 
     df = pd.DataFrame(
         [
-            _index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=float("nan"), suspended=True),
-            _index_value_df_row(as_of_date=date(2026, 1, 2), raw_value=float("nan"), suspended=True),
+            _index_value_df_row(
+                as_of_date=date(2026, 1, 1), raw_value=float("nan"), suspended=True
+            ),
+            _index_value_df_row(
+                as_of_date=date(2026, 1, 2), raw_value=float("nan"), suspended=True
+            ),
         ]
     )
     out, anchor = rebase_index_level(df, base_date=date(2026, 1, 1))
@@ -1047,9 +1048,7 @@ def test_build_rebase_metadata_df_every_index_represented() -> None:
     from tprr.index.aggregation import build_rebase_metadata_df
 
     indices = {
-        "TPRR_F": pd.DataFrame(
-            [_index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=60.0)]
-        ),
+        "TPRR_F": pd.DataFrame([_index_value_df_row(as_of_date=date(2026, 1, 1), raw_value=60.0)]),
         "TPRR_S": pd.DataFrame(
             [
                 _index_value_df_row(
@@ -1184,9 +1183,7 @@ def test_decisions_out_included_rows_populate_all_numeric_fields() -> None:
     )
     for row in decisions:
         for field_name in numeric_fields:
-            assert not np.isnan(row[field_name]), (
-                f"included row should populate {field_name!r}"
-            )
+            assert not np.isnan(row[field_name]), f"included row should populate {field_name!r}"
         assert row["contributor_count"] > 0
     # Sum of w_vol_contribution per constituent equals that constituent's
     # combined w_vol — Phase 9/10 consumers reconstruct combined w_vol via
@@ -1271,8 +1268,7 @@ def test_decisions_out_tier_volume_unavailable_emits_excluded_row() -> None:
     assert len(excluded) == 1
     assert excluded[0]["constituent_id"] == "openai/gpt-5-pro"
     assert (
-        excluded[0]["exclusion_reason"]
-        == ConstituentExclusionReason.TIER_VOLUME_UNAVAILABLE.value
+        excluded[0]["exclusion_reason"] == ConstituentExclusionReason.TIER_VOLUME_UNAVAILABLE.value
     )
     assert excluded[0]["attestation_tier"] == ""
     assert np.isnan(excluded[0]["raw_volume_mtok"])
@@ -1311,9 +1307,7 @@ def test_decisions_out_tier_aggregation_suspended_when_min_3_fails() -> None:
     # min_constituents_per_tier (index-tier) path. Under default threshold=3,
     # Tier A's 2-constituent coverage would fire TIER_INELIGIBLE_FOR_BLENDING
     # first; that threshold-aware exclusion is tested separately.
-    permissive_config = _index_config().model_copy(
-        update={"tier_min_constituents_for_blending": 1}
-    )
+    permissive_config = _index_config().model_copy(update={"tier_min_constituents_for_blending": 1})
     compute_tier_index(
         panel_day_df=panel,
         tier=Tier.TPRR_F,
@@ -1329,8 +1323,7 @@ def test_decisions_out_tier_aggregation_suspended_when_min_3_fails() -> None:
     for row in decisions:
         assert not row["included"]
         assert (
-            row["exclusion_reason"]
-            == ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value
+            row["exclusion_reason"] == ConstituentExclusionReason.TIER_AGGREGATION_SUSPENDED.value
         )
         # w_vol_contribution was computed before suspension decision.
         assert not np.isnan(row["w_vol_contribution"])
@@ -1489,8 +1482,7 @@ def test_decisions_out_all_pairs_suspended_emits_excluded_row() -> None:
     all_pairs_suspended = [
         x
         for x in decisions
-        if x["exclusion_reason"]
-        == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
+        if x["exclusion_reason"] == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
     ]
     assert len(all_pairs_suspended) == 1
     row = all_pairs_suspended[0]
@@ -1552,16 +1544,12 @@ def test_decisions_out_all_pairs_suspended_co_fires_with_tier_data_unavailable()
     )
     # Tier-level: TIER_DATA_UNAVAILABLE.
     assert result["suspended"]
-    assert (
-        result["suspension_reason"]
-        == SuspensionReason.TIER_DATA_UNAVAILABLE.value
-    )
+    assert result["suspension_reason"] == SuspensionReason.TIER_DATA_UNAVAILABLE.value
     # Per-constituent: 3 ALL_PAIRS_SUSPENDED rows (one per F constituent).
     all_pairs_suspended = [
         x
         for x in decisions
-        if x["exclusion_reason"]
-        == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
+        if x["exclusion_reason"] == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
     ]
     assert len(all_pairs_suspended) == 3
     suspended_constituents = {x["constituent_id"] for x in all_pairs_suspended}
@@ -1639,8 +1627,7 @@ def test_decisions_out_all_pairs_suspended_respects_tier_code_filter() -> None:
     all_pairs_suspended = [
         x
         for x in decisions
-        if x["exclusion_reason"]
-        == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
+        if x["exclusion_reason"] == ConstituentExclusionReason.ALL_PAIRS_SUSPENDED.value
     ]
     assert len(all_pairs_suspended) == 0
 
@@ -1701,9 +1688,7 @@ def test_weight_then_twap_identity_matches_twap_then_weight_with_no_intraday_cha
         ordering="weight_then_twap",
         change_events_df=_empty_change_events_df(),
     )
-    assert canonical["raw_value_usd_mtok"] == pytest.approx(
-        weight_then["raw_value_usd_mtok"]
-    )
+    assert canonical["raw_value_usd_mtok"] == pytest.approx(weight_then["raw_value_usd_mtok"])
     # Both should be unsuspended with same active count
     assert canonical["suspended"] == weight_then["suspended"]
     assert canonical["n_constituents_active"] == weight_then["n_constituents_active"]
@@ -1774,9 +1759,7 @@ def test_weight_then_twap_diverges_when_intraday_change_crosses_tier_median() ->
     assert not weight_then["suspended"]
     # Material divergence on a panel where the intraday change crosses the
     # tier median.
-    assert canonical["raw_value_usd_mtok"] != pytest.approx(
-        weight_then["raw_value_usd_mtok"]
-    )
+    assert canonical["raw_value_usd_mtok"] != pytest.approx(weight_then["raw_value_usd_mtok"])
     # Sanity: both fall within the F-tier price range.
     assert 25.0 <= canonical["raw_value_usd_mtok"] <= 75.0
     assert 25.0 <= weight_then["raw_value_usd_mtok"] <= 75.0
@@ -1875,10 +1858,7 @@ def test_weight_then_twap_sparse_intraday_creates_more_suspended_slots() -> None
         excluded_slots_df=excluded_all,
     )
     assert weight_then_all["suspended"]
-    assert (
-        weight_then_all["suspension_reason"]
-        == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
-    )
+    assert weight_then_all["suspension_reason"] == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
 
 
 def test_weight_then_twap_emits_constituent_decisions_with_full_audit_schema() -> None:
@@ -2003,9 +1983,14 @@ def test_weight_then_twap_run_full_pipeline_rebases_to_100_for_six_indices() -> 
         ordering="weight_then_twap",
     )
     expected_codes = {
-        "TPRR_F", "TPRR_S", "TPRR_E",
-        "TPRR_FPR", "TPRR_SER",
-        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+        "TPRR_F",
+        "TPRR_S",
+        "TPRR_E",
+        "TPRR_FPR",
+        "TPRR_SER",
+        "TPRR_B_F",
+        "TPRR_B_S",
+        "TPRR_B_E",
     }
     assert set(result.indices.keys()) == expected_codes
     # 6 aggregation indices rebase to 100 on base_date.

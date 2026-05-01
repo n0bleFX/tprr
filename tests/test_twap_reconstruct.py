@@ -68,9 +68,7 @@ def _panel_config() -> ContributorPanel:
     )
 
 
-def _build_pipeline(
-    n_days: int = 200, seed: int = 42
-) -> tuple[pd.DataFrame, pd.DataFrame]:
+def _build_pipeline(n_days: int = 200, seed: int = 42) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build TWAP-updated panel + change events."""
     registry = _registry()
     contributors = _panel_config()
@@ -217,12 +215,8 @@ def test_daily_twap_wrong_array_length_raises() -> None:
 
 
 @given(
-    old=st.floats(
-        min_value=0.1, max_value=100.0, allow_nan=False, allow_infinity=False
-    ),
-    new=st.floats(
-        min_value=0.1, max_value=100.0, allow_nan=False, allow_infinity=False
-    ),
+    old=st.floats(min_value=0.1, max_value=100.0, allow_nan=False, allow_infinity=False),
+    new=st.floats(min_value=0.1, max_value=100.0, allow_nan=False, allow_infinity=False),
 )
 def test_twap_monotone_in_slot_idx(old: float, new: float) -> None:
     """TWAP monotonically shifts from old (slot_idx=31) to new (slot_idx=0)."""
@@ -428,9 +422,7 @@ def test_two_events_same_day_produces_three_segment_array() -> None:
             _make_event(slot=13, old_out=125.0, new_out=100.0),
         ]
     )
-    slots = reconstruct_slots(
-        "c", "m", pd.Timestamp("2025-01-01"), panel, events
-    )
+    slots = reconstruct_slots("c", "m", pd.Timestamp("2025-01-01"), panel, events)
     assert np.all(slots[:10] == 100.0), "pre-first-event segment"
     assert np.all(slots[10:13] == 125.0), "between-events segment (off-market)"
     assert np.all(slots[13:] == 100.0), "post-last-event segment"
@@ -446,9 +438,7 @@ def test_three_events_same_day_cascading_prices() -> None:
             _make_event(slot=25, old_out=30.0, new_out=40.0),
         ]
     )
-    slots = reconstruct_slots(
-        "c", "m", pd.Timestamp("2025-01-01"), panel, events
-    )
+    slots = reconstruct_slots("c", "m", pd.Timestamp("2025-01-01"), panel, events)
     assert np.all(slots[:5] == 10.0)
     assert np.all(slots[5:15] == 20.0)
     assert np.all(slots[15:25] == 30.0)
@@ -464,9 +454,7 @@ def test_events_at_adjacent_slots() -> None:
             _make_event(slot=16, old_out=2.0, new_out=3.0),
         ]
     )
-    slots = reconstruct_slots(
-        "c", "m", pd.Timestamp("2025-01-01"), panel, events
-    )
+    slots = reconstruct_slots("c", "m", pd.Timestamp("2025-01-01"), panel, events)
     assert np.all(slots[:15] == 1.0)
     assert np.all(slots[15:16] == 2.0)  # single slot
     assert np.all(slots[16:] == 3.0)
@@ -481,9 +469,7 @@ def test_events_at_slot_0_and_slot_31_boundaries() -> None:
             _make_event(slot=31, old_out=2.0, new_out=3.0),
         ]
     )
-    slots = reconstruct_slots(
-        "c", "m", pd.Timestamp("2025-01-01"), panel, events
-    )
+    slots = reconstruct_slots("c", "m", pd.Timestamp("2025-01-01"), panel, events)
     assert np.all(slots[:31] == 2.0), "slot-0 event sets price for slots [0, 31)"
     assert slots[31] == 3.0, "slot-31 event sets last slot only"
 
@@ -499,7 +485,11 @@ def test_multi_event_input_field_symmetric() -> None:
     )
     # Input prices in _make_event are 1/5 of output prices.
     slots_in = reconstruct_slots(
-        "c", "m", pd.Timestamp("2025-01-01"), panel, events,
+        "c",
+        "m",
+        pd.Timestamp("2025-01-01"),
+        panel,
+        events,
         price_field="input_price_usd_mtok",
     )
     assert np.all(slots_in[:10] == 20.0)
@@ -516,9 +506,7 @@ def test_multi_event_sorting_is_by_slot_idx_not_row_order() -> None:
             _make_event(slot=10, old_out=100.0, new_out=125.0),  # provided second
         ]
     )
-    slots = reconstruct_slots(
-        "c", "m", pd.Timestamp("2025-01-01"), panel, events
-    )
+    slots = reconstruct_slots("c", "m", pd.Timestamp("2025-01-01"), panel, events)
     # Same expected result as the ordered case
     assert np.all(slots[:10] == 100.0)
     assert np.all(slots[10:13] == 125.0)
@@ -628,7 +616,11 @@ def test_compute_panel_twap_multi_event_byte_identical_to_reconstruct() -> None:
     )
     out = compute_panel_twap(panel, events)
     slots = reconstruct_slots(
-        "c", "m", pd.Timestamp("2025-01-01"), panel, events,
+        "c",
+        "m",
+        pd.Timestamp("2025-01-01"),
+        panel,
+        events,
         price_field="output_price_usd_mtok",
     )
     expected = compute_daily_twap(slots)

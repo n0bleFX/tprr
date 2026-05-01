@@ -80,9 +80,7 @@ def _three_day_indices_df(
                 index_code=index_code,
                 index_level=float("nan") if is_suspended else lvl,
                 suspended=is_suspended,
-                suspension_reason=(
-                    "insufficient_constituents" if is_suspended else ""
-                ),
+                suspension_reason=("insufficient_constituents" if is_suspended else ""),
             )
         )
     return pd.DataFrame(rows)
@@ -102,9 +100,7 @@ def test_build_index_level_subplot_adds_one_line_trace_on_clean_df() -> None:
     """Clean data (no suspended days) → one Scatter trace, mode='lines'."""
     fig = _empty_subplot_fig()
     df = _three_day_indices_df()
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_F"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_F")
     assert len(fig.data) == 1
     trace = fig.data[0]
     assert trace.type == "scatter"
@@ -116,9 +112,7 @@ def test_build_index_level_subplot_uses_tier_colour() -> None:
     """Trace colour comes from TIER_COLOURS dict for the supplied index_code."""
     fig = _empty_subplot_fig()
     df = _three_day_indices_df(index_code="TPRR_F")
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_F"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_F")
     assert fig.data[0].line.color == TIER_COLOURS["TPRR_F"]
 
 
@@ -126,9 +120,7 @@ def test_build_index_level_subplot_adds_marker_for_suspended_days() -> None:
     """Suspended day → second Scatter trace with markers + red colour."""
     fig = _empty_subplot_fig()
     df = _three_day_indices_df(suspended_dates=[date(2025, 12, 31)])
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_F"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_F")
     assert len(fig.data) == 2
     line_trace, marker_trace = fig.data
     assert line_trace.mode == "lines"
@@ -139,9 +131,7 @@ def test_build_index_level_subplot_adds_marker_for_suspended_days() -> None:
 def test_build_index_level_subplot_no_marker_when_no_suspension() -> None:
     fig = _empty_subplot_fig()
     df = _three_day_indices_df()
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_F"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_F")
     assert len(fig.data) == 1
 
 
@@ -149,9 +139,7 @@ def test_build_index_level_subplot_sets_y_axis_label_and_grid() -> None:
     """Y-axis carries the unit label; both axes use the institutional grid."""
     fig = _empty_subplot_fig()
     df = _three_day_indices_df()
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_F"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_F")
     yaxis_layout = fig.layout.yaxis
     assert "rebased to 100" in yaxis_layout.title.text
     assert yaxis_layout.gridcolor == GRID_COLOUR
@@ -161,9 +149,7 @@ def test_build_index_level_subplot_handles_empty_df_silently() -> None:
     """Empty input → no traces added, no exception. Lets the dashboard
     compose missing-data subplots without special-casing in the composer."""
     fig = _empty_subplot_fig()
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=pd.DataFrame(), index_code="TPRR_F"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=pd.DataFrame(), index_code="TPRR_F")
     assert len(fig.data) == 0
 
 
@@ -174,9 +160,7 @@ def test_build_index_level_subplot_suspended_marker_carries_reason_in_customdata
     of audit visualisation."""
     fig = _empty_subplot_fig()
     df = _three_day_indices_df(suspended_dates=[date(2025, 12, 31)])
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_F"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_F")
     marker_trace = fig.data[1]
     assert "insufficient_constituents" in list(marker_trace.customdata)
 
@@ -190,12 +174,8 @@ def test_build_index_level_subplot_works_with_multi_subplot_grid() -> None:
     to xaxis2/yaxis2."""
     fig = make_subplots(rows=1, cols=2)
     df = _three_day_indices_df()
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_F"
-    )
-    build_index_level_subplot(
-        fig, row=1, col=2, indices_df=df, index_code="TPRR_S"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_F")
+    build_index_level_subplot(fig, row=1, col=2, indices_df=df, index_code="TPRR_S")
     assert len(fig.data) == 2
     # First trace targets subplot 1 (xaxis="x"), second targets subplot 2.
     assert fig.data[0].xaxis == "x"
@@ -207,9 +187,14 @@ def test_tier_colours_dict_covers_all_eight_index_codes() -> None:
     missing entries fall back to a default but lose the institutional palette
     consistency. Pin the eight expected codes."""
     expected = {
-        "TPRR_F", "TPRR_S", "TPRR_E",
-        "TPRR_FPR", "TPRR_SER",
-        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+        "TPRR_F",
+        "TPRR_S",
+        "TPRR_E",
+        "TPRR_FPR",
+        "TPRR_SER",
+        "TPRR_B_F",
+        "TPRR_B_S",
+        "TPRR_B_E",
     }
     assert expected.issubset(set(TIER_COLOURS.keys()))
 
@@ -219,9 +204,7 @@ def test_build_index_level_subplot_does_not_set_legend_for_marker_trace() -> Non
     must not add legend clutter alongside the main line."""
     fig = _empty_subplot_fig()
     df = _three_day_indices_df(suspended_dates=[date(2025, 12, 31)])
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_F"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_F")
     _line_trace, marker_trace = fig.data
     assert marker_trace.showlegend is False
 
@@ -236,9 +219,7 @@ def test_build_index_level_subplot_hovertemplate_includes_index_code() -> None:
     self-describing on hover."""
     fig = _empty_subplot_fig()
     df = _three_day_indices_df(index_code="TPRR_S")
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_S"
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_S")
     assert "TPRR_S" in fig.data[0].hovertemplate
 
 
@@ -251,9 +232,7 @@ def test_build_index_level_subplot_hovertemplate_includes_index_code() -> None:
 def test_build_index_level_subplot_each_core_tier(index_code: str) -> None:
     fig = _empty_subplot_fig()
     df = _three_day_indices_df(index_code=index_code)
-    build_index_level_subplot(
-        fig, row=1, col=1, indices_df=df, index_code=index_code
-    )
+    build_index_level_subplot(fig, row=1, col=1, indices_df=df, index_code=index_code)
     assert fig.data[0].name == index_code
     assert fig.data[0].line.color == TIER_COLOURS[index_code]
 
@@ -267,9 +246,7 @@ def test_build_index_level_subplot_each_core_tier(index_code: str) -> None:
 def test_build_ratio_subplot_each_ratio_index(index_code: str) -> None:
     fig = _empty_subplot_fig()
     df = _three_day_indices_df(index_code=index_code)
-    build_ratio_subplot(
-        fig, row=1, col=1, indices_df=df, index_code=index_code
-    )
+    build_ratio_subplot(fig, row=1, col=1, indices_df=df, index_code=index_code)
     assert len(fig.data) == 1
     assert fig.data[0].name == index_code
     assert fig.data[0].line.color == TIER_COLOURS[index_code]
@@ -281,9 +258,7 @@ def test_build_ratio_subplot_y_axis_label_says_ratio_not_index_level() -> None:
     aggregation level."""
     fig = _empty_subplot_fig()
     df = _three_day_indices_df(index_code="TPRR_FPR")
-    build_ratio_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_FPR"
-    )
+    build_ratio_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_FPR")
     yaxis_text = fig.layout.yaxis.title.text
     assert "Ratio" in yaxis_text
     assert "Index level" not in yaxis_text
@@ -291,20 +266,14 @@ def test_build_ratio_subplot_y_axis_label_says_ratio_not_index_level() -> None:
 
 def test_build_ratio_subplot_handles_empty_df_silently() -> None:
     fig = _empty_subplot_fig()
-    build_ratio_subplot(
-        fig, row=1, col=1, indices_df=pd.DataFrame(), index_code="TPRR_FPR"
-    )
+    build_ratio_subplot(fig, row=1, col=1, indices_df=pd.DataFrame(), index_code="TPRR_FPR")
     assert len(fig.data) == 0
 
 
 def test_build_ratio_subplot_marks_suspended_days() -> None:
     fig = _empty_subplot_fig()
-    df = _three_day_indices_df(
-        index_code="TPRR_SER", suspended_dates=[date(2025, 12, 31)]
-    )
-    build_ratio_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_SER"
-    )
+    df = _three_day_indices_df(index_code="TPRR_SER", suspended_dates=[date(2025, 12, 31)])
+    build_ratio_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_SER")
     assert len(fig.data) == 2
     _line, marker = fig.data
     assert marker.marker.color == SUSPENDED_MARKER_COLOUR
@@ -315,9 +284,7 @@ def test_build_ratio_subplot_hovertemplate_says_ratio_level() -> None:
     """Hover label text reflects the ratio dimension, not 'Index level'."""
     fig = _empty_subplot_fig()
     df = _three_day_indices_df(index_code="TPRR_FPR")
-    build_ratio_subplot(
-        fig, row=1, col=1, indices_df=df, index_code="TPRR_FPR"
-    )
+    build_ratio_subplot(fig, row=1, col=1, indices_df=df, index_code="TPRR_FPR")
     assert "Ratio level" in fig.data[0].hovertemplate
 
 
@@ -378,9 +345,12 @@ def test_build_blended_overlay_subplot_emits_single_ratio_line_plus_reference() 
     )
     build_blended_overlay_subplot(
         fig,
-        row=1, col=1,
-        core_df=core_df, blended_df=blended_df,
-        core_code="TPRR_F", blended_code="TPRR_B_F",
+        row=1,
+        col=1,
+        core_df=core_df,
+        blended_df=blended_df,
+        core_code="TPRR_F",
+        blended_code="TPRR_B_F",
     )
     assert len(fig.data) == 2
     ratio_trace, reference_trace = fig.data
@@ -401,9 +371,12 @@ def test_build_blended_overlay_subplot_ratio_values_are_blended_div_core() -> No
     )
     build_blended_overlay_subplot(
         fig,
-        row=1, col=1,
-        core_df=core_df, blended_df=blended_df,
-        core_code="TPRR_F", blended_code="TPRR_B_F",
+        row=1,
+        col=1,
+        core_df=core_df,
+        blended_df=blended_df,
+        core_code="TPRR_F",
+        blended_code="TPRR_B_F",
     )
     ratio_trace = fig.data[0]
     expected = [0.80, 0.80, 0.80]
@@ -420,9 +393,12 @@ def test_build_blended_overlay_subplot_reference_line_at_080() -> None:
     )
     build_blended_overlay_subplot(
         fig,
-        row=1, col=1,
-        core_df=core_df, blended_df=blended_df,
-        core_code="TPRR_F", blended_code="TPRR_B_F",
+        row=1,
+        col=1,
+        core_df=core_df,
+        blended_df=blended_df,
+        core_code="TPRR_F",
+        blended_code="TPRR_B_F",
     )
     reference_trace = fig.data[1]
     assert all(y == BLENDED_REFERENCE_RATIO for y in reference_trace.y)
@@ -433,14 +409,15 @@ def test_build_blended_overlay_subplot_y_axis_says_raw_value_ratio() -> None:
     """Y-axis label distinguishes the panel from the index-level panels —
     it's a raw-value ratio, not a rebased-to-100 series."""
     fig = _empty_subplot_fig()
-    core_df, blended_df = _build_paired_dfs(
-        core_raw=[100.0], blended_raw=[80.0]
-    )
+    core_df, blended_df = _build_paired_dfs(core_raw=[100.0], blended_raw=[80.0])
     build_blended_overlay_subplot(
         fig,
-        row=1, col=1,
-        core_df=core_df, blended_df=blended_df,
-        core_code="TPRR_F", blended_code="TPRR_B_F",
+        row=1,
+        col=1,
+        core_df=core_df,
+        blended_df=blended_df,
+        core_code="TPRR_F",
+        blended_code="TPRR_B_F",
     )
     yaxis_text = fig.layout.yaxis.title.text
     assert "raw value ratio" in yaxis_text
@@ -453,9 +430,12 @@ def test_build_blended_overlay_subplot_handles_empty_dfs() -> None:
     fig = _empty_subplot_fig()
     build_blended_overlay_subplot(
         fig,
-        row=1, col=1,
-        core_df=pd.DataFrame(), blended_df=pd.DataFrame(),
-        core_code="TPRR_F", blended_code="TPRR_B_F",
+        row=1,
+        col=1,
+        core_df=pd.DataFrame(),
+        blended_df=pd.DataFrame(),
+        core_code="TPRR_F",
+        blended_code="TPRR_B_F",
     )
     assert len(fig.data) == 0
 
@@ -464,14 +444,15 @@ def test_build_blended_overlay_subplot_one_empty_renders_nothing() -> None:
     """A ratio with only one side defined is undefined — no traces, no
     silent rendering of just the populated side as a misleading line."""
     fig = _empty_subplot_fig()
-    core_df, _ = _build_paired_dfs(
-        core_raw=[100.0], blended_raw=[80.0]
-    )
+    core_df, _ = _build_paired_dfs(core_raw=[100.0], blended_raw=[80.0])
     build_blended_overlay_subplot(
         fig,
-        row=1, col=1,
-        core_df=core_df, blended_df=pd.DataFrame(),
-        core_code="TPRR_F", blended_code="TPRR_B_F",
+        row=1,
+        col=1,
+        core_df=core_df,
+        blended_df=pd.DataFrame(),
+        core_code="TPRR_F",
+        blended_code="TPRR_B_F",
     )
     assert len(fig.data) == 0
 
@@ -488,9 +469,12 @@ def test_build_blended_overlay_subplot_suspended_day_masks_ratio() -> None:
     )
     build_blended_overlay_subplot(
         fig,
-        row=1, col=1,
-        core_df=core_df, blended_df=blended_df,
-        core_code="TPRR_F", blended_code="TPRR_B_F",
+        row=1,
+        col=1,
+        core_df=core_df,
+        blended_df=blended_df,
+        core_code="TPRR_F",
+        blended_code="TPRR_B_F",
     )
     ratio_y = list(fig.data[0].y)
     assert ratio_y[0] == 0.80
@@ -502,14 +486,15 @@ def test_build_blended_overlay_subplot_hovertemplate_shows_raws_and_ratio() -> N
     """Hover surfaces both raw values and the computed ratio so a reader
     can sanity-check the formula effect at any point on the line."""
     fig = _empty_subplot_fig()
-    core_df, blended_df = _build_paired_dfs(
-        core_raw=[100.0], blended_raw=[80.0]
-    )
+    core_df, blended_df = _build_paired_dfs(core_raw=[100.0], blended_raw=[80.0])
     build_blended_overlay_subplot(
         fig,
-        row=1, col=1,
-        core_df=core_df, blended_df=blended_df,
-        core_code="TPRR_F", blended_code="TPRR_B_F",
+        row=1,
+        col=1,
+        core_df=core_df,
+        blended_df=blended_df,
+        core_code="TPRR_F",
+        blended_code="TPRR_B_F",
     )
     hover = fig.data[0].hovertemplate
     assert "TPRR_B_F raw" in hover
@@ -528,14 +513,19 @@ def test_build_blended_overlay_subplot_hovertemplate_shows_raws_and_ratio() -> N
 def test_build_blended_overlay_subplot_each_tier(core: str, blended: str) -> None:
     fig = _empty_subplot_fig()
     core_df, blended_df = _build_paired_dfs(
-        core_raw=[100.0], blended_raw=[80.0],
-        core_code=core, blended_code=blended,
+        core_raw=[100.0],
+        blended_raw=[80.0],
+        core_code=core,
+        blended_code=blended,
     )
     build_blended_overlay_subplot(
         fig,
-        row=1, col=1,
-        core_df=core_df, blended_df=blended_df,
-        core_code=core, blended_code=blended,
+        row=1,
+        col=1,
+        core_df=core_df,
+        blended_df=blended_df,
+        core_code=core,
+        blended_code=blended,
     )
     # One ratio line + one reference line
     assert len(fig.data) == 2
@@ -590,11 +580,15 @@ def _shares_df_three_days(
     """Build a 3-day DF with per-day (share_a, share_b, share_c) tuples.
 
     Default trajectory shows the cascade: 100% A → 50/50 → 100% B."""
-    daily = daily if daily is not None else [
-        (1.0, 0.0, 0.0),
-        (0.5, 0.5, 0.0),
-        (0.0, 1.0, 0.0),
-    ]
+    daily = (
+        daily
+        if daily is not None
+        else [
+            (1.0, 0.0, 0.0),
+            (0.5, 0.5, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+    )
     suspended_set = set(suspended_dates or [])
     rows = []
     for offset, (sa, sb, sc) in enumerate(daily):
@@ -617,9 +611,7 @@ def test_build_tier_share_subplot_emits_three_stacked_traces() -> None:
     """Three stacked-area traces, one per attestation tier (A/B/C)."""
     fig = _empty_subplot_fig()
     df = _shares_df_three_days()
-    build_tier_share_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_tier_share_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     assert len(fig.data) == 3
     expected_names = {
         "TPRR_F Tier A",
@@ -633,9 +625,7 @@ def test_build_tier_share_subplot_uses_attestation_tier_palette() -> None:
     """Each trace's fillcolor matches ATTESTATION_TIER_COLOURS."""
     fig = _empty_subplot_fig()
     df = _shares_df_three_days()
-    build_tier_share_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_tier_share_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     fillcolors = {t.name.split()[-1]: t.fillcolor for t in fig.data}
     assert fillcolors["A"] == ATTESTATION_TIER_COLOURS["A"]
     assert fillcolors["B"] == ATTESTATION_TIER_COLOURS["B"]
@@ -647,9 +637,7 @@ def test_build_tier_share_subplot_traces_use_stackgroup() -> None:
     cumulatively rather than drawing them as overlapping fills."""
     fig = _empty_subplot_fig()
     df = _shares_df_three_days()
-    build_tier_share_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_tier_share_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     stackgroups = {t.stackgroup for t in fig.data}
     assert len(stackgroups) == 1
     assert "share_TPRR_F" in stackgroups
@@ -660,9 +648,7 @@ def test_build_tier_share_subplot_y_range_clamped_to_0_1() -> None:
     so the panel reads at consistent scale across tiers."""
     fig = _empty_subplot_fig()
     df = _shares_df_three_days()
-    build_tier_share_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_tier_share_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     assert tuple(fig.layout.yaxis.range) == (0.0, 1.0)
 
 
@@ -673,9 +659,7 @@ def test_build_tier_share_subplot_suspended_day_produces_nan() -> None:
 
     fig = _empty_subplot_fig()
     df = _shares_df_three_days(suspended_dates=[date(2025, 12, 31)])
-    build_tier_share_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_tier_share_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     # Day index 1 is suspended → NaN in all three traces
     for trace in fig.data:
         assert np.isnan(list(trace.y)[1])
@@ -683,18 +667,14 @@ def test_build_tier_share_subplot_suspended_day_produces_nan() -> None:
 
 def test_build_tier_share_subplot_handles_empty_df_silently() -> None:
     fig = _empty_subplot_fig()
-    build_tier_share_subplot(
-        fig, row=1, col=1, indices_df=pd.DataFrame(), tier_code="TPRR_F"
-    )
+    build_tier_share_subplot(fig, row=1, col=1, indices_df=pd.DataFrame(), tier_code="TPRR_F")
     assert len(fig.data) == 0
 
 
 def test_build_tier_share_subplot_y_axis_label_says_tier_weight_share() -> None:
     fig = _empty_subplot_fig()
     df = _shares_df_three_days()
-    build_tier_share_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_tier_share_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     assert "Tier weight share" in fig.layout.yaxis.title.text
 
 
@@ -704,9 +684,7 @@ def test_build_tier_share_subplot_each_tier(tier_code: str) -> None:
     figure doesn't accidentally cross-stack."""
     fig = _empty_subplot_fig()
     df = _shares_df_three_days(index_code=tier_code)
-    build_tier_share_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code=tier_code
-    )
+    build_tier_share_subplot(fig, row=1, col=1, indices_df=df, tier_code=tier_code)
     assert all(t.stackgroup == f"share_{tier_code}" for t in fig.data)
 
 
@@ -719,9 +697,7 @@ def test_build_n_constituents_subplot_emits_four_lines() -> None:
     """Three per-attestation lines (A/B/C) plus one total-active line."""
     fig = _empty_subplot_fig()
     df = _shares_df_three_days()
-    build_n_constituents_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_n_constituents_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     assert len(fig.data) == 4
     names = {t.name for t in fig.data}
     assert names == {
@@ -737,9 +713,7 @@ def test_build_n_constituents_subplot_active_total_line_is_thicker() -> None:
     a viewer's eye lands on it first."""
     fig = _empty_subplot_fig()
     df = _shares_df_three_days()
-    build_n_constituents_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_n_constituents_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     by_name = {t.name: t for t in fig.data}
     total_width = by_name["TPRR_F n active total"].line.width
     a_width = by_name["TPRR_F n Tier A"].line.width
@@ -749,9 +723,7 @@ def test_build_n_constituents_subplot_active_total_line_is_thicker() -> None:
 def test_build_n_constituents_subplot_uses_attestation_palette() -> None:
     fig = _empty_subplot_fig()
     df = _shares_df_three_days()
-    build_n_constituents_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_n_constituents_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     by_name = {t.name: t for t in fig.data}
     assert by_name["TPRR_F n Tier A"].line.color == ATTESTATION_TIER_COLOURS["A"]
     assert by_name["TPRR_F n Tier B"].line.color == ATTESTATION_TIER_COLOURS["B"]
@@ -760,18 +732,14 @@ def test_build_n_constituents_subplot_uses_attestation_palette() -> None:
 
 def test_build_n_constituents_subplot_handles_empty_df_silently() -> None:
     fig = _empty_subplot_fig()
-    build_n_constituents_subplot(
-        fig, row=1, col=1, indices_df=pd.DataFrame(), tier_code="TPRR_F"
-    )
+    build_n_constituents_subplot(fig, row=1, col=1, indices_df=pd.DataFrame(), tier_code="TPRR_F")
     assert len(fig.data) == 0
 
 
 def test_build_n_constituents_subplot_y_axis_says_constituent_count() -> None:
     fig = _empty_subplot_fig()
     df = _shares_df_three_days()
-    build_n_constituents_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code="TPRR_F"
-    )
+    build_n_constituents_subplot(fig, row=1, col=1, indices_df=df, tier_code="TPRR_F")
     assert "constituent count" in fig.layout.yaxis.title.text.lower()
 
 
@@ -779,9 +747,7 @@ def test_build_n_constituents_subplot_y_axis_says_constituent_count() -> None:
 def test_build_n_constituents_subplot_each_tier(tier_code: str) -> None:
     fig = _empty_subplot_fig()
     df = _shares_df_three_days(index_code=tier_code)
-    build_n_constituents_subplot(
-        fig, row=1, col=1, indices_df=df, tier_code=tier_code
-    )
+    build_n_constituents_subplot(fig, row=1, col=1, indices_df=df, tier_code=tier_code)
     names = {t.name for t in fig.data}
     assert f"{tier_code} n Tier A" in names
     assert f"{tier_code} n active total" in names
@@ -815,7 +781,8 @@ def test_build_scenario_overlay_subplot_emits_six_lines_three_tiers_two_series_e
     scenario = _three_day_indices_dict()
     build_scenario_overlay_subplot(
         fig,
-        row=1, col=1,
+        row=1,
+        col=1,
         clean_indices=clean,
         scenario_indices=scenario,
         scenario_name="fat_finger_high",
@@ -823,9 +790,12 @@ def test_build_scenario_overlay_subplot_emits_six_lines_three_tiers_two_series_e
     assert len(fig.data) == 6
     names = {t.name for t in fig.data}
     assert names == {
-        "TPRR_F clean", "TPRR_F fat_finger_high",
-        "TPRR_S clean", "TPRR_S fat_finger_high",
-        "TPRR_E clean", "TPRR_E fat_finger_high",
+        "TPRR_F clean",
+        "TPRR_F fat_finger_high",
+        "TPRR_S clean",
+        "TPRR_S fat_finger_high",
+        "TPRR_E clean",
+        "TPRR_E fat_finger_high",
     }
 
 
@@ -835,7 +805,8 @@ def test_build_scenario_overlay_subplot_solid_clean_dashed_scenario() -> None:
     fig = _empty_subplot_fig()
     build_scenario_overlay_subplot(
         fig,
-        row=1, col=1,
+        row=1,
+        col=1,
         clean_indices=_three_day_indices_dict(),
         scenario_indices=_three_day_indices_dict(),
         scenario_name="ff",
@@ -855,7 +826,8 @@ def test_build_scenario_overlay_subplot_handles_empty_inputs() -> None:
     fig = _empty_subplot_fig()
     build_scenario_overlay_subplot(
         fig,
-        row=1, col=1,
+        row=1,
+        col=1,
         clean_indices={},
         scenario_indices={},
         scenario_name="x",
@@ -869,7 +841,8 @@ def test_build_scenario_overlay_subplot_one_side_only_renders_that_side() -> Non
     fig = _empty_subplot_fig()
     build_scenario_overlay_subplot(
         fig,
-        row=1, col=1,
+        row=1,
+        col=1,
         clean_indices=_three_day_indices_dict(),
         scenario_indices={},
         scenario_name="x",
@@ -886,7 +859,8 @@ def test_build_scenario_overlay_subplot_legend_groups_by_tier() -> None:
     fig = _empty_subplot_fig()
     build_scenario_overlay_subplot(
         fig,
-        row=1, col=1,
+        row=1,
+        col=1,
         clean_indices=_three_day_indices_dict(),
         scenario_indices=_three_day_indices_dict(),
         scenario_name="x",
@@ -902,7 +876,8 @@ def test_build_scenario_overlay_subplot_y_axis_says_index_level() -> None:
     fig = _empty_subplot_fig()
     build_scenario_overlay_subplot(
         fig,
-        row=1, col=1,
+        row=1,
+        col=1,
         clean_indices=_three_day_indices_dict(),
         scenario_indices=_three_day_indices_dict(),
         scenario_name="x",
@@ -916,7 +891,8 @@ def test_build_scenario_overlay_subplot_subset_of_tiers() -> None:
     fig = _empty_subplot_fig()
     build_scenario_overlay_subplot(
         fig,
-        row=1, col=1,
+        row=1,
+        col=1,
         clean_indices=_three_day_indices_dict(),
         scenario_indices=_three_day_indices_dict(),
         scenario_name="x",

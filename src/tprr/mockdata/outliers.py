@@ -97,9 +97,7 @@ class ScenarioManifest:
         elif op == "mutate_registry":
             self.registry_mutations.append(op_record.get("mutation", {}))
         elif op == "regenerate_constituent_slice":
-            self.panel_rows_modified += int(
-                op_record.get("n_panel_rows_regenerated", 0)
-            )
+            self.panel_rows_modified += int(op_record.get("n_panel_rows_regenerated", 0))
             self.events_injected += int(op_record.get("n_events_added", 0))
             self.events_suppressed += int(op_record.get("n_events_suppressed", 0))
 
@@ -111,10 +109,7 @@ class ScenarioManifest:
 
     def write(self, output_dir: Path) -> Path:
         output_dir.mkdir(parents=True, exist_ok=True)
-        path = (
-            output_dir
-            / f"{self.scenario_id}_seed{self.seed}_manifest.json"
-        )
+        path = output_dir / f"{self.scenario_id}_seed{self.seed}_manifest.json"
         path.write_text(self.to_json(), encoding="utf-8")
         return path
 
@@ -231,9 +226,7 @@ def suppress_events(
     date_range: tuple[Any, Any] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     """Remove ChangeEvent rows matching the filter. Returns ``(filtered_df, op_record)``."""
-    mask = _build_filter_mask(
-        events_df, "event_date", contributor_id, constituent_id, date_range
-    )
+    mask = _build_filter_mask(events_df, "event_date", contributor_id, constituent_id, date_range)
     n_suppressed = int(mask.sum())
     kept = events_df.loc[~mask].copy().reset_index(drop=True)
     return kept, {
@@ -421,22 +414,15 @@ def regenerate_constituent_slice(
     if end < start:
         raise ValueError(f"date_range end {end} is before start {start}")
 
-    covering = [
-        p for p in contributor_panel.contributors
-        if constituent_id in p.covered_models
-    ]
+    covering = [p for p in contributor_panel.contributors if constituent_id in p.covered_models]
     if not covering:
-        raise ValueError(
-            f"no contributors cover {constituent_id!r}; nothing to regenerate"
-        )
+        raise ValueError(f"no contributors cover {constituent_id!r}; nothing to regenerate")
 
     base_params = TIER_PARAMS[model_metadata.tier]
     effective_sigma = sigma_daily if sigma_daily is not None else base_params.sigma_daily
     effective_mu = mu_daily if mu_daily is not None else base_params.mu_daily
     effective_rate = (
-        step_rate_per_year
-        if step_rate_per_year is not None
-        else base_params.rate_per_year
+        step_rate_per_year if step_rate_per_year is not None else base_params.rate_per_year
     )
 
     constituent_rows = panel_df[panel_df["constituent_id"] == constituent_id]
@@ -458,37 +444,39 @@ def regenerate_constituent_slice(
         )
         n_suppressed = 0
     else:
-        panel_out, events_out, n_panel, n_suppressed = (
-            _regenerate_existing_constituent(
-                panel_df=panel_df,
-                events_df=events_df,
-                model_metadata=model_metadata,
-                covering=covering,
-                start=start,
-                end=end,
-                effective_sigma=effective_sigma,
-                effective_mu=effective_mu,
-                seed=seed,
-            )
+        panel_out, events_out, n_panel, n_suppressed = _regenerate_existing_constituent(
+            panel_df=panel_df,
+            events_df=events_df,
+            model_metadata=model_metadata,
+            covering=covering,
+            start=start,
+            end=end,
+            effective_sigma=effective_sigma,
+            effective_mu=effective_mu,
+            seed=seed,
         )
         n_events = 0  # step_rate=0 is the only supported in-window regen for
         # existing constituents in v0.1; no new events emitted. (Scenario 10
         # explicitly passes step_rate_per_year=0.)
 
-    return panel_out, events_out, {
-        "op": "regenerate_constituent_slice",
-        "constituent_id": constituent_id,
-        "date_range": [str(start.date()), str(end.date())],
-        "is_new_constituent": is_new,
-        "overrides_applied": {
-            "sigma_daily": sigma_daily,
-            "mu_daily": mu_daily,
-            "step_rate_per_year": step_rate_per_year,
+    return (
+        panel_out,
+        events_out,
+        {
+            "op": "regenerate_constituent_slice",
+            "constituent_id": constituent_id,
+            "date_range": [str(start.date()), str(end.date())],
+            "is_new_constituent": is_new,
+            "overrides_applied": {
+                "sigma_daily": sigma_daily,
+                "mu_daily": mu_daily,
+                "step_rate_per_year": step_rate_per_year,
+            },
+            "n_panel_rows_regenerated": n_panel,
+            "n_events_added": n_events,
+            "n_events_suppressed": n_suppressed,
         },
-        "n_panel_rows_regenerated": n_panel,
-        "n_events_added": n_events,
-        "n_events_suppressed": n_suppressed,
-    }
+    )
 
 
 def _regenerate_existing_constituent(
@@ -549,12 +537,16 @@ def _regenerate_existing_constituent(
         new_outputs = entry_output * cumulative
         new_inputs = entry_input * cumulative
 
-        existing = panel_df[
-            (panel_df["contributor_id"] == profile.contributor_id)
-            & (panel_df["constituent_id"] == constituent_id)
-            & (panel_df["observation_date"] >= start)
-            & (panel_df["observation_date"] <= end)
-        ].sort_values("observation_date").copy()
+        existing = (
+            panel_df[
+                (panel_df["contributor_id"] == profile.contributor_id)
+                & (panel_df["constituent_id"] == constituent_id)
+                & (panel_df["observation_date"] >= start)
+                & (panel_df["observation_date"] <= end)
+            ]
+            .sort_values("observation_date")
+            .copy()
+        )
 
         if len(existing) == 0:
             continue
@@ -618,16 +610,12 @@ def _bootstrap_new_constituent(
     ]
     mini_panel_cfg = ContributorPanel(contributors=mini_contributors)
 
-    slice_seed = seed ^ _stable_int(
-        f"scenario_regen_bootstrap_{model_metadata.constituent_id}"
-    )
+    slice_seed = seed ^ _stable_int(f"scenario_regen_bootstrap_{model_metadata.constituent_id}")
 
     baseline, step_events = generate_baseline_prices(
         mini_registry, start.date(), end.date(), seed=slice_seed
     )
-    panel_new = generate_contributor_panel(
-        baseline, mini_panel_cfg, mini_registry, seed=slice_seed
-    )
+    panel_new = generate_contributor_panel(baseline, mini_panel_cfg, mini_registry, seed=slice_seed)
     panel_new = generate_volumes(panel_new, mini_panel_cfg, seed=slice_seed)
     events_new = generate_change_events(
         panel_new, step_events, mini_registry, mini_panel_cfg, seed=slice_seed
@@ -682,8 +670,7 @@ def freeze_pair_in_window(
     ]
     if len(entry_rows) == 0:
         raise ValueError(
-            f"no entry-day panel row for ({contributor_id!r}, "
-            f"{constituent_id!r}) on {start.date()}"
+            f"no entry-day panel row for ({contributor_id!r}, {constituent_id!r}) on {start.date()}"
         )
     entry = entry_rows.iloc[0]
     frozen_input = float(entry["input_price_usd_mtok"])

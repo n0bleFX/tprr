@@ -269,17 +269,14 @@ def test_override_panel_prices_replaces_only_matching_rows() -> None:
         contributor_id="contrib_alpha",
         constituent_id="openai/gpt-5-mini",
     )
-    matched = (
-        (out["contributor_id"] == "contrib_alpha")
-        & (out["constituent_id"] == "openai/gpt-5-mini")
+    matched = (out["contributor_id"] == "contrib_alpha") & (
+        out["constituent_id"] == "openai/gpt-5-mini"
     )
     assert (out.loc[matched, "input_price_usd_mtok"] == 99.99).all()
     assert (out.loc[matched, "output_price_usd_mtok"] == 888.88).all()
     # Non-matching rows untouched
     untouched = panel.loc[~matched, "output_price_usd_mtok"].to_numpy()
-    assert np.array_equal(
-        out.loc[~matched, "output_price_usd_mtok"].to_numpy(), untouched
-    )
+    assert np.array_equal(out.loc[~matched, "output_price_usd_mtok"].to_numpy(), untouched)
     assert rec["n_modified"] == int(matched.sum())
 
 
@@ -309,9 +306,7 @@ def test_override_panel_prices_price_fn_receives_current_row() -> None:
         & (out["observation_date"] <= pd.Timestamp("2025-01-03"))
     )
     original = panel.loc[matched, "output_price_usd_mtok"].to_numpy()
-    assert np.allclose(
-        out.loc[matched, "output_price_usd_mtok"].to_numpy(), original * 2
-    )
+    assert np.allclose(out.loc[matched, "output_price_usd_mtok"].to_numpy(), original * 2)
 
 
 # ---------------------------------------------------------------------------
@@ -397,9 +392,7 @@ def test_regenerate_existing_constituent_preserves_pre_and_post_window() -> None
     """Scenario 10 case: pre-window and post-window rows for target constituent
     are byte-identical to pre-regeneration."""
     panel, events, registry, contributors = _build_pipeline(n_days=180)
-    target_model = next(
-        m for m in registry.models if m.constituent_id == "openai/gpt-5-mini"
-    )
+    target_model = next(m for m in registry.models if m.constituent_id == "openai/gpt-5-mini")
     window_start = date(2025, 3, 1)
     window_end = date(2025, 4, 30)
 
@@ -416,37 +409,41 @@ def test_regenerate_existing_constituent_preserves_pre_and_post_window() -> None
     )
 
     # Pre-window target rows: byte-identical
-    pre_mask_orig = (
-        (panel["constituent_id"] == target_model.constituent_id)
-        & (panel["observation_date"] < pd.Timestamp(window_start))
+    pre_mask_orig = (panel["constituent_id"] == target_model.constituent_id) & (
+        panel["observation_date"] < pd.Timestamp(window_start)
     )
-    pre_mask_out = (
-        (out_panel["constituent_id"] == target_model.constituent_id)
-        & (out_panel["observation_date"] < pd.Timestamp(window_start))
+    pre_mask_out = (out_panel["constituent_id"] == target_model.constituent_id) & (
+        out_panel["observation_date"] < pd.Timestamp(window_start)
     )
-    orig_pre = panel.loc[pre_mask_orig].sort_values(
-        ["contributor_id", "observation_date"]
-    ).reset_index(drop=True)
-    out_pre = out_panel.loc[pre_mask_out].sort_values(
-        ["contributor_id", "observation_date"]
-    ).reset_index(drop=True)
+    orig_pre = (
+        panel.loc[pre_mask_orig]
+        .sort_values(["contributor_id", "observation_date"])
+        .reset_index(drop=True)
+    )
+    out_pre = (
+        out_panel.loc[pre_mask_out]
+        .sort_values(["contributor_id", "observation_date"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(orig_pre, out_pre)
 
     # Post-window target rows: byte-identical
-    post_mask_orig = (
-        (panel["constituent_id"] == target_model.constituent_id)
-        & (panel["observation_date"] > pd.Timestamp(window_end))
+    post_mask_orig = (panel["constituent_id"] == target_model.constituent_id) & (
+        panel["observation_date"] > pd.Timestamp(window_end)
     )
-    post_mask_out = (
-        (out_panel["constituent_id"] == target_model.constituent_id)
-        & (out_panel["observation_date"] > pd.Timestamp(window_end))
+    post_mask_out = (out_panel["constituent_id"] == target_model.constituent_id) & (
+        out_panel["observation_date"] > pd.Timestamp(window_end)
     )
-    orig_post = panel.loc[post_mask_orig].sort_values(
-        ["contributor_id", "observation_date"]
-    ).reset_index(drop=True)
-    out_post = out_panel.loc[post_mask_out].sort_values(
-        ["contributor_id", "observation_date"]
-    ).reset_index(drop=True)
+    orig_post = (
+        panel.loc[post_mask_orig]
+        .sort_values(["contributor_id", "observation_date"])
+        .reset_index(drop=True)
+    )
+    out_post = (
+        out_panel.loc[post_mask_out]
+        .sort_values(["contributor_id", "observation_date"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(orig_post, out_post)
 
     assert rec["is_new_constituent"] is False
@@ -455,28 +452,40 @@ def test_regenerate_existing_constituent_preserves_pre_and_post_window() -> None
 
 def test_regenerate_existing_constituent_in_window_prices_change() -> None:
     panel, events, registry, contributors = _build_pipeline(n_days=180)
-    target_model = next(
-        m for m in registry.models if m.constituent_id == "openai/gpt-5-mini"
-    )
+    target_model = next(m for m in registry.models if m.constituent_id == "openai/gpt-5-mini")
     window_start = date(2025, 3, 1)
     window_end = date(2025, 4, 30)
 
     out_panel, _, _ = regenerate_constituent_slice(
-        panel, events, target_model, contributors,
-        (window_start, window_end), seed=42,
-        sigma_daily=0.07, mu_daily=0.0, step_rate_per_year=0.0,
+        panel,
+        events,
+        target_model,
+        contributors,
+        (window_start, window_end),
+        seed=42,
+        sigma_daily=0.07,
+        mu_daily=0.0,
+        step_rate_per_year=0.0,
     )
 
-    in_window_orig = panel[
-        (panel["constituent_id"] == target_model.constituent_id)
-        & (panel["observation_date"] >= pd.Timestamp(window_start))
-        & (panel["observation_date"] <= pd.Timestamp(window_end))
-    ].sort_values(["contributor_id", "observation_date"]).reset_index(drop=True)
-    in_window_new = out_panel[
-        (out_panel["constituent_id"] == target_model.constituent_id)
-        & (out_panel["observation_date"] >= pd.Timestamp(window_start))
-        & (out_panel["observation_date"] <= pd.Timestamp(window_end))
-    ].sort_values(["contributor_id", "observation_date"]).reset_index(drop=True)
+    in_window_orig = (
+        panel[
+            (panel["constituent_id"] == target_model.constituent_id)
+            & (panel["observation_date"] >= pd.Timestamp(window_start))
+            & (panel["observation_date"] <= pd.Timestamp(window_end))
+        ]
+        .sort_values(["contributor_id", "observation_date"])
+        .reset_index(drop=True)
+    )
+    in_window_new = (
+        out_panel[
+            (out_panel["constituent_id"] == target_model.constituent_id)
+            & (out_panel["observation_date"] >= pd.Timestamp(window_start))
+            & (out_panel["observation_date"] <= pd.Timestamp(window_end))
+        ]
+        .sort_values(["contributor_id", "observation_date"])
+        .reset_index(drop=True)
+    )
 
     # Prices differ (new sigma produces different walks)
     assert not np.allclose(
@@ -493,9 +502,7 @@ def test_regenerate_existing_constituent_in_window_prices_change() -> None:
 def test_regenerate_existing_constituent_suppresses_in_window_events() -> None:
     """Events on target constituent in window are removed; events outside untouched."""
     panel, events, registry, contributors = _build_pipeline(n_days=180)
-    target_model = next(
-        m for m in registry.models if m.constituent_id == "openai/gpt-5-mini"
-    )
+    target_model = next(m for m in registry.models if m.constituent_id == "openai/gpt-5-mini")
     window_start = date(2025, 3, 1)
     window_end = date(2025, 4, 30)
 
@@ -509,9 +516,15 @@ def test_regenerate_existing_constituent_suppresses_in_window_events() -> None:
     )
 
     _, out_events, rec = regenerate_constituent_slice(
-        panel, events, target_model, contributors,
-        (window_start, window_end), seed=42,
-        sigma_daily=0.07, mu_daily=0.0, step_rate_per_year=0.0,
+        panel,
+        events,
+        target_model,
+        contributors,
+        (window_start, window_end),
+        seed=42,
+        sigma_daily=0.07,
+        mu_daily=0.0,
+        step_rate_per_year=0.0,
     )
 
     assert rec["n_events_suppressed"] == in_window_before
@@ -579,34 +592,46 @@ def test_regenerate_new_constituent_bootstrap_creates_panel_rows() -> None:
 def test_regenerate_independence_across_constituents() -> None:
     """Regenerating constituent A leaves constituent B's rows byte-identical."""
     panel, events, registry, contributors = _build_pipeline(n_days=180)
-    constituent_a = next(
-        m for m in registry.models if m.constituent_id == "openai/gpt-5-mini"
-    )
+    constituent_a = next(m for m in registry.models if m.constituent_id == "openai/gpt-5-mini")
     constituent_b_id = "anthropic/claude-haiku-4-5"
     window_start = date(2025, 3, 1)
     window_end = date(2025, 4, 30)
 
     out_panel, out_events, _ = regenerate_constituent_slice(
-        panel, events, constituent_a, contributors,
-        (window_start, window_end), seed=42,
-        sigma_daily=0.07, mu_daily=0.0, step_rate_per_year=0.0,
+        panel,
+        events,
+        constituent_a,
+        contributors,
+        (window_start, window_end),
+        seed=42,
+        sigma_daily=0.07,
+        mu_daily=0.0,
+        step_rate_per_year=0.0,
     )
 
-    b_orig = panel[panel["constituent_id"] == constituent_b_id].sort_values(
-        ["contributor_id", "observation_date"]
-    ).reset_index(drop=True)
-    b_out = out_panel[out_panel["constituent_id"] == constituent_b_id].sort_values(
-        ["contributor_id", "observation_date"]
-    ).reset_index(drop=True)
+    b_orig = (
+        panel[panel["constituent_id"] == constituent_b_id]
+        .sort_values(["contributor_id", "observation_date"])
+        .reset_index(drop=True)
+    )
+    b_out = (
+        out_panel[out_panel["constituent_id"] == constituent_b_id]
+        .sort_values(["contributor_id", "observation_date"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(b_orig, b_out)
 
     # Similarly, events for constituent B unchanged
-    b_events_orig = events[events["constituent_id"] == constituent_b_id].sort_values(
-        ["event_date", "contributor_id"]
-    ).reset_index(drop=True)
-    b_events_out = out_events[out_events["constituent_id"] == constituent_b_id].sort_values(
-        ["event_date", "contributor_id"]
-    ).reset_index(drop=True)
+    b_events_orig = (
+        events[events["constituent_id"] == constituent_b_id]
+        .sort_values(["event_date", "contributor_id"])
+        .reset_index(drop=True)
+    )
+    b_events_out = (
+        out_events[out_events["constituent_id"] == constituent_b_id]
+        .sort_values(["event_date", "contributor_id"])
+        .reset_index(drop=True)
+    )
     pd.testing.assert_frame_equal(b_events_orig, b_events_out)
 
 
@@ -622,8 +647,12 @@ def test_regenerate_no_covering_contributors_raises() -> None:
     )
     with pytest.raises(ValueError, match="no contributors cover"):
         regenerate_constituent_slice(
-            panel, events, uncovered, contributors,
-            (date(2025, 1, 10), date(2025, 1, 20)), seed=42,
+            panel,
+            events,
+            uncovered,
+            contributors,
+            (date(2025, 1, 10), date(2025, 1, 20)),
+            seed=42,
         )
 
 
@@ -645,7 +674,8 @@ def test_freeze_pair_in_window_composes_suppress_and_override() -> None:
     entry_in = float(entry_row["input_price_usd_mtok"])
 
     out_panel, out_events, op_records = freeze_pair_in_window(
-        panel, events,
+        panel,
+        events,
         contributor_id="contrib_alpha",
         constituent_id="openai/gpt-5-mini",
         date_range=(freeze_start, freeze_end),
@@ -678,7 +708,8 @@ def test_freeze_pair_in_window_no_entry_day_row_raises() -> None:
     panel, events, _, _ = _build_pipeline(n_days=30)
     with pytest.raises(ValueError, match="no entry-day panel row"):
         freeze_pair_in_window(
-            panel, events,
+            panel,
+            events,
             contributor_id="contrib_alpha",
             constituent_id="openai/gpt-5-mini",
             date_range=(date(2030, 1, 1), date(2030, 1, 10)),  # future, no row
@@ -689,7 +720,8 @@ def test_freeze_pair_in_window_unsupported_source_raises() -> None:
     panel, events, _, _ = _build_pipeline(n_days=30)
     with pytest.raises(ValueError, match="freeze_price_source"):
         freeze_pair_in_window(
-            panel, events,
+            panel,
+            events,
             contributor_id="contrib_alpha",
             constituent_id="openai/gpt-5-mini",
             date_range=(date(2025, 1, 10), date(2025, 1, 20)),

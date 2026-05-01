@@ -182,9 +182,7 @@ def _valid_panel_df() -> pd.DataFrame:
             "output_price_usd_mtok": [75.0, 76.0],
             "volume_mtok_7d": [12_500.0, 8_000.0],
             "source": ["contributor_mock", "contributor_mock"],
-            "submitted_at": pd.to_datetime(
-                ["2025-01-15 17:00", "2025-01-16 17:00"]
-            ),
+            "submitted_at": pd.to_datetime(["2025-01-15 17:00", "2025-01-16 17:00"]),
             "notes": ["", ""],
         }
     )
@@ -317,8 +315,7 @@ def test_index_value_n_constituents_per_tier_sum_to_active() -> None:
     payload = _valid_index_value()
     iv = IndexValue(**payload)
     assert (
-        iv.n_constituents_a + iv.n_constituents_b + iv.n_constituents_c
-        == iv.n_constituents_active
+        iv.n_constituents_a + iv.n_constituents_b + iv.n_constituents_c == iv.n_constituents_active
     )
 
 

@@ -76,9 +76,7 @@ def _load_tier_c_panel(registry: ModelRegistry) -> pd.DataFrame:
     static current snapshot"), the rankings + models snapshot is reused
     across the full backtest as a static structural proxy.
     """
-    cache_dates = sorted(
-        p.stem for p in Path("data/raw/openrouter/models").glob("*.json")
-    )
+    cache_dates = sorted(p.stem for p in Path("data/raw/openrouter/models").glob("*.json"))
     if not cache_dates:
         raise FileNotFoundError(
             "No cached OpenRouter models snapshot under data/raw/openrouter/models/. "
@@ -192,7 +190,11 @@ def main() -> int:
         flush=True,
     )
 
-    start = date.fromisoformat(args.start) if args.start else tier_a_panel["observation_date"].min().date()
+    start = (
+        date.fromisoformat(args.start)
+        if args.start
+        else tier_a_panel["observation_date"].min().date()
+    )
     end = date.fromisoformat(args.end) if args.end else config.base_date
 
     rankings_json = fetch_rankings(
@@ -218,7 +220,8 @@ def main() -> int:
     tier_b_volume_fn = _tier_b_volume_fn_factory(tier_b_by_date)
 
     print(
-        f"\nComposing multi-tier panel for {start} -> {end}", flush=True,
+        f"\nComposing multi-tier panel for {start} -> {end}",
+        flush=True,
     )
     composed_per_date: list[pd.DataFrame] = []
     for ts in days:
@@ -232,8 +235,7 @@ def main() -> int:
         )
     full_panel = pd.concat(composed_per_date, ignore_index=True)
     print(
-        f"  composed panel: {len(full_panel):,} rows across "
-        f"{len(days)} days x 3 attestation tiers",
+        f"  composed panel: {len(full_panel):,} rows across {len(days)} days x 3 attestation tiers",
         flush=True,
     )
 

@@ -46,9 +46,7 @@ def test_fetch_models_cache_miss_makes_request_and_populates_cache(
         return httpx.Response(200, json={"data": [{"id": "openai/gpt-5"}]})
 
     client = _client(handler)
-    payload = fetch_models(
-        as_of_date=AS_OF, cache_dir=tmp_path, client=client
-    )
+    payload = fetch_models(as_of_date=AS_OF, cache_dir=tmp_path, client=client)
 
     assert len(captured) == 1
     assert payload == {"data": [{"id": "openai/gpt-5"}]}
@@ -62,9 +60,7 @@ def test_fetch_models_cache_hit_returns_cached_without_http(
 ) -> None:
     cache_path = tmp_path / "models" / "2026-04-27.json"
     cache_path.parent.mkdir(parents=True)
-    cache_path.write_text(
-        json.dumps({"cached": True, "data": []}), encoding="utf-8"
-    )
+    cache_path.write_text(json.dumps({"cached": True, "data": []}), encoding="utf-8")
 
     captured: list[httpx.Request] = []
 
@@ -73,9 +69,7 @@ def test_fetch_models_cache_hit_returns_cached_without_http(
         return httpx.Response(200, json={"should": "not be used"})
 
     client = _client(handler)
-    payload = fetch_models(
-        as_of_date=AS_OF, cache_dir=tmp_path, client=client
-    )
+    payload = fetch_models(as_of_date=AS_OF, cache_dir=tmp_path, client=client)
 
     assert len(captured) == 0
     assert payload == {"cached": True, "data": []}
@@ -124,9 +118,7 @@ def test_5xx_retries_once_then_succeeds(tmp_path: Path) -> None:
         return httpx.Response(200, json={"data": []})
 
     client = _client(handler)
-    payload = fetch_models(
-        as_of_date=AS_OF, cache_dir=tmp_path, client=client
-    )
+    payload = fetch_models(as_of_date=AS_OF, cache_dir=tmp_path, client=client)
 
     assert call_count["n"] == 2
     assert payload == {"data": []}
@@ -212,15 +204,14 @@ def test_fetch_model_endpoints_uses_author_slug_in_cache_path(
 
     client = _client(handler)
     fetch_model_endpoints(
-        "openai", "gpt-5",
+        "openai",
+        "gpt-5",
         as_of_date=AS_OF,
         cache_dir=tmp_path,
         client=client,
     )
 
-    cache_path = (
-        tmp_path / "endpoints" / "openai" / "gpt-5" / "2026-04-27.json"
-    )
+    cache_path = tmp_path / "endpoints" / "openai" / "gpt-5" / "2026-04-27.json"
     assert cache_path.exists()
 
 
@@ -233,7 +224,8 @@ def test_fetch_model_endpoints_calls_correct_url(tmp_path: Path) -> None:
 
     client = _client(handler)
     fetch_model_endpoints(
-        "anthropic", "claude-opus-4-7",
+        "anthropic",
+        "claude-opus-4-7",
         as_of_date=AS_OF,
         cache_dir=tmp_path,
         client=client,
@@ -255,20 +247,22 @@ def test_fetch_model_endpoints_cache_keyed_by_author_slug_pair(
 
     client = _client(handler)
     fetch_model_endpoints(
-        "openai", "gpt-5",
-        as_of_date=AS_OF, cache_dir=tmp_path, client=client,
+        "openai",
+        "gpt-5",
+        as_of_date=AS_OF,
+        cache_dir=tmp_path,
+        client=client,
     )
     fetch_model_endpoints(
-        "anthropic", "claude-opus-4-7",
-        as_of_date=AS_OF, cache_dir=tmp_path, client=client,
+        "anthropic",
+        "claude-opus-4-7",
+        as_of_date=AS_OF,
+        cache_dir=tmp_path,
+        client=client,
     )
 
-    assert (
-        tmp_path / "endpoints" / "openai" / "gpt-5" / "2026-04-27.json"
-    ).exists()
-    assert (
-        tmp_path / "endpoints" / "anthropic" / "claude-opus-4-7" / "2026-04-27.json"
-    ).exists()
+    assert (tmp_path / "endpoints" / "openai" / "gpt-5" / "2026-04-27.json").exists()
+    assert (tmp_path / "endpoints" / "anthropic" / "claude-opus-4-7" / "2026-04-27.json").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -286,9 +280,7 @@ def test_fetch_rankings_uses_jampongsathorn_mirror_url(
         return httpx.Response(200, json={"data": []})
 
     client = _client(handler)
-    fetch_rankings(
-        as_of_date=AS_OF, cache_dir=tmp_path, client=client
-    )
+    fetch_rankings(as_of_date=AS_OF, cache_dir=tmp_path, client=client)
 
     assert "jampongsathorn/openrouter-rankings" in captured_urls[0]
     assert "latest.json" in captured_urls[0]
@@ -299,9 +291,7 @@ def test_fetch_rankings_caches_under_rankings_kind(tmp_path: Path) -> None:
         return httpx.Response(200, json={"data": []})
 
     client = _client(handler)
-    fetch_rankings(
-        as_of_date=AS_OF, cache_dir=tmp_path, client=client
-    )
+    fetch_rankings(as_of_date=AS_OF, cache_dir=tmp_path, client=client)
 
     assert (tmp_path / "rankings" / "2026-04-27.json").exists()
 
@@ -319,9 +309,7 @@ def test_user_agent_header_sent_on_request(tmp_path: Path) -> None:
         return httpx.Response(200, json={"data": []})
 
     client = _client(handler)
-    fetch_models(
-        as_of_date=AS_OF, cache_dir=tmp_path, client=client
-    )
+    fetch_models(as_of_date=AS_OF, cache_dir=tmp_path, client=client)
 
     # httpx normalises header names to lowercase.
     assert captured_headers[0].get("user-agent") == USER_AGENT
@@ -335,8 +323,6 @@ def test_fetch_models_calls_correct_url(tmp_path: Path) -> None:
         return httpx.Response(200, json={"data": []})
 
     client = _client(handler)
-    fetch_models(
-        as_of_date=AS_OF, cache_dir=tmp_path, client=client
-    )
+    fetch_models(as_of_date=AS_OF, cache_dir=tmp_path, client=client)
 
     assert captured_urls[0] == "https://openrouter.ai/api/v1/models"

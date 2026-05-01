@@ -35,9 +35,7 @@ BACKTEST_END = date(2026, 4, 27)
 
 def _load_script_main() -> object:
     """Load the script as a module without putting scripts/ on sys.path."""
-    spec = importlib.util.spec_from_file_location(
-        "generate_mock_data_under_test", SCRIPT_PATH
-    )
+    spec = importlib.util.spec_from_file_location("generate_mock_data_under_test", SCRIPT_PATH)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules["generate_mock_data_under_test"] = module
@@ -92,9 +90,7 @@ def test_end_to_end_writes_per_scenario_panel_and_events(
 ) -> None:
     for sid in _SCENARIO_IDS:
         panel_path = end_to_end_run / f"mock_panel_{sid}_seed42.parquet"
-        events_path = (
-            end_to_end_run / f"mock_change_events_{sid}_seed42.parquet"
-        )
+        events_path = end_to_end_run / f"mock_change_events_{sid}_seed42.parquet"
         assert panel_path.exists(), f"missing panel for {sid}"
         assert events_path.exists(), f"missing events for {sid}"
 
@@ -124,17 +120,13 @@ def test_scenario_panel_validates_schema(end_to_end_run: Path, sid: str) -> None
 
 @pytest.mark.parametrize("sid", _SCENARIO_IDS)
 def test_scenario_events_validate_schema(end_to_end_run: Path, sid: str) -> None:
-    events = pd.read_parquet(
-        end_to_end_run / f"mock_change_events_{sid}_seed42.parquet"
-    )
+    events = pd.read_parquet(end_to_end_run / f"mock_change_events_{sid}_seed42.parquet")
     ChangeEventDF.validate(events)
 
 
 @pytest.mark.parametrize("sid", _SCENARIO_IDS)
 def test_scenario_manifest_well_formed(end_to_end_run: Path, sid: str) -> None:
-    manifest_path = (
-        end_to_end_run / "scenarios" / f"{sid}_seed42_manifest.json"
-    )
+    manifest_path = end_to_end_run / "scenarios" / f"{sid}_seed42_manifest.json"
     payload = json.loads(manifest_path.read_text(encoding="utf-8"))
     assert payload["scenario_id"] == sid
     assert payload["seed"] == 42
@@ -164,17 +156,14 @@ def test_clean_artifacts_unchanged_when_scenarios_provided(
     )
     assert rc == 0
 
-    clean_with = pd.read_parquet(
-        end_to_end_run / "mock_panel_clean_seed42.parquet"
-    )
-    clean_without = pd.read_parquet(
-        no_scenarios_dir / "mock_panel_clean_seed42.parquet"
-    )
+    clean_with = pd.read_parquet(end_to_end_run / "mock_panel_clean_seed42.parquet")
+    clean_without = pd.read_parquet(no_scenarios_dir / "mock_panel_clean_seed42.parquet")
     pd.testing.assert_frame_equal(clean_with, clean_without)
 
 
 def test_end_to_end_preflight_collision_fails_loudly(
-    end_to_end_run: Path, tmp_path: Path,
+    end_to_end_run: Path,
+    tmp_path: Path,
 ) -> None:
     """A rigged scenario targeting a known event day fails pre-flight loudly.
 
@@ -183,9 +172,7 @@ def test_end_to_end_preflight_collision_fails_loudly(
     a fat_finger scenario at exactly that day, and run a short pipeline
     that covers the collision day. The pre-flight check must raise.
     """
-    events = pd.read_parquet(
-        end_to_end_run / "mock_change_events_clean_seed42.parquet"
-    )
+    events = pd.read_parquet(end_to_end_run / "mock_change_events_clean_seed42.parquet")
     atlas_mini = events[
         (events["contributor_id"] == "contrib_atlas")
         & (events["constituent_id"] == "openai/gpt-5-mini")
@@ -224,9 +211,7 @@ def test_end_to_end_preflight_collision_fails_loudly(
 
     rigged_output_dir = tmp_path / "rigged_out"
     main = _load_script_main()
-    with pytest.raises(
-        ValueError, match="pre-flight event-clear-day check FAILED"
-    ):
+    with pytest.raises(ValueError, match="pre-flight event-clear-day check FAILED"):
         main(  # type: ignore[operator]
             [
                 "--start",

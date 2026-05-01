@@ -112,8 +112,7 @@ def generate_change_events(
     )
 
     propagated_keys = {
-        (ev["event_date"], ev["contributor_id"], ev["constituent_id"])
-        for ev in propagated
+        (ev["event_date"], ev["contributor_id"], ev["constituent_id"]) for ev in propagated
     }
     all_dates = sorted(panel_df["observation_date"].unique())
     specific = _generate_contributor_specific_events(
@@ -148,17 +147,13 @@ def apply_twap_to_panel(
             "contributor_id": events_df["contributor_id"].to_numpy(),
             "constituent_id": events_df["constituent_id"].to_numpy(),
             "_twap_output": (
-                events_df["change_slot_idx"]
-                * events_df["old_output_price_usd_mtok"]
-                + (n - events_df["change_slot_idx"])
-                * events_df["new_output_price_usd_mtok"]
+                events_df["change_slot_idx"] * events_df["old_output_price_usd_mtok"]
+                + (n - events_df["change_slot_idx"]) * events_df["new_output_price_usd_mtok"]
             )
             / n,
             "_twap_input": (
-                events_df["change_slot_idx"]
-                * events_df["old_input_price_usd_mtok"]
-                + (n - events_df["change_slot_idx"])
-                * events_df["new_input_price_usd_mtok"]
+                events_df["change_slot_idx"] * events_df["old_input_price_usd_mtok"]
+                + (n - events_df["change_slot_idx"]) * events_df["new_input_price_usd_mtok"]
             )
             / n,
         }
@@ -222,17 +217,11 @@ def _generate_propagated_events(
         step_new_in = float(step["new_input_price_usd_mtok"])
 
         date_ordinal = pd.Timestamp(event_date).toordinal()
-        pub_ss = np.random.SeedSequence(
-            [seed, _stable_int(constituent_id), date_ordinal]
-        )
+        pub_ss = np.random.SeedSequence([seed, _stable_int(constituent_id), date_ordinal])
         pub_rng = np.random.default_rng(pub_ss)
         publication_slot = int(
             np.clip(
-                round(
-                    pub_rng.normal(
-                        PUBLICATION_SLOT_MEAN, PUBLICATION_SLOT_SIGMA
-                    )
-                ),
+                round(pub_rng.normal(PUBLICATION_SLOT_MEAN, PUBLICATION_SLOT_SIGMA)),
                 0,
                 _TWAP_SLOTS - 1,
             )
@@ -253,9 +242,7 @@ def _generate_propagated_events(
             )
             jit_rng = np.random.default_rng(jit_ss)
             jitter = jit_rng.normal(0.0, CONTRIB_JITTER_SIGMA)
-            contrib_slot = int(
-                np.clip(round(publication_slot + jitter), 0, _TWAP_SLOTS - 1)
-            )
+            contrib_slot = int(np.clip(round(publication_slot + jitter), 0, _TWAP_SLOTS - 1))
 
             key = (event_date, contrib_id, constituent_id)
             if key not in panel_lookup:
@@ -343,9 +330,7 @@ def _generate_contributor_specific_events(
                     )
                 )
                 sign = 1.0 if rng.random() < 0.5 else -1.0
-                magnitude = sign * rng.uniform(
-                    _CONTRIB_SPEC_MAG_LO, _CONTRIB_SPEC_MAG_HI
-                )
+                magnitude = sign * rng.uniform(_CONTRIB_SPEC_MAG_LO, _CONTRIB_SPEC_MAG_HI)
 
                 if event_key not in panel_lookup:
                     continue

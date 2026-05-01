@@ -27,9 +27,9 @@ import plotly.graph_objects as go
 # Institutional palette: dark-on-light, thin lines, subtle grid.
 # Used uniformly across builders so dashboard panels read as one document.
 TIER_COLOURS: dict[str, str] = {
-    "TPRR_F": "#1f3a93",   # frontier — deep blue
-    "TPRR_S": "#0e8a5f",   # standard — emerald
-    "TPRR_E": "#a35200",   # efficiency — burnt orange
+    "TPRR_F": "#1f3a93",  # frontier — deep blue
+    "TPRR_S": "#0e8a5f",  # standard — emerald
+    "TPRR_E": "#a35200",  # efficiency — burnt orange
     "TPRR_FPR": "#5b2c83",  # ratio — purple
     "TPRR_SER": "#a8326a",  # ratio — magenta
     "TPRR_B_F": "#447ec3",  # blended frontier — lighter blue
@@ -272,12 +272,17 @@ def build_blended_overlay_subplot(
     if core_df.empty or blended_df.empty:
         return
 
-    merged = core_df[["as_of_date", "raw_value_usd_mtok", "suspended"]].merge(
-        blended_df[["as_of_date", "raw_value_usd_mtok", "suspended"]],
-        on="as_of_date",
-        suffixes=("_core", "_blended"),
-        how="inner",
-    ).sort_values("as_of_date").reset_index(drop=True)
+    merged = (
+        core_df[["as_of_date", "raw_value_usd_mtok", "suspended"]]
+        .merge(
+            blended_df[["as_of_date", "raw_value_usd_mtok", "suspended"]],
+            on="as_of_date",
+            suffixes=("_core", "_blended"),
+            how="inner",
+        )
+        .sort_values("as_of_date")
+        .reset_index(drop=True)
+    )
 
     if merged.empty:
         return

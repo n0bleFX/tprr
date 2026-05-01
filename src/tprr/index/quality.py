@@ -84,13 +84,11 @@ def apply_slot_level_gate(
     """
     if not (0.0 < deviation_pct < 10.0):
         raise ValueError(
-            f"apply_slot_level_gate: deviation_pct must be in (0, 10), got "
-            f"{deviation_pct}"
+            f"apply_slot_level_gate: deviation_pct must be in (0, 10), got {deviation_pct}"
         )
     if trailing_window_days < 1:
         raise ValueError(
-            f"apply_slot_level_gate: trailing_window_days must be >= 1, got "
-            f"{trailing_window_days}"
+            f"apply_slot_level_gate: trailing_window_days must be >= 1, got {trailing_window_days}"
         )
 
     panel_a = panel_df[panel_df["attestation_tier"] == AttestationTier.A.value].copy()
@@ -100,13 +98,10 @@ def apply_slot_level_gate(
     panel_a = panel_a.sort_values(
         ["contributor_id", "constituent_id", "observation_date"]
     ).reset_index(drop=True)
-    panel_a["_trailing_avg"] = (
-        panel_a.groupby(["contributor_id", "constituent_id"])["output_price_usd_mtok"]
-        .transform(
-            lambda s: s.shift(1)
-            .rolling(trailing_window_days, min_periods=trailing_window_days)
-            .mean()
-        )
+    panel_a["_trailing_avg"] = panel_a.groupby(["contributor_id", "constituent_id"])[
+        "output_price_usd_mtok"
+    ].transform(
+        lambda s: s.shift(1).rolling(trailing_window_days, min_periods=trailing_window_days).mean()
     )
 
     event_lookup = _build_multi_event_lookup(change_events_df)
@@ -165,9 +160,7 @@ def apply_continuity_check(
     = False``.
     """
     if not (0.0 < pct < 10.0):
-        raise ValueError(
-            f"apply_continuity_check: pct must be in (0, 10), got {pct}"
-        )
+        raise ValueError(f"apply_continuity_check: pct must be in (0, 10), got {pct}")
 
     out = panel_df.copy()
     out["requires_verification"] = False
@@ -182,9 +175,7 @@ def apply_continuity_check(
     if sub.empty:
         return out
 
-    prev = sub.groupby(["contributor_id", "constituent_id"])[
-        "output_price_usd_mtok"
-    ].shift(1)
+    prev = sub.groupby(["contributor_id", "constituent_id"])["output_price_usd_mtok"].shift(1)
     pct_change = (sub["output_price_usd_mtok"] - prev).abs() / prev
     flag_idx = sub.index[pct_change > pct]
     out.loc[flag_idx, "requires_verification"] = True
@@ -214,10 +205,7 @@ def apply_staleness_rule(
     Tier A only.
     """
     if max_stale_days < 1:
-        raise ValueError(
-            f"apply_staleness_rule: max_stale_days must be >= 1, got "
-            f"{max_stale_days}"
-        )
+        raise ValueError(f"apply_staleness_rule: max_stale_days must be >= 1, got {max_stale_days}")
 
     out = panel_df.copy()
     out["is_stale"] = False
@@ -275,17 +263,13 @@ def compute_consecutive_day_suspensions(
         return _empty_suspensions()
 
     fired_days = (
-        excluded_slots_df.groupby(
-            ["contributor_id", "constituent_id", "date"], as_index=False
-        )
+        excluded_slots_df.groupby(["contributor_id", "constituent_id", "date"], as_index=False)
         .size()
         .rename(columns={"size": "n_excluded"})
     )
 
     rows: list[dict[str, Any]] = []
-    for (contrib, const), grp in fired_days.groupby(
-        ["contributor_id", "constituent_id"]
-    ):
+    for (contrib, const), grp in fired_days.groupby(["contributor_id", "constituent_id"]):
         dates = sorted(pd.Timestamp(d).date() for d in grp["date"].tolist())
         if not dates:
             continue
@@ -318,9 +302,7 @@ def compute_consecutive_day_suspensions(
     if not rows:
         return _empty_suspensions()
     out = pd.DataFrame(rows)
-    out["suspension_date"] = pd.to_datetime(out["suspension_date"]).astype(
-        "datetime64[ns]"
-    )
+    out["suspension_date"] = pd.to_datetime(out["suspension_date"]).astype("datetime64[ns]")
     return out[SUSPENSION_COLUMNS].reset_index(drop=True)
 
 
@@ -380,9 +362,11 @@ def compute_suspension_intervals(
 
     # Per-(pair, date) flag: did this pair have a gate firing on this date?
     fired_keys: set[tuple[str, str, pd.Timestamp]] = set()
-    for rec in excluded_slots_df[
-        ["contributor_id", "constituent_id", "date"]
-    ].drop_duplicates().to_dict("records"):
+    for rec in (
+        excluded_slots_df[["contributor_id", "constituent_id", "date"]]
+        .drop_duplicates()
+        .to_dict("records")
+    ):
         fired_keys.add(
             (
                 str(rec["contributor_id"]),
@@ -395,9 +379,11 @@ def compute_suspension_intervals(
     # date? Used to distinguish missing days from clean days.
     panel_keys: set[tuple[str, str, pd.Timestamp]] = set()
     if not panel_df.empty:
-        for rec in panel_df[
-            ["contributor_id", "constituent_id", "observation_date"]
-        ].drop_duplicates().to_dict("records"):
+        for rec in (
+            panel_df[["contributor_id", "constituent_id", "observation_date"]]
+            .drop_duplicates()
+            .to_dict("records")
+        ):
             panel_keys.add(
                 (
                     str(rec["contributor_id"]),
@@ -420,9 +406,7 @@ def compute_suspension_intervals(
         return _empty_suspension_intervals()
     min_date = min(all_endpoint_dates)
     max_date = max(all_endpoint_dates)
-    all_dates: list[pd.Timestamp] = list(
-        pd.date_range(start=min_date, end=max_date, freq="D")
-    )
+    all_dates: list[pd.Timestamp] = list(pd.date_range(start=min_date, end=max_date, freq="D"))
 
     # Pairs to evaluate: those that ever fired (no fire = no suspension
     # possible).
@@ -450,10 +434,7 @@ def compute_suspension_intervals(
                 # Clean day: panel observation present, no gate firing.
                 clean_counter += 1
                 fire_counter = 0
-                if (
-                    is_suspended
-                    and clean_counter >= reinstatement_threshold_days
-                ):
+                if is_suspended and clean_counter >= reinstatement_threshold_days:
                     rows.append(
                         {
                             "contributor_id": contrib,
@@ -486,12 +467,8 @@ def compute_suspension_intervals(
     if not rows:
         return _empty_suspension_intervals()
     out = pd.DataFrame(rows)
-    out["suspension_date"] = pd.to_datetime(out["suspension_date"]).astype(
-        "datetime64[ns]"
-    )
-    out["reinstatement_date"] = pd.to_datetime(out["reinstatement_date"]).astype(
-        "datetime64[ns]"
-    )
+    out["suspension_date"] = pd.to_datetime(out["suspension_date"]).astype("datetime64[ns]")
+    out["reinstatement_date"] = pd.to_datetime(out["reinstatement_date"]).astype("datetime64[ns]")
     return out[SUSPENSION_INTERVAL_COLUMNS].reset_index(drop=True)
 
 
@@ -511,7 +488,6 @@ def _empty_suspension_intervals() -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-
 def check_min_constituents(
     panel_day_df: pd.DataFrame,
     *,
@@ -529,9 +505,7 @@ def check_min_constituents(
     eligible constituents.
     """
     if min_n < 1:
-        raise ValueError(
-            f"check_min_constituents: min_n must be >= 1, got {min_n}"
-        )
+        raise ValueError(f"check_min_constituents: min_n must be >= 1, got {min_n}")
     tier_value = tier.value if isinstance(tier, Tier) else str(tier)
     if panel_day_df.empty:
         return False
@@ -589,11 +563,7 @@ def _slot_prices_from_panel_row(
     for i, ev in enumerate(events):
         current_slot = int(ev["change_slot_idx"])
         current_new = float(ev[f"new_{price_field}"])
-        end_slot = (
-            int(events[i + 1]["change_slot_idx"])
-            if i + 1 < len(events)
-            else _TWAP_SLOTS
-        )
+        end_slot = int(events[i + 1]["change_slot_idx"]) if i + 1 < len(events) else _TWAP_SLOTS
         slots[current_slot:end_slot] = current_new
     return slots
 

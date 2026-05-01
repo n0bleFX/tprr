@@ -276,9 +276,7 @@ def test_normalise_endpoints_price_conversion() -> None:
 
 def test_normalise_endpoints_tier_code_from_arg() -> None:
     payload = _endpoints_payload(("OpenAI", "0.00001", "0.00004"))
-    df = normalise_endpoints_to_panel(
-        payload, "openai/gpt-5", Tier.TPRR_S, AS_OF
-    )
+    df = normalise_endpoints_to_panel(payload, "openai/gpt-5", Tier.TPRR_S, AS_OF)
     assert (df["tier_code"] == "TPRR_S").all()
 
 
@@ -371,9 +369,7 @@ def test_enrich_matches_deepseek_via_date_suffix_stripping() -> None:
     )
     enriched = enrich_with_rankings_volume(panel, rankings, registry)
 
-    deepseek_row = enriched[
-        enriched["constituent_id"] == "deepseek/deepseek-v3-2"
-    ].iloc[0]
+    deepseek_row = enriched[enriched["constituent_id"] == "deepseek/deepseek-v3-2"].iloc[0]
     assert deepseek_row["volume_mtok_7d"] == pytest.approx(52_118.570742)
     assert deepseek_row["notes"] == ""  # no flag on matched rows
 
@@ -451,24 +447,18 @@ def test_enrich_strips_observed_date_suffix_patterns(
     # constituent gets matched to /models id "test/constituent" via fallback.
     # Force-populate the panel with a matched row instead, since we control
     # both sides:
-    panel = _build_synthetic_panel_row(
-        constituent_id="test/constituent", tier=Tier.TPRR_F
-    )
+    panel = _build_synthetic_panel_row(constituent_id="test/constituent", tier=Tier.TPRR_F)
 
     rankings = _rankings_payload(("test-author", rankings_slug, 1_000_000_000))
     enriched = enrich_with_rankings_volume(panel, rankings, registry)
     assert enriched.iloc[0]["volume_mtok_7d"] == pytest.approx(1_000.0)
 
 
-def _build_synthetic_panel_row(
-    *, constituent_id: str, tier: Tier
-) -> pd.DataFrame:
+def _build_synthetic_panel_row(*, constituent_id: str, tier: Tier) -> pd.DataFrame:
     """Build a single-row Tier C panel for tests that bypass /models matching."""
     return pd.DataFrame(
         {
-            "observation_date": pd.Series(
-                [pd.Timestamp(AS_OF)], dtype="datetime64[ns]"
-            ),
+            "observation_date": pd.Series([pd.Timestamp(AS_OF)], dtype="datetime64[ns]"),
             "constituent_id": pd.Series([constituent_id], dtype="object"),
             "contributor_id": pd.Series(["openrouter:aggregate"], dtype="object"),
             "tier_code": pd.Series([tier.value], dtype="object"),
@@ -477,9 +467,7 @@ def _build_synthetic_panel_row(
             "output_price_usd_mtok": pd.Series([4.0], dtype="float64"),
             "volume_mtok_7d": pd.Series([0.0], dtype="float64"),
             "source": pd.Series(["openrouter_models"], dtype="object"),
-            "submitted_at": pd.Series(
-                [pd.Timestamp(AS_OF)], dtype="datetime64[ns]"
-            ),
+            "submitted_at": pd.Series([pd.Timestamp(AS_OF)], dtype="datetime64[ns]"),
             "notes": pd.Series([""], dtype="object"),
         }
     )
@@ -490,9 +478,7 @@ def test_enrich_skips_variant_suffixed_rankings_entries() -> None:
     registry = _registry_with_or(
         ("test/foo", Tier.TPRR_E, "test", "foo-v1"),
     )
-    panel = _build_synthetic_panel_row(
-        constituent_id="test/foo", tier=Tier.TPRR_E
-    )
+    panel = _build_synthetic_panel_row(constituent_id="test/foo", tier=Tier.TPRR_E)
     rankings = _rankings_payload(
         ("test", "foo-v1-20260101:free", 999_999_999),
     )
@@ -507,9 +493,7 @@ def test_enrich_unknown_rankings_entries_silently_skipped() -> None:
     registry = _registry_with_or(
         ("test/foo", Tier.TPRR_E, "test", "foo-v1"),
     )
-    panel = _build_synthetic_panel_row(
-        constituent_id="test/foo", tier=Tier.TPRR_E
-    )
+    panel = _build_synthetic_panel_row(constituent_id="test/foo", tier=Tier.TPRR_E)
     rankings = _rankings_payload(
         ("unknown-author", "unknown-slug-20260101", 999_999_999),
         ("another", "another-slug", 111_111_111),
@@ -526,9 +510,7 @@ def test_enrich_token_to_mtok_conversion_is_divide_by_1e6() -> None:
     registry = _registry_with_or(
         ("test/foo", Tier.TPRR_E, "test", "foo-v1"),
     )
-    panel = _build_synthetic_panel_row(
-        constituent_id="test/foo", tier=Tier.TPRR_E
-    )
+    panel = _build_synthetic_panel_row(constituent_id="test/foo", tier=Tier.TPRR_E)
     rankings = _rankings_payload(
         ("test", "foo-v1-20260101", 1_000_000_000),
     )
@@ -545,12 +527,8 @@ def test_enrich_logs_match_count_at_info_level(
     )
     panel = pd.concat(
         [
-            _build_synthetic_panel_row(
-                constituent_id="test/matched", tier=Tier.TPRR_E
-            ),
-            _build_synthetic_panel_row(
-                constituent_id="test/unmatched", tier=Tier.TPRR_E
-            ),
+            _build_synthetic_panel_row(constituent_id="test/matched", tier=Tier.TPRR_E),
+            _build_synthetic_panel_row(constituent_id="test/unmatched", tier=Tier.TPRR_E),
         ],
         ignore_index=True,
     )
@@ -568,9 +546,7 @@ def test_enrich_returns_independent_copy() -> None:
     registry = _registry_with_or(
         ("test/foo", Tier.TPRR_E, "test", "foo-v1"),
     )
-    panel = _build_synthetic_panel_row(
-        constituent_id="test/foo", tier=Tier.TPRR_E
-    )
+    panel = _build_synthetic_panel_row(constituent_id="test/foo", tier=Tier.TPRR_E)
     enriched = enrich_with_rankings_volume(panel, {"models": []}, registry)
     enriched.loc[0, "volume_mtok_7d"] = 999.0
     assert panel.loc[0, "volume_mtok_7d"] == 0.0
@@ -581,9 +557,7 @@ def test_enrich_non_tier_c_rows_pass_through_unchanged() -> None:
     registry = _registry_with_or(
         ("test/foo", Tier.TPRR_E, "test", "foo-v1"),
     )
-    panel = _build_synthetic_panel_row(
-        constituent_id="test/foo", tier=Tier.TPRR_E
-    )
+    panel = _build_synthetic_panel_row(constituent_id="test/foo", tier=Tier.TPRR_E)
     panel.loc[0, "attestation_tier"] = "A"  # pretend this is a Tier A row
     panel.loc[0, "volume_mtok_7d"] = 50.0  # pretend it has its own volume
     rankings = _rankings_payload(
@@ -602,12 +576,8 @@ def test_enrich_resulting_panel_validates_schema() -> None:
     )
     panel = pd.concat(
         [
-            _build_synthetic_panel_row(
-                constituent_id="test/matched", tier=Tier.TPRR_E
-            ),
-            _build_synthetic_panel_row(
-                constituent_id="test/unmatched", tier=Tier.TPRR_E
-            ),
+            _build_synthetic_panel_row(constituent_id="test/matched", tier=Tier.TPRR_E),
+            _build_synthetic_panel_row(constituent_id="test/unmatched", tier=Tier.TPRR_E),
         ],
         ignore_index=True,
     )
@@ -622,9 +592,7 @@ def test_enrich_empty_rankings_models_list_marks_all_unmatched() -> None:
     registry = _registry_with_or(
         ("test/foo", Tier.TPRR_E, "test", "foo-v1"),
     )
-    panel = _build_synthetic_panel_row(
-        constituent_id="test/foo", tier=Tier.TPRR_E
-    )
+    panel = _build_synthetic_panel_row(constituent_id="test/foo", tier=Tier.TPRR_E)
     enriched = enrich_with_rankings_volume(panel, {"models": []}, registry)
     assert enriched.iloc[0]["volume_mtok_7d"] == 0.0
     assert enriched.iloc[0]["notes"] == "no_rankings_data"

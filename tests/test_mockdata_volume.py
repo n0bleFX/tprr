@@ -52,9 +52,7 @@ def _registry() -> ModelRegistry:
     )
 
 
-def _profile(
-    cid: str, scale: VolumeScale, models: list[str]
-) -> ContributorProfile:
+def _profile(cid: str, scale: VolumeScale, models: list[str]) -> ContributorProfile:
     return ContributorProfile(
         contributor_id=cid,
         profile_name=cid,
@@ -113,7 +111,7 @@ def test_day_0_volume_in_reasonable_band_around_base_scale() -> None:
     Single-pair volume ranges roughly [0.4x, 2.5x] base_scale at 3-sigma.
     Aggregate mean across many pairs should land near base_scale x exp(sigma^2/2).
     """
-    expected_mean_factor = float(np.exp(0.5 * 0.3 ** 2))  # ~1.046
+    expected_mean_factor = float(np.exp(0.5 * 0.3**2))  # ~1.046
     for scale, base in [
         (VolumeScale.LOW, 0.1),
         (VolumeScale.MEDIUM, 1.0),
@@ -132,9 +130,7 @@ def test_day_0_volume_in_reasonable_band_around_base_scale() -> None:
             for i in range(50)
         ]
         panel = _build_panel(n_days=10, contribs=contribs)
-        out = generate_volumes(
-            panel, ContributorPanel(contributors=contribs), seed=42
-        )
+        out = generate_volumes(panel, ContributorPanel(contributors=contribs), seed=42)
         day_0 = out[out["observation_date"] == out["observation_date"].min()]
         mean_ratio = float(day_0["volume_mtok_7d"].mean()) / base
         # Expected ~1.046; allow +/-25% to absorb sampling variance over 50 pairs.
@@ -202,8 +198,7 @@ def test_different_seeds_produce_different_volumes() -> None:
     a_sorted = a.sort_values("observation_date").reset_index(drop=True)
     b_sorted = b.sort_values("observation_date").reset_index(drop=True)
     assert not (
-        a_sorted["volume_mtok_7d"].to_numpy()
-        == b_sorted["volume_mtok_7d"].to_numpy()
+        a_sorted["volume_mtok_7d"].to_numpy() == b_sorted["volume_mtok_7d"].to_numpy()
     ).all()
 
 
@@ -222,19 +217,24 @@ def test_contributor_cross_model_correlation_in_realistic_range() -> None:
 
     # Use the actual 16-model panel — gives 120 pair-combinations, robust median.
     models = [
-        "openai/gpt-5-pro", "openai/gpt-5", "openai/gpt-5-mini",
-        "openai/gpt-5-nano", "anthropic/claude-opus-4-7",
-        "anthropic/claude-opus-4-6", "anthropic/claude-sonnet-4-6",
-        "anthropic/claude-haiku-4-5", "google/gemini-3-pro",
-        "google/gemini-2-flash", "google/gemini-flash-lite",
-        "mistral/mistral-large-3", "meta/llama-4-70b-hosted",
-        "deepseek/deepseek-v3-2", "alibaba/qwen-3-6-plus",
+        "openai/gpt-5-pro",
+        "openai/gpt-5",
+        "openai/gpt-5-mini",
+        "openai/gpt-5-nano",
+        "anthropic/claude-opus-4-7",
+        "anthropic/claude-opus-4-6",
+        "anthropic/claude-sonnet-4-6",
+        "anthropic/claude-haiku-4-5",
+        "google/gemini-3-pro",
+        "google/gemini-2-flash",
+        "google/gemini-flash-lite",
+        "mistral/mistral-large-3",
+        "meta/llama-4-70b-hosted",
+        "deepseek/deepseek-v3-2",
+        "alibaba/qwen-3-6-plus",
         "xiaomi/mimo-v2-pro",
     ]
-    series = {
-        m: daily_volume_series("contrib_atlas", m, 100.0, 478, seed=42)
-        for m in models
-    }
+    series = {m: daily_volume_series("contrib_atlas", m, 100.0, 478, seed=42) for m in models}
     corrs = []
     for m1, m2 in combinations(models, 2):
         c = float(np.corrcoef(series[m1], series[m2])[0, 1])
@@ -270,9 +270,7 @@ def test_volume_ratios_drift_over_time() -> None:
     ]
     panel = _build_panel(n_days=400, contribs=contribs)
     out = generate_volumes(panel, ContributorPanel(contributors=contribs), seed=42)
-    out_sorted = out.sort_values(
-        ["constituent_id", "observation_date"]
-    ).reset_index(drop=True)
+    out_sorted = out.sort_values(["constituent_id", "observation_date"]).reset_index(drop=True)
     pro = out_sorted[out_sorted["constituent_id"] == "openai/gpt-5-pro"][
         "volume_mtok_7d"
     ].to_numpy()
@@ -298,9 +296,7 @@ def test_panel_with_unknown_contributor_raises() -> None:
     contribs = [_profile("contrib_a", VolumeScale.HIGH, ["openai/gpt-5-pro"])]
     panel = _build_panel(n_days=10, contribs=contribs)
     other_panel = ContributorPanel(
-        contributors=[
-            _profile("contrib_b", VolumeScale.LOW, ["openai/gpt-5-pro"])
-        ]
+        contributors=[_profile("contrib_b", VolumeScale.LOW, ["openai/gpt-5-pro"])]
     )
     with pytest.raises(ValueError, match="not in contributor_panel"):
         generate_volumes(panel, other_panel, seed=42)
@@ -339,9 +335,7 @@ def test_growing_contributor_ends_higher_than_starting() -> None:
             contribs = [_profile(cid, VolumeScale.MEDIUM, ["openai/gpt-5-pro"])]
             panel = _build_panel(n_days=478, contribs=contribs)
             out = (
-                generate_volumes(
-                    panel, ContributorPanel(contributors=contribs), seed=seed
-                )
+                generate_volumes(panel, ContributorPanel(contributors=contribs), seed=seed)
                 .sort_values("observation_date")
                 .reset_index(drop=True)
             )

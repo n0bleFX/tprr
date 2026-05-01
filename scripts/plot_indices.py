@@ -128,9 +128,7 @@ def _rankings_json_to_df(rankings_json: dict[str, object]) -> pd.DataFrame:
 
 
 def _load_tier_c_panel(registry: ModelRegistry) -> pd.DataFrame:
-    cache_dates = sorted(
-        p.stem for p in Path("data/raw/openrouter/models").glob("*.json")
-    )
+    cache_dates = sorted(p.stem for p in Path("data/raw/openrouter/models").glob("*.json"))
     if not cache_dates:
         raise FileNotFoundError(
             "No cached OpenRouter models snapshot under data/raw/openrouter/models/. "
@@ -249,9 +247,7 @@ def run_pipeline_from_disk(
     """Load all input data from disk, derive Tier B, compose, run pipeline."""
     tier_a_panel, change_events = _load_tier_a_panel(seed)
     tier_c_panel = _load_tier_c_panel(registry)
-    rankings_dates = sorted(
-        p.stem for p in Path("data/raw/openrouter/rankings").glob("*.json")
-    )
+    rankings_dates = sorted(p.stem for p in Path("data/raw/openrouter/rankings").glob("*.json"))
     rankings_json = fetch_rankings(as_of_date=date.fromisoformat(rankings_dates[-1]))
     rankings_df = _rankings_json_to_df(rankings_json)
     return run_pipeline_from_panels(
@@ -321,8 +317,7 @@ def build_run_id(*, config: IndexConfig, seed: int, ordering: str) -> str:
     when tabulated.
     """
     return (
-        f"v0_1_lambda{config.lambda_:.1f}_{ordering}_seed{seed}"
-        f"_base{config.base_date.isoformat()}"
+        f"v0_1_lambda{config.lambda_:.1f}_{ordering}_seed{seed}_base{config.base_date.isoformat()}"
     )
 
 
@@ -346,19 +341,14 @@ def main() -> int:
     end = date.fromisoformat(args.end) if args.end else None
 
     print(
-        f"Running clean-panel pipeline (seed={args.seed}, "
-        f"ordering={config.default_ordering})...",
+        f"Running clean-panel pipeline (seed={args.seed}, ordering={config.default_ordering})...",
         flush=True,
     )
     # Load the inputs once for reuse across clean + scenario runs.
     tier_a_panel, change_events = _load_tier_a_panel(args.seed)
     tier_c_panel = _load_tier_c_panel(registry)
-    rankings_dates = sorted(
-        p.stem for p in Path("data/raw/openrouter/rankings").glob("*.json")
-    )
-    rankings_json = fetch_rankings(
-        as_of_date=date.fromisoformat(rankings_dates[-1])
-    )
+    rankings_dates = sorted(p.stem for p in Path("data/raw/openrouter/rankings").glob("*.json"))
+    rankings_json = fetch_rankings(as_of_date=date.fromisoformat(rankings_dates[-1]))
     rankings_df = _rankings_json_to_df(rankings_json)
 
     pipeline = run_pipeline_from_panels(
@@ -375,15 +365,12 @@ def main() -> int:
 
     # Phase 9 Batch D: run each dashboard scenario via compose + pipeline.
     # Each takes ~30s on the seed-42 backtest; 6 scenarios → ~3 minutes.
-    scenarios_by_id: dict[str, ScenarioEntry] = {
-        s.id: s for s in scenarios_config.scenarios
-    }
+    scenarios_by_id: dict[str, ScenarioEntry] = {s.id: s for s in scenarios_config.scenarios}
     scenario_results: dict[str, FullPipelineResults] = {}
     for scenario_id in SCENARIO_DASHBOARD_IDS:
         if scenario_id not in scenarios_by_id:
             print(
-                f"  WARNING: scenario {scenario_id!r} not in scenarios.yaml "
-                f"— skipping",
+                f"  WARNING: scenario {scenario_id!r} not in scenarios.yaml — skipping",
                 flush=True,
             )
             continue
@@ -567,8 +554,12 @@ def main() -> int:
     # Scenarios that didn't compose successfully are silently skipped
     # (an empty subplot leaves a gap rather than crashing the dashboard).
     scenario_grid_positions: list[tuple[int, int]] = [
-        (5, 1), (5, 2), (5, 3),
-        (6, 1), (6, 2), (6, 3),
+        (5, 1),
+        (5, 2),
+        (5, 3),
+        (6, 1),
+        (6, 2),
+        (6, 3),
     ]
     for (sc_row, sc_col), scenario_id in zip(
         scenario_grid_positions, SCENARIO_DASHBOARD_IDS, strict=False
@@ -576,12 +567,9 @@ def main() -> int:
         if scenario_id not in scenario_results:
             continue
         scenario_pipeline = scenario_results[scenario_id]
-        clean_indices = {
-            code: pipeline.indices[code] for code in ("TPRR_F", "TPRR_S", "TPRR_E")
-        }
+        clean_indices = {code: pipeline.indices[code] for code in ("TPRR_F", "TPRR_S", "TPRR_E")}
         scenario_indices_dict = {
-            code: scenario_pipeline.indices[code]
-            for code in ("TPRR_F", "TPRR_S", "TPRR_E")
+            code: scenario_pipeline.indices[code] for code in ("TPRR_F", "TPRR_S", "TPRR_E")
         }
         # Capture the scenario_id by default-arg binding inside the lambda
         # so each subplot binds its own scenario at definition time
@@ -591,13 +579,15 @@ def main() -> int:
                 title=f"Scenario: {scenario_id}",
                 row=sc_row,
                 col=sc_col,
-                builder=lambda fig, row, col, _ci=clean_indices, _si=scenario_indices_dict, _name=scenario_id: build_scenario_overlay_subplot(
-                    fig,
-                    row=row,
-                    col=col,
-                    clean_indices=_ci,
-                    scenario_indices=_si,
-                    scenario_name=_name,
+                builder=lambda fig, row, col, _ci=clean_indices, _si=scenario_indices_dict, _name=scenario_id: (
+                    build_scenario_overlay_subplot(
+                        fig,
+                        row=row,
+                        col=col,
+                        clean_indices=_ci,
+                        scenario_indices=_si,
+                        scenario_name=_name,
+                    )
                 ),
             )
         )

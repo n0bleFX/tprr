@@ -193,9 +193,14 @@ def test_run_full_pipeline_clean_panel_no_suspensions() -> None:
     assert result.excluded_slots.empty
     assert result.suspended_pairs.empty
     expected_codes = {
-        "TPRR_F", "TPRR_S", "TPRR_E",
-        "TPRR_FPR", "TPRR_SER",
-        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+        "TPRR_F",
+        "TPRR_S",
+        "TPRR_E",
+        "TPRR_FPR",
+        "TPRR_SER",
+        "TPRR_B_F",
+        "TPRR_B_S",
+        "TPRR_B_E",
     }
     assert set(result.indices.keys()) == expected_codes
     for df in result.indices.values():
@@ -245,10 +250,7 @@ def test_pair_suspension_granular_only_targeted_pair_drops() -> None:
     # each) still resolve Tier A.
     # 2 active F constituents → tier suspends with INSUFFICIENT_CONSTITUENTS.
     assert result["suspended"]
-    assert (
-        result["suspension_reason"]
-        == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
-    )
+    assert result["suspension_reason"] == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
     # gpt-5-pro is NOT counted as active; the other 2 F constituents are.
     assert result["n_constituents_active"] == 2
 
@@ -385,10 +387,7 @@ def test_tier_suspends_with_insufficient_constituents() -> None:
         suspended_pairs_df=susp,
     )
     assert result["suspended"]
-    assert (
-        result["suspension_reason"]
-        == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
-    )
+    assert result["suspension_reason"] == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
     # Only gemini-3-pro left in F.
     assert result["n_constituents_active"] == 1
 
@@ -427,9 +426,7 @@ def test_prior_raw_value_carried_forward_across_tier_suspension_days() -> None:
     assert not bool(day_1["suspended"])
     assert bool(day_2["suspended"])
     # Carries day 1's raw value forward.
-    assert float(day_2["raw_value_usd_mtok"]) == pytest.approx(
-        float(day_1["raw_value_usd_mtok"])
-    )
+    assert float(day_2["raw_value_usd_mtok"]) == pytest.approx(float(day_1["raw_value_usd_mtok"]))
 
 
 # ---------------------------------------------------------------------------
@@ -472,10 +469,7 @@ def test_tier_data_unavailable_when_no_path_resolves_for_any_constituent() -> No
         tier_b_volume_fn=_stub_tier_b_volume_fn(),
     )
     assert result["suspended"]
-    assert (
-        result["suspension_reason"]
-        == SuspensionReason.TIER_DATA_UNAVAILABLE.value
-    )
+    assert result["suspension_reason"] == SuspensionReason.TIER_DATA_UNAVAILABLE.value
 
 
 # ---------------------------------------------------------------------------
@@ -488,10 +482,24 @@ def test_drop_fully_excluded_rows_removes_all_32_keys_only() -> None:
     keys with fewer firings stay intact."""
     panel = pd.DataFrame(
         [
-            _row(cid="x/y", contrib="c1", d=date(2025, 1, 1),
-                 twap_out=10.0, twap_in=2.0, volume=1.0, tier=Tier.TPRR_F),
-            _row(cid="x/y", contrib="c2", d=date(2025, 1, 1),
-                 twap_out=10.0, twap_in=2.0, volume=1.0, tier=Tier.TPRR_F),
+            _row(
+                cid="x/y",
+                contrib="c1",
+                d=date(2025, 1, 1),
+                twap_out=10.0,
+                twap_in=2.0,
+                volume=1.0,
+                tier=Tier.TPRR_F,
+            ),
+            _row(
+                cid="x/y",
+                contrib="c2",
+                d=date(2025, 1, 1),
+                twap_out=10.0,
+                twap_in=2.0,
+                volume=1.0,
+                tier=Tier.TPRR_F,
+            ),
         ]
     )
     excluded = pd.DataFrame(
@@ -543,11 +551,7 @@ def test_full_day_exclusions_drive_suspension_after_3_consecutive_days() -> None
         for cid, p_out, p_in in f_set:
             for contrib in ["c1", "c2", "c3"]:
                 # Inject c1 x gpt-5-pro at 200% of normal on the fire days.
-                if (
-                    offset >= n_warmup
-                    and contrib == "c1"
-                    and cid == "openai/gpt-5-pro"
-                ):
+                if offset >= n_warmup and contrib == "c1" and cid == "openai/gpt-5-pro":
                     p_o, p_i = p_out * 2.0, p_in * 2.0
                 else:
                     p_o, p_i = p_out, p_in
@@ -574,13 +578,10 @@ def test_full_day_exclusions_drive_suspension_after_3_consecutive_days() -> None
     # Day 8 (the third consecutive-fire day) should trigger suspension on the
     # (c1, openai/gpt-5-pro) pair.
     assert not result.suspended_pairs.empty
-    assert (
-        ("c1", "openai/gpt-5-pro")
-        in zip(
-            result.suspended_pairs["contributor_id"],
-            result.suspended_pairs["constituent_id"],
-            strict=True,
-        )
+    assert ("c1", "openai/gpt-5-pro") in zip(
+        result.suspended_pairs["contributor_id"],
+        result.suspended_pairs["constituent_id"],
+        strict=True,
     )
 
 
@@ -638,10 +639,7 @@ def test_run_full_pipeline_propagates_suspensions_into_aggregation() -> None:
     # tier suspends with INSUFFICIENT_CONSTITUENTS.
     last_day = f_df.iloc[-1]
     assert bool(last_day["suspended"])
-    assert (
-        last_day["suspension_reason"]
-        == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
-    )
+    assert last_day["suspension_reason"] == SuspensionReason.INSUFFICIENT_CONSTITUENTS.value
 
 
 # ---------------------------------------------------------------------------
@@ -927,9 +925,14 @@ def test_run_full_pipeline_empty_panel() -> None:
     assert result.excluded_slots.empty
     assert result.suspended_pairs.empty
     for code in (
-        "TPRR_F", "TPRR_S", "TPRR_E",
-        "TPRR_FPR", "TPRR_SER",
-        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+        "TPRR_F",
+        "TPRR_S",
+        "TPRR_E",
+        "TPRR_FPR",
+        "TPRR_SER",
+        "TPRR_B_F",
+        "TPRR_B_S",
+        "TPRR_B_E",
     ):
         assert result.indices[code].empty
 
@@ -1066,6 +1069,7 @@ def test_run_full_pipeline_rebase_metadata_no_anchor_when_index_is_empty() -> No
     for _, row in metadata.iterrows():
         assert row["anchor_date"] is None
         import math
+
         assert math.isnan(float(row["anchor_raw_value"]))
         assert int(row["n_pre_anchor_suspended_days"]) == 0
 
@@ -1089,8 +1093,12 @@ def test_run_full_pipeline_constituent_decisions_covers_all_six_aggregation_indi
     )
     decisions = result.constituent_decisions
     expected_codes = {
-        "TPRR_F", "TPRR_S", "TPRR_E",
-        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+        "TPRR_F",
+        "TPRR_S",
+        "TPRR_E",
+        "TPRR_B_F",
+        "TPRR_B_S",
+        "TPRR_B_E",
     }
     assert set(decisions["index_code"]) == expected_codes
     # No FPR/SER rows
@@ -1134,9 +1142,7 @@ def test_run_full_pipeline_constituent_decisions_w_vol_contributions_reconstruct
     decisions = result.constituent_decisions
     included = decisions[decisions["included"]]
     grouped_sum = (
-        included.groupby(["as_of_date", "index_code", "constituent_id"])[
-            "w_vol_contribution"
-        ]
+        included.groupby(["as_of_date", "index_code", "constituent_id"])["w_vol_contribution"]
         .sum()
         .reset_index(name="reconstructed_w_vol")
     )
@@ -1147,10 +1153,9 @@ def test_run_full_pipeline_constituent_decisions_w_vol_contributions_reconstruct
         .first()
         .reset_index(name="w_vol")
     )
-    merged = grouped_sum.merge(
-        reference, on=["as_of_date", "index_code", "constituent_id"]
-    )
+    merged = grouped_sum.merge(reference, on=["as_of_date", "index_code", "constituent_id"])
     import numpy as np
+
     assert np.allclose(
         merged["reconstructed_w_vol"].to_numpy(),
         merged["w_vol"].to_numpy(),
@@ -1213,15 +1218,12 @@ def test_run_full_pipeline_constituent_decisions_propagates_pair_suspension_casc
     # the surviving 2 active constituents emit excluded rows.
     last_day = pd.Timestamp(date(2025, 1, 1) + timedelta(days=n_warmup + n_fire_days))
     f_last = decisions[
-        (decisions["index_code"] == "TPRR_F")
-        & (decisions["as_of_date"] == last_day)
+        (decisions["index_code"] == "TPRR_F") & (decisions["as_of_date"] == last_day)
     ]
     # opus + gemini survived (gpt-5-pro lost a contributor → tier_volume_unavailable).
     excluded = f_last[~f_last["included"]]
     assert len(excluded) > 0
-    suspended_rows = excluded[
-        excluded["exclusion_reason"] == "tier_aggregation_suspended"
-    ]
+    suspended_rows = excluded[excluded["exclusion_reason"] == "tier_aggregation_suspended"]
     assert len(suspended_rows) == 2  # opus + gemini
     suspended_constituent_ids = set(suspended_rows["constituent_id"])
     assert suspended_constituent_ids == {

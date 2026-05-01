@@ -46,9 +46,14 @@ N_DAYS = 30
 SEED = 42
 EXPECTED_CODES = frozenset(
     {
-        "TPRR_F", "TPRR_S", "TPRR_E",
-        "TPRR_FPR", "TPRR_SER",
-        "TPRR_B_F", "TPRR_B_S", "TPRR_B_E",
+        "TPRR_F",
+        "TPRR_S",
+        "TPRR_E",
+        "TPRR_FPR",
+        "TPRR_SER",
+        "TPRR_B_F",
+        "TPRR_B_S",
+        "TPRR_B_E",
     }
 )
 
@@ -119,9 +124,7 @@ def _contributors() -> ContributorPanel:
     )
 
 
-def _build_clean_panel() -> tuple[
-    pd.DataFrame, pd.DataFrame, ModelRegistry, ContributorPanel
-]:
+def _build_clean_panel() -> tuple[pd.DataFrame, pd.DataFrame, ModelRegistry, ContributorPanel]:
     """Generate a 30-day Phase 2 panel + change events deterministically."""
     registry = _registry()
     contributors = _contributors()
@@ -133,9 +136,7 @@ def _build_clean_panel() -> tuple[
     )
     panel = generate_contributor_panel(baseline, contributors, registry, seed=SEED)
     panel = generate_volumes(panel, contributors, seed=SEED)
-    events = generate_change_events(
-        panel, step_events, registry, contributors, seed=SEED
-    )
+    events = generate_change_events(panel, step_events, registry, contributors, seed=SEED)
     panel = apply_twap_to_panel(panel, events)
     return panel, events, registry, contributors
 
@@ -178,9 +179,7 @@ def _assert_pipeline_invariants(result: Any, ordering: str) -> None:
     assert set(result.indices.keys()) == set(EXPECTED_CODES)
     for code, df in result.indices.items():
         # Ordering field threaded through every row
-        assert (df["ordering"] == ordering).all(), (
-            f"{code} carries wrong ordering label"
-        )
+        assert (df["ordering"] == ordering).all(), f"{code} carries wrong ordering label"
         # Index values are finite or NaN-on-suspended (no -inf, +inf)
         valid = df[~df["suspended"]]
         if not valid.empty:
@@ -266,9 +265,7 @@ def _compose(spec: Any) -> tuple[pd.DataFrame, pd.DataFrame]:
     return panel_out, events_out
 
 
-@pytest.mark.parametrize(
-    "ordering", ["twap_then_weight", "weight_then_twap"]
-)
+@pytest.mark.parametrize("ordering", ["twap_then_weight", "weight_then_twap"])
 def test_run_full_pipeline_on_fat_finger_scenario(ordering: str) -> None:
     """Fat-finger 10x spike (slot-16, S tier) propagates through both
     orderings without crashing; all 8 indices computed; gate fires."""
@@ -285,9 +282,7 @@ def test_run_full_pipeline_on_fat_finger_scenario(ordering: str) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "ordering", ["twap_then_weight", "weight_then_twap"]
-)
+@pytest.mark.parametrize("ordering", ["twap_then_weight", "weight_then_twap"])
 def test_run_full_pipeline_on_intraday_spike_scenario(ordering: str) -> None:
     """Intraday spike (slots 10-12 elevated, revert at 13) tests multi-event
     days. Weight-then-TWAP's slot reconstruction must honour the multi-event
@@ -311,9 +306,7 @@ def test_run_full_pipeline_on_intraday_spike_scenario(ordering: str) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "ordering", ["twap_then_weight", "weight_then_twap"]
-)
+@pytest.mark.parametrize("ordering", ["twap_then_weight", "weight_then_twap"])
 def test_run_full_pipeline_on_correlated_blackout_scenario(ordering: str) -> None:
     """Correlated blackout removes 2 of 3 contributors over a 5-day window.
     For days within the blackout, every constituent loses 2 contributors,
@@ -332,10 +325,9 @@ def test_run_full_pipeline_on_correlated_blackout_scenario(ordering: str) -> Non
     )
     blackout_rows = f_df[blackout_window]
     # During blackout, F tier suspends or has reduced active count.
-    assert (
-        blackout_rows["suspended"].any()
-        or blackout_rows["n_constituents_active"].min() < 3
-    ), f"Blackout window should depress F-tier coverage under {ordering}"
+    assert blackout_rows["suspended"].any() or blackout_rows["n_constituents_active"].min() < 3, (
+        f"Blackout window should depress F-tier coverage under {ordering}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -377,9 +369,8 @@ def test_orderings_diverge_on_intraday_spike_panel() -> None:
     assert not canonical_target.empty
     assert not weight_target.empty
     # Both should be unsuspended on the target day (3 active S constituents).
-    if (
-        not bool(canonical_target.iloc[0]["suspended"])
-        and not bool(weight_target.iloc[0]["suspended"])
+    if not bool(canonical_target.iloc[0]["suspended"]) and not bool(
+        weight_target.iloc[0]["suspended"]
     ):
         c_raw = float(canonical_target.iloc[0]["raw_value_usd_mtok"])
         w_raw = float(weight_target.iloc[0]["raw_value_usd_mtok"])
@@ -435,9 +426,7 @@ def test_constituent_decisions_emitted_for_both_orderings() -> None:
             f"constituent_decisions should be populated under {ordering}"
         )
         # Every row carries the ordering field.
-        assert (
-            result.constituent_decisions["ordering"] == ordering
-        ).all()
+        assert (result.constituent_decisions["ordering"] == ordering).all()
         # Audit covers the 6 aggregation indices (FPR/SER excluded — ratios).
         codes_in_audit = set(result.constituent_decisions["index_code"].unique())
         assert "TPRR_FPR" not in codes_in_audit

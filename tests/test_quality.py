@@ -172,10 +172,7 @@ def test_slot_level_gate_fat_finger_scenario_1() -> None:
     (0..15) carry the old (in-line) price and stay within threshold.
     """
     panel = pd.DataFrame(
-        [
-            _panel_row(date=pd.Timestamp("2025-01-01") + i * DAY, output_price=50.0)
-            for i in range(5)
-        ]
+        [_panel_row(date=pd.Timestamp("2025-01-01") + i * DAY, output_price=50.0) for i in range(5)]
         + [
             _panel_row(date=pd.Timestamp("2025-01-06"), output_price=500.0),
         ]
@@ -194,10 +191,7 @@ def test_slot_level_gate_intraday_spike_scenario_9() -> None:
     are at the in-line price.
     """
     panel = pd.DataFrame(
-        [
-            _panel_row(date=pd.Timestamp("2025-01-01") + i * DAY, output_price=50.0)
-            for i in range(5)
-        ]
+        [_panel_row(date=pd.Timestamp("2025-01-01") + i * DAY, output_price=50.0) for i in range(5)]
         + [
             _panel_row(date=pd.Timestamp("2025-01-06"), output_price=50.0),
         ]
@@ -226,9 +220,7 @@ def test_slot_level_gate_ignores_tier_b_and_tier_c() -> None:
 
 
 def test_slot_level_gate_empty_panel_returns_empty_schema() -> None:
-    excl = apply_slot_level_gate(
-        pd.DataFrame(columns=["attestation_tier"]), _empty_events()
-    )
+    excl = apply_slot_level_gate(pd.DataFrame(columns=["attestation_tier"]), _empty_events())
     assert excl.empty
     assert list(excl.columns) == ["contributor_id", "constituent_id", "date", "slot_idx"]
 
@@ -257,7 +249,10 @@ def test_continuity_check_24pct_not_flagged_26pct_flagged() -> None:
 
     panel26 = _series_panel([50.0, 63.0])  # +26%
     out26 = apply_continuity_check(panel26)
-    assert out26["requires_verification"].iloc[0] is False or not out26["requires_verification"].iloc[0]
+    assert (
+        out26["requires_verification"].iloc[0] is False
+        or not out26["requires_verification"].iloc[0]
+    )
     assert bool(out26["requires_verification"].iloc[1])
 
 
@@ -326,9 +321,7 @@ def test_staleness_price_change_resets_run() -> None:
 
 
 def test_staleness_empty_panel() -> None:
-    out = apply_staleness_rule(
-        pd.DataFrame(columns=["attestation_tier", "output_price_usd_mtok"])
-    )
+    out = apply_staleness_rule(pd.DataFrame(columns=["attestation_tier", "output_price_usd_mtok"]))
     assert "is_stale" in out.columns
     assert out.empty
 
@@ -366,9 +359,7 @@ def test_suspension_gap_resets_run() -> None:
 
 def test_suspension_sticky_only_first_crossing_emitted() -> None:
     """4 consecutive fires → only one suspension row, on the 3rd day."""
-    excl = _excluded_slots(
-        ["2025-01-10", "2025-01-11", "2025-01-12", "2025-01-13"]
-    )
+    excl = _excluded_slots(["2025-01-10", "2025-01-11", "2025-01-12", "2025-01-13"])
     out = compute_consecutive_day_suspensions(excl)
     assert len(out) == 1
     assert out["suspension_date"].iloc[0] == pd.Timestamp("2025-01-12")
@@ -383,9 +374,7 @@ def test_suspension_threshold_one_emits_first_fire_day() -> None:
 
 
 def test_suspension_empty_input_returns_empty_schema() -> None:
-    empty = pd.DataFrame(
-        columns=["contributor_id", "constituent_id", "date", "slot_idx"]
-    )
+    empty = pd.DataFrame(columns=["contributor_id", "constituent_id", "date", "slot_idx"])
     out = compute_consecutive_day_suspensions(empty)
     assert out.empty
     assert list(out.columns) == ["contributor_id", "constituent_id", "suspension_date"]
@@ -397,15 +386,15 @@ def test_suspension_independent_per_pair() -> None:
     df = pd.concat(
         [
             _excluded_slots(["2025-01-10", "2025-01-11", "2025-01-12"]),
-            _excluded_slots(
-                ["2025-02-01", "2025-02-02", "2025-02-03"]
-            ).assign(contributor_id="contrib_b"),
+            _excluded_slots(["2025-02-01", "2025-02-02", "2025-02-03"]).assign(
+                contributor_id="contrib_b"
+            ),
         ],
         ignore_index=True,
     )
-    out = compute_consecutive_day_suspensions(df).sort_values(
-        "contributor_id"
-    ).reset_index(drop=True)
+    out = (
+        compute_consecutive_day_suspensions(df).sort_values("contributor_id").reset_index(drop=True)
+    )
     assert len(out) == 2
     assert out["contributor_id"].tolist() == ["contrib_a", "contrib_b"]
     assert out["suspension_date"].tolist() == [
@@ -537,9 +526,7 @@ def test_compute_suspension_intervals_empty_input_returns_empty() -> None:
         excluded_slots_df=pd.DataFrame(
             columns=["contributor_id", "constituent_id", "date", "slot_idx"]
         ),
-        panel_df=pd.DataFrame(
-            columns=["contributor_id", "constituent_id", "observation_date"]
-        ),
+        panel_df=pd.DataFrame(columns=["contributor_id", "constituent_id", "observation_date"]),
     )
     assert out.empty
     assert list(out.columns) == [
@@ -591,7 +578,8 @@ def test_compute_suspension_intervals_suspend_then_reinstate() -> None:
         ]
     )
     out = compute_suspension_intervals(
-        excluded_slots, panel,
+        excluded_slots,
+        panel,
         threshold_days=3,
         reinstatement_threshold_days=10,
     )
@@ -636,7 +624,8 @@ def test_compute_suspension_intervals_multiple_cycles() -> None:
         ]
     )
     out = compute_suspension_intervals(
-        excluded_slots, panel,
+        excluded_slots,
+        panel,
         threshold_days=3,
         reinstatement_threshold_days=10,
     )
@@ -658,9 +647,7 @@ def test_compute_suspension_intervals_missing_day_resets_clean_counter() -> None
     panel_dates = [start + i * DAY for i in range(14) if i != 6]
     panel = pd.DataFrame(
         [
-            _panel_row_for_suspension(
-                contributor_id="c1", constituent_id="k1", date_value=d
-            )
+            _panel_row_for_suspension(contributor_id="c1", constituent_id="k1", date_value=d)
             for d in panel_dates
         ]
     )
@@ -675,7 +662,8 @@ def test_compute_suspension_intervals_missing_day_resets_clean_counter() -> None
         ]
     )
     out = compute_suspension_intervals(
-        excluded_slots, panel,
+        excluded_slots,
+        panel,
         threshold_days=3,
         reinstatement_threshold_days=10,
     )
@@ -708,7 +696,8 @@ def test_compute_suspension_intervals_fire_during_clean_run_resets_counter() -> 
         ]
     )
     out = compute_suspension_intervals(
-        excluded_slots, panel,
+        excluded_slots,
+        panel,
         threshold_days=3,
         reinstatement_threshold_days=10,
     )
@@ -720,17 +709,9 @@ def test_compute_suspension_intervals_fire_during_clean_run_resets_counter() -> 
 def test_compute_suspension_intervals_invalid_thresholds_raise() -> None:
     import pytest as _pytest
 
-    excluded_slots = pd.DataFrame(
-        columns=["contributor_id", "constituent_id", "date", "slot_idx"]
-    )
-    panel = pd.DataFrame(
-        columns=["contributor_id", "constituent_id", "observation_date"]
-    )
+    excluded_slots = pd.DataFrame(columns=["contributor_id", "constituent_id", "date", "slot_idx"])
+    panel = pd.DataFrame(columns=["contributor_id", "constituent_id", "observation_date"])
     with _pytest.raises(ValueError, match="threshold_days must be"):
-        compute_suspension_intervals(
-            excluded_slots, panel, threshold_days=0
-        )
+        compute_suspension_intervals(excluded_slots, panel, threshold_days=0)
     with _pytest.raises(ValueError, match="reinstatement_threshold_days"):
-        compute_suspension_intervals(
-            excluded_slots, panel, reinstatement_threshold_days=0
-        )
+        compute_suspension_intervals(excluded_slots, panel, reinstatement_threshold_days=0)

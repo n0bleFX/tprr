@@ -81,14 +81,11 @@ def plot_tprr_dashboard(
 
     # Build the title grid in row-major order — make_subplots wants a flat
     # list with empty strings for cells that have no panel.
-    titles_grid: list[list[str]] = [
-        ["" for _ in range(n_cols)] for _ in range(n_rows)
-    ]
+    titles_grid: list[list[str]] = [["" for _ in range(n_cols)] for _ in range(n_rows)]
     for p in panels:
         if not (1 <= p.row <= n_rows and 1 <= p.col <= n_cols):
             raise ValueError(
-                f"PanelSpec out of grid bounds: row={p.row}, col={p.col}, "
-                f"grid={n_rows}x{n_cols}"
+                f"PanelSpec out of grid bounds: row={p.row}, col={p.col}, grid={n_rows}x{n_cols}"
             )
         titles_grid[p.row - 1][p.col - 1] = p.title
     flat_titles = [t for r in titles_grid for t in r]

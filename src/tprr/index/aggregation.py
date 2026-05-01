@@ -347,9 +347,7 @@ def compute_tier_index(
 
     # 1. Filter to the tier under computation (panel-as-truth tier_code).
     tier_panel = panel_day_df[panel_day_df["tier_code"] == tier.value].copy()
-    pre_drop_constituents: set[str] = {
-        str(c) for c in tier_panel["constituent_id"].unique()
-    }
+    pre_drop_constituents: set[str] = {str(c) for c in tier_panel["constituent_id"].unique()}
 
     # 2. Drop suspended (contributor, constituent) pairs effective on this date.
     # Phase 7H Batch D (DL 2026-04-30): suspended_pairs_df may carry an
@@ -360,9 +358,8 @@ def compute_tier_index(
         as_of_ts = pd.Timestamp(as_of_date_value)
         suspension_active = suspended_pairs_df["suspension_date"] <= as_of_ts
         if "reinstatement_date" in suspended_pairs_df.columns:
-            reinstated = (
-                suspended_pairs_df["reinstatement_date"].notna()
-                & (suspended_pairs_df["reinstatement_date"] <= as_of_ts)
+            reinstated = suspended_pairs_df["reinstatement_date"].notna() & (
+                suspended_pairs_df["reinstatement_date"] <= as_of_ts
             )
             active_susp = suspended_pairs_df[suspension_active & ~reinstated]
         else:
@@ -376,9 +373,7 @@ def compute_tier_index(
             )
             tier_panel = tier_panel[~keep_keys.isin(drop_keys)]
 
-    post_drop_constituents: set[str] = {
-        str(c) for c in tier_panel["constituent_id"].unique()
-    }
+    post_drop_constituents: set[str] = {str(c) for c in tier_panel["constituent_id"].unique()}
     dropped_constituents = pre_drop_constituents - post_drop_constituents
 
     n_constituents_total = int(tier_panel["constituent_id"].nunique())
@@ -541,8 +536,7 @@ def compute_tier_index(
         for tier_t, info in per_tier.items():
             volumes_by_tier_b[tier_t][cid] = float(info["raw_volume"])
     shares_by_tier_b: dict[AttestationTier, dict[str, float]] = {
-        tier_t: compute_within_tier_share(vols)
-        for tier_t, vols in volumes_by_tier_b.items()
+        tier_t: compute_within_tier_share(vols) for tier_t, vols in volumes_by_tier_b.items()
     }
 
     # Tier-eligibility threshold (DL 2026-05-01 Phase 10 Batch 10A). An
@@ -661,9 +655,7 @@ def compute_tier_index(
             assert isinstance(per_tier, dict)
             if compute_w_exp_for_audit and median > 0:
                 distance_pct = abs(float(r["price"]) - median) / median
-                w_exp_value = exponential_weight(
-                    float(r["price"]), median, config.lambda_
-                )
+                w_exp_value = exponential_weight(float(r["price"]), median, config.lambda_)
                 combined_w = float(r["w_vol"]) * w_exp_value
             else:
                 distance_pct = float("nan")
@@ -719,9 +711,7 @@ def compute_tier_index(
 
     # 4. Tier median across active constituents (Section 3.3.3) — using
     # blended constituent prices.
-    tier_median = float(
-        np.median(np.array([float(r["price"]) for r in rows], dtype=np.float64))
-    )
+    tier_median = float(np.median(np.array([float(r["price"]) for r in rows], dtype=np.float64)))
 
     # 5. w_exp per constituent (using blended price).
     for r in rows:
@@ -747,9 +737,7 @@ def compute_tier_index(
             prior_raw_value=prior_raw_value,
         )
 
-    raw_value = float(
-        sum(float(r["weight"]) * float(r["price"]) for r in rows) / total_weight
-    )
+    raw_value = float(sum(float(r["weight"]) * float(r["price"]) for r in rows) / total_weight)
 
     # 7. Tier-level instrumentation. Under continuous blending, each
     # constituent's combined weight (w_vol_combined x w_exp) decomposes
@@ -757,8 +745,7 @@ def compute_tier_index(
     # the share of that decomposition attributable to tier X.
     weight_a = (
         sum(
-            float(r["per_tier_data"][AttestationTier.A]["w_vol_contribution"])
-            * float(r["w_exp"])
+            float(r["per_tier_data"][AttestationTier.A]["w_vol_contribution"]) * float(r["w_exp"])
             for r in rows
             if AttestationTier.A in r["per_tier_data"]
         )
@@ -766,8 +753,7 @@ def compute_tier_index(
     )
     weight_b = (
         sum(
-            float(r["per_tier_data"][AttestationTier.B]["w_vol_contribution"])
-            * float(r["w_exp"])
+            float(r["per_tier_data"][AttestationTier.B]["w_vol_contribution"]) * float(r["w_exp"])
             for r in rows
             if AttestationTier.B in r["per_tier_data"]
         )
@@ -775,8 +761,7 @@ def compute_tier_index(
     )
     weight_c = (
         sum(
-            float(r["per_tier_data"][AttestationTier.C]["w_vol_contribution"])
-            * float(r["w_exp"])
+            float(r["per_tier_data"][AttestationTier.C]["w_vol_contribution"]) * float(r["w_exp"])
             for r in rows
             if AttestationTier.C in r["per_tier_data"]
         )
@@ -872,7 +857,9 @@ def _build_slot_arrays_for_pair(
     pre-computed daily TWAPs from the panel directly (compute_panel_twap).
     """
 
-    def _slots_for_field(events: list[dict[str, Any]] | None, raw_field: str) -> npt.NDArray[np.float64]:
+    def _slots_for_field(
+        events: list[dict[str, Any]] | None, raw_field: str
+    ) -> npt.NDArray[np.float64]:
         if events:
             arr = np.empty(_TWAP_SLOTS_PER_DAY, dtype=np.float64)
             first = events[0]
@@ -1012,9 +999,7 @@ def _compute_weight_then_twap_index(
 
     # 1. Filter by tier_code (panel-as-truth).
     tier_panel = panel_day_df[panel_day_df["tier_code"] == tier.value].copy()
-    pre_drop_constituents: set[str] = {
-        str(c) for c in tier_panel["constituent_id"].unique()
-    }
+    pre_drop_constituents: set[str] = {str(c) for c in tier_panel["constituent_id"].unique()}
 
     # 2. Drop suspended (contributor, constituent) pairs.
     # Phase 7H Batch D: same interval-aware filter as the canonical path.
@@ -1022,9 +1007,8 @@ def _compute_weight_then_twap_index(
         as_of_ts_w2t = pd.Timestamp(as_of_date_value)
         suspension_active = suspended_pairs_df["suspension_date"] <= as_of_ts_w2t
         if "reinstatement_date" in suspended_pairs_df.columns:
-            reinstated = (
-                suspended_pairs_df["reinstatement_date"].notna()
-                & (suspended_pairs_df["reinstatement_date"] <= as_of_ts_w2t)
+            reinstated = suspended_pairs_df["reinstatement_date"].notna() & (
+                suspended_pairs_df["reinstatement_date"] <= as_of_ts_w2t
             )
             active_susp = suspended_pairs_df[suspension_active & ~reinstated]
         else:
@@ -1038,9 +1022,7 @@ def _compute_weight_then_twap_index(
             )
             tier_panel = tier_panel[~keep_keys.isin(drop_keys)]
 
-    post_drop_constituents: set[str] = {
-        str(c) for c in tier_panel["constituent_id"].unique()
-    }
+    post_drop_constituents: set[str] = {str(c) for c in tier_panel["constituent_id"].unique()}
     dropped_constituents = pre_drop_constituents - post_drop_constituents
     n_constituents_total = int(tier_panel["constituent_id"].nunique())
 
@@ -1130,9 +1112,7 @@ def _compute_weight_then_twap_index(
             if price_rows.empty:
                 continue
 
-            contributor_slot_data: list[
-                tuple[str, npt.NDArray[np.float64], float]
-            ] = []
+            contributor_slot_data: list[tuple[str, npt.NDArray[np.float64], float]] = []
             for _, prow in price_rows.iterrows():
                 contributor_id = str(prow["contributor_id"])
                 key = (contributor_id, const_id, as_of_ts)
@@ -1200,12 +1180,9 @@ def _compute_weight_then_twap_index(
     for c in constituents:
         per_tier = c["per_tier_data"]
         for tier_t, info in per_tier.items():
-            volumes_by_tier_b[tier_t][str(c["constituent_id"])] = float(
-                info["raw_volume"]
-            )
+            volumes_by_tier_b[tier_t][str(c["constituent_id"])] = float(info["raw_volume"])
     shares_by_tier_b: dict[AttestationTier, dict[str, float]] = {
-        tier_t: compute_within_tier_share(vols)
-        for tier_t, vols in volumes_by_tier_b.items()
+        tier_t: compute_within_tier_share(vols) for tier_t, vols in volumes_by_tier_b.items()
     }
     # Tier-eligibility threshold (DL 2026-05-01 Phase 10 Batch 10A) applied
     # symmetrically to the canonical TWAP-then-weight path: tiers with fewer
@@ -1434,9 +1411,7 @@ def _compute_weight_then_twap_index(
         for tier_t, info in per_tier.items():
             slot_prices_for_tier = per_tier_slot_prices.get((cid_inner, tier_t), [])
             avg_tier_price = (
-                float(np.mean(slot_prices_for_tier))
-                if slot_prices_for_tier
-                else float("nan")
+                float(np.mean(slot_prices_for_tier)) if slot_prices_for_tier else float("nan")
             )
             pending_decisions.append(
                 _decision_row(
@@ -1531,9 +1506,7 @@ def _compute_weight_then_twap_index(
         avg_median = float(np.mean(per_constituent_slot_median[cid_audit]))
         avg_distance = float(np.mean(per_constituent_slot_distance[cid_audit]))
         avg_w_exp = float(np.mean(per_constituent_slot_w_exp[cid_audit]))
-        avg_combined = float(
-            np.mean(per_constituent_slot_combined_weight[cid_audit])
-        )
+        avg_combined = float(np.mean(per_constituent_slot_combined_weight[cid_audit]))
         _emit_per_tier_audit_rows_w2t(
             c,
             included=True,
@@ -1736,7 +1709,9 @@ def rebase_index_level(
     eligible = out[
         (out["as_of_date"] >= base_ts)
         & (~out["suspended"])
-        & out["raw_value_usd_mtok"].apply(lambda v: isinstance(v, float) and np.isfinite(v) and v > 0)
+        & out["raw_value_usd_mtok"].apply(
+            lambda v: isinstance(v, float) and np.isfinite(v) and v > 0
+        )
     ]
     if eligible.empty:
         return out, None
@@ -1797,11 +1772,7 @@ def build_rebase_metadata_df(
         anchor = rebase_anchors.get(code)
         if anchor is None:
             anchor_raw_value = float("nan")
-            n_pre = (
-                int(df["suspended"].sum())
-                if not df.empty and "suspended" in df.columns
-                else 0
-            )
+            n_pre = int(df["suspended"].sum()) if not df.empty and "suspended" in df.columns else 0
         else:
             anchor_ts = pd.Timestamp(anchor)
             anchor_rows = df[df["as_of_date"] == anchor_ts]
@@ -1810,9 +1781,7 @@ def build_rebase_metadata_df(
                 if not anchor_rows.empty
                 else float("nan")
             )
-            n_pre = int(
-                df[(df["as_of_date"] < anchor_ts) & df["suspended"]].shape[0]
-            )
+            n_pre = int(df[(df["as_of_date"] < anchor_ts) & df["suspended"]].shape[0])
         rows.append(
             {
                 "index_code": code,
@@ -1868,9 +1837,7 @@ def run_all_core_indices(
             change_events_df=change_events_df,
             excluded_slots_df=excluded_slots_df,
         )
-        rebased, anchor = rebase_index_level(
-            tier_indices, base_date=config.base_date
-        )
+        rebased, anchor = rebase_index_level(tier_indices, base_date=config.base_date)
         indices[tier.value] = rebased
         anchors[tier.value] = anchor
     return CoreIndexResults(

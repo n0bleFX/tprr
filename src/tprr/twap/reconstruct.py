@@ -78,8 +78,7 @@ def reconstruct_slots(
         panel_match = panel_df.loc[panel_mask]
         if len(panel_match) == 0:
             raise KeyError(
-                f"no panel row for ({contributor_id!r}, {constituent_id!r}, "
-                f"{ts.date()})"
+                f"no panel row for ({contributor_id!r}, {constituent_id!r}, {ts.date()})"
             )
         posted = float(panel_match.iloc[0][price_field])
         return np.full(_TWAP_SLOTS, posted, dtype=np.float64)
@@ -94,11 +93,7 @@ def reconstruct_slots(
     for i, ev in enumerate(records):
         current_slot = int(ev["change_slot_idx"])
         current_new = float(ev[f"new_{price_field}"])
-        end_slot = (
-            int(records[i + 1]["change_slot_idx"])
-            if i + 1 < len(records)
-            else _TWAP_SLOTS
-        )
+        end_slot = int(records[i + 1]["change_slot_idx"]) if i + 1 < len(records) else _TWAP_SLOTS
         slots[current_slot:end_slot] = current_new
 
     return slots
@@ -110,18 +105,14 @@ def compute_daily_twap(
 ) -> float:
     """Arithmetic mean over surviving slots. Raises if every slot is excluded."""
     if len(slot_prices) != _TWAP_SLOTS:
-        raise ValueError(
-            f"expected {_TWAP_SLOTS} slot prices, got {len(slot_prices)}"
-        )
+        raise ValueError(f"expected {_TWAP_SLOTS} slot prices, got {len(slot_prices)}")
 
     if excluded_slots is None or len(excluded_slots) == 0:
         return float(slot_prices.mean())
 
     surviving_idx = [i for i in range(_TWAP_SLOTS) if i not in excluded_slots]
     if not surviving_idx:
-        raise ValueError(
-            f"all {_TWAP_SLOTS} slots excluded; no valid observations for TWAP"
-        )
+        raise ValueError(f"all {_TWAP_SLOTS} slots excluded; no valid observations for TWAP")
     return float(slot_prices[surviving_idx].mean())
 
 
@@ -225,11 +216,7 @@ def _slots_from_events(
     for i, ev in enumerate(events):
         current_slot = int(ev["change_slot_idx"])
         current_new = float(ev[f"new_{price_field}"])
-        end_slot = (
-            int(events[i + 1]["change_slot_idx"])
-            if i + 1 < len(events)
-            else _TWAP_SLOTS
-        )
+        end_slot = int(events[i + 1]["change_slot_idx"]) if i + 1 < len(events) else _TWAP_SLOTS
         slots[current_slot:end_slot] = current_new
     return slots
 

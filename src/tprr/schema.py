@@ -133,9 +133,7 @@ def _check_dtype_family(
     elif family == "float":
         ok = pdt.is_float_dtype(series)
     elif family == "string":
-        ok = pdt.is_string_dtype(series) or isinstance(
-            series.dtype, pd.CategoricalDtype
-        )
+        ok = pdt.is_string_dtype(series) or isinstance(series.dtype, pd.CategoricalDtype)
     elif family == "bool":
         ok = pdt.is_bool_dtype(series)
     else:
@@ -174,15 +172,11 @@ class _DFValidator:
         """
         missing = set(cls.REQUIRED_COLUMNS) - set(df.columns)
         if missing:
-            raise ValueError(
-                f"{cls.SCHEMA_NAME}: missing required columns: {sorted(missing)}"
-            )
+            raise ValueError(f"{cls.SCHEMA_NAME}: missing required columns: {sorted(missing)}")
         nullable = set(cls.NULLABLE_COLUMNS)
         for col, family in cls.REQUIRED_COLUMNS.items():
             if col not in nullable and df[col].isna().any():
-                raise ValueError(
-                    f"{cls.SCHEMA_NAME}: column '{col}' contains null values"
-                )
+                raise ValueError(f"{cls.SCHEMA_NAME}: column '{col}' contains null values")
             _check_dtype_family(df[col], family, col, cls.SCHEMA_NAME)
         return df
 

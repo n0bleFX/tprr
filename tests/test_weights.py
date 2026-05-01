@@ -474,7 +474,7 @@ def test_unknown_constituent_id_raises() -> None:
             as_of_date=target_date,
             panel_df=panel,
             registry=_registry(),
-                tier_b_config=_tier_b_config_with_openai(),
+            tier_b_config=_tier_b_config_with_openai(),
             tier_b_volume_fn=_stub_tier_b_volume_fn(),
         )
 
@@ -534,12 +534,10 @@ def test_dual_weights_haircut_applied_per_selected_tier() -> None:
     }
 
     gpt_a = out[
-        (out["constituent_id"] == "openai/gpt-5-pro")
-        & (out["attestation_tier"] == "A")
+        (out["constituent_id"] == "openai/gpt-5-pro") & (out["attestation_tier"] == "A")
     ].iloc[0]
     gpt_b = out[
-        (out["constituent_id"] == "openai/gpt-5-pro")
-        & (out["attestation_tier"] == "B")
+        (out["constituent_id"] == "openai/gpt-5-pro") & (out["attestation_tier"] == "B")
     ].iloc[0]
     gemini_c = out[out["constituent_id"] == "google/gemini-3-pro"].iloc[0]
 
@@ -723,7 +721,7 @@ def test_dual_weights_rejects_multi_date_input() -> None:
         compute_dual_weights(
             panel_day_df=pd.DataFrame(rows),
             registry=_registry(),
-                tier_b_config=_tier_b_config_with_openai(),
+            tier_b_config=_tier_b_config_with_openai(),
             tier_b_volume_fn=_stub_tier_b_volume_fn(),
             config=_index_config(),
         )
@@ -785,12 +783,10 @@ def test_w_vol_bounded_under_within_tier_share_normalization() -> None:
     # Phase 7H Batch B: long-format. Each constituent has 1 row per
     # contributing tier; here each has only 1 contributing tier, so 1
     # row per constituent. w_vol_contribution = coef x share x haircut.
-    a_w = float(out.set_index("constituent_id").loc[
-        "anthropic/claude-opus-4-7", "w_vol_contribution"
-    ])
-    c_w = float(out.set_index("constituent_id").loc[
-        "google/gemini-3-pro", "w_vol_contribution"
-    ])
+    a_w = float(
+        out.set_index("constituent_id").loc["anthropic/claude-opus-4-7", "w_vol_contribution"]
+    )
+    c_w = float(out.set_index("constituent_id").loc["google/gemini-3-pro", "w_vol_contribution"])
 
     # Both w_vol_contributions bounded in [0, 1].
     assert 0.0 <= a_w <= 1.0, f"Tier A w_vol_contribution out of [0, 1]: {a_w}"
@@ -803,12 +799,8 @@ def test_w_vol_bounded_under_within_tier_share_normalization() -> None:
 
     # Raw-volume ratio is preserved in raw_volume (audit-trail field) but
     # NOT in w_vol — that's the whole point.
-    a_raw = float(out.set_index("constituent_id").loc[
-        "anthropic/claude-opus-4-7", "raw_volume"
-    ])
-    c_raw = float(out.set_index("constituent_id").loc[
-        "google/gemini-3-pro", "raw_volume"
-    ])
+    a_raw = float(out.set_index("constituent_id").loc["anthropic/claude-opus-4-7", "raw_volume"])
+    c_raw = float(out.set_index("constituent_id").loc["google/gemini-3-pro", "raw_volume"])
     assert c_raw / a_raw > 100, (
         "Raw volumes still reflect the realistic ~200x panel-sum vs rankings "
         "magnitude — w_vol normalisation does not erase the underlying signal, "
@@ -961,12 +953,14 @@ def test_compute_within_tier_share_bounded_in_zero_to_one() -> None:
     scale. This is the property that makes within-tier shares structurally
     comparable across tiers (the cross-tier blending prerequisite)."""
     # Mix tiny + huge volumes to verify the invariant under wide scale ranges.
-    out = compute_within_tier_share({
-        "tiny": 1e-6,
-        "small": 1.0,
-        "medium": 1_000.0,
-        "huge": 1_000_000_000.0,
-    })
+    out = compute_within_tier_share(
+        {
+            "tiny": 1e-6,
+            "small": 1.0,
+            "medium": 1_000.0,
+            "huge": 1_000_000_000.0,
+        }
+    )
     for cid, share in out.items():
         assert 0.0 <= share <= 1.0, f"{cid} share {share} out of [0, 1]"
     assert sum(out.values()) == pytest.approx(1.0)
@@ -974,9 +968,7 @@ def test_compute_within_tier_share_bounded_in_zero_to_one() -> None:
 
 @given(
     volumes=st.lists(
-        st.floats(
-            min_value=0.0, max_value=1e9, allow_nan=False, allow_infinity=False
-        ),
+        st.floats(min_value=0.0, max_value=1e9, allow_nan=False, allow_infinity=False),
         min_size=1,
         max_size=10,
     )

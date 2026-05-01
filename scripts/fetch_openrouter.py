@@ -50,8 +50,7 @@ from tprr.schema import PanelObservationDF
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Fetch + normalise OpenRouter Tier C reference data, write "
-            "combined panel parquet."
+            "Fetch + normalise OpenRouter Tier C reference data, write combined panel parquet."
         )
     )
     parser.add_argument(
@@ -82,12 +81,8 @@ def main(argv: list[str] | None = None) -> int:
 
     print("\nFetching /api/v1/models...")
     models_json = fetch_models(as_of_date=as_of)
-    aggregate_panel = normalise_models_to_panel(
-        models_json, cfg.model_registry, as_of
-    )
-    print(
-        f"  {len(aggregate_panel)} aggregate Tier C rows from /models"
-    )
+    aggregate_panel = normalise_models_to_panel(models_json, cfg.model_registry, as_of)
+    print(f"  {len(aggregate_panel)} aggregate Tier C rows from /models")
 
     print("\nFetching rankings mirror...")
     rankings_json = fetch_rankings(as_of_date=as_of)
@@ -95,10 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         aggregate_panel, rankings_json, cfg.model_registry
     )
     n_with_volume = int((aggregate_panel["volume_mtok_7d"] > 0).sum())
-    print(
-        f"  {n_with_volume}/{len(aggregate_panel)} aggregate rows enriched "
-        f"with rankings volume"
-    )
+    print(f"  {n_with_volume}/{len(aggregate_panel)} aggregate rows enriched with rankings volume")
 
     print("\nFetching per-model endpoints...")
     endpoint_frames: list[pd.DataFrame] = []
@@ -110,28 +102,19 @@ def main(argv: list[str] | None = None) -> int:
             m.openrouter_author, m.openrouter_slug, as_of_date=as_of
         )
         n_endpoints_calls += 1
-        ep_panel = normalise_endpoints_to_panel(
-            endpoints_json, m.constituent_id, m.tier, as_of
-        )
+        ep_panel = normalise_endpoints_to_panel(endpoints_json, m.constituent_id, m.tier, as_of)
         endpoint_frames.append(ep_panel)
     if endpoint_frames:
         endpoints_panel = pd.concat(endpoint_frames, ignore_index=True)
     else:
         endpoints_panel = aggregate_panel.iloc[0:0].copy()  # empty, same schema
-    print(
-        f"  {n_endpoints_calls} /endpoints fetches; {len(endpoints_panel)} "
-        f"per-provider rows"
-    )
+    print(f"  {n_endpoints_calls} /endpoints fetches; {len(endpoints_panel)} per-provider rows")
 
-    full_panel = pd.concat(
-        [aggregate_panel, endpoints_panel], ignore_index=True
-    )
+    full_panel = pd.concat([aggregate_panel, endpoints_panel], ignore_index=True)
     PanelObservationDF.validate(full_panel)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = (
-        args.output_dir / f"openrouter_panel_{as_of.isoformat()}.parquet"
-    )
+    output_path = args.output_dir / f"openrouter_panel_{as_of.isoformat()}.parquet"
     full_panel.to_parquet(output_path, index=False)
 
     _print_summary(
@@ -157,9 +140,7 @@ def _print_summary(
 
     n_registry = len(getattr(registry, "models", []))
     matched_constituents = set(aggregate_panel["constituent_id"])
-    all_constituents = {
-        m.constituent_id for m in getattr(registry, "models", [])
-    }
+    all_constituents = {m.constituent_id for m in getattr(registry, "models", [])}
     unmatched = sorted(all_constituents - matched_constituents)
 
     print()
@@ -172,9 +153,7 @@ def _print_summary(
 
     print()
     print("Mean output price by tier (Tier C aggregate rows, USD/Mtok):")
-    by_tier = aggregate_panel.groupby("tier_code")[
-        "output_price_usd_mtok"
-    ].mean()
+    by_tier = aggregate_panel.groupby("tier_code")["output_price_usd_mtok"].mean()
     for tier, mean_price in by_tier.items():
         print(f"  {tier}: ${mean_price:.4f}/Mtok")
 
@@ -193,16 +172,11 @@ def _print_summary(
     print("Volume coverage (rankings-derived):")
     n_with_volume = int((aggregate_panel["volume_mtok_7d"] > 0).sum())
     n_total = len(aggregate_panel)
-    print(
-        f"  {n_with_volume} of {n_total} aggregate rows have non-zero volume"
-    )
+    print(f"  {n_with_volume} of {n_total} aggregate rows have non-zero volume")
     if n_with_volume > 0:
         with_vol = aggregate_panel[aggregate_panel["volume_mtok_7d"] > 0]
         for _, row in with_vol.iterrows():
-            print(
-                f"    {row['constituent_id']:<35} "
-                f"{row['volume_mtok_7d']:>14,.1f} mtok/7d"
-            )
+            print(f"    {row['constituent_id']:<35} {row['volume_mtok_7d']:>14,.1f} mtok/7d")
 
 
 if __name__ == "__main__":

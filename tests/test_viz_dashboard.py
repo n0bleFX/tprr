@@ -78,9 +78,7 @@ def test_plot_tprr_dashboard_grid_size_from_panel_max_coordinates(
         PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a")),
         PanelSpec(title="B", row=3, col=2, builder=_trace_adding_builder("b")),
     ]
-    fig = plot_tprr_dashboard(
-        panels=panels, run_id="run", output_path=tmp_path / "x.html"
-    )
+    fig = plot_tprr_dashboard(panels=panels, run_id="run", output_path=tmp_path / "x.html")
     # Plotly assigns subplot anchors xaxis, xaxis2, ... in row-major order.
     # 3x2 grid → 6 axes total.
     layout_dict = fig.to_dict()["layout"]
@@ -91,9 +89,7 @@ def test_plot_tprr_dashboard_grid_size_from_panel_max_coordinates(
 def test_plot_tprr_dashboard_run_id_in_title(tmp_path: Path) -> None:
     """run_id is embedded in the title block so dashboards are visually
     self-identifying."""
-    panels = [
-        PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))
-    ]
+    panels = [PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))]
     fig = plot_tprr_dashboard(
         panels=panels,
         run_id="v0_1_lambda3.0_twap_then_weight_seed42_base2026-01-01",
@@ -104,9 +100,7 @@ def test_plot_tprr_dashboard_run_id_in_title(tmp_path: Path) -> None:
 
 
 def test_plot_tprr_dashboard_subtitle_threaded_through(tmp_path: Path) -> None:
-    panels = [
-        PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))
-    ]
+    panels = [PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))]
     fig = plot_tprr_dashboard(
         panels=panels,
         run_id="run_x",
@@ -120,9 +114,7 @@ def test_plot_tprr_dashboard_subtitle_threaded_through(tmp_path: Path) -> None:
 
 def test_plot_tprr_dashboard_empty_panels_raises(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="empty"):
-        plot_tprr_dashboard(
-            panels=[], run_id="run", output_path=tmp_path / "x.html"
-        )
+        plot_tprr_dashboard(panels=[], run_id="run", output_path=tmp_path / "x.html")
 
 
 def test_plot_tprr_dashboard_panel_out_of_grid_bounds_raises(
@@ -134,9 +126,7 @@ def test_plot_tprr_dashboard_panel_out_of_grid_bounds_raises(
         PanelSpec(title="X", row=0, col=1, builder=_noop_builder),
     ]
     with pytest.raises(ValueError, match="out of grid bounds"):
-        plot_tprr_dashboard(
-            panels=panels, run_id="run", output_path=tmp_path / "x.html"
-        )
+        plot_tprr_dashboard(panels=panels, run_id="run", output_path=tmp_path / "x.html")
 
 
 def test_plot_tprr_dashboard_subplot_titles_match_panel_titles(
@@ -146,9 +136,7 @@ def test_plot_tprr_dashboard_subplot_titles_match_panel_titles(
         PanelSpec(title="Top-left", row=1, col=1, builder=_noop_builder),
         PanelSpec(title="Bottom-right", row=2, col=2, builder=_noop_builder),
     ]
-    fig = plot_tprr_dashboard(
-        panels=panels, run_id="run", output_path=tmp_path / "x.html"
-    )
+    fig = plot_tprr_dashboard(panels=panels, run_id="run", output_path=tmp_path / "x.html")
     annotation_texts = {a.text for a in fig.layout.annotations}
     assert "Top-left" in annotation_texts
     assert "Bottom-right" in annotation_texts
@@ -157,12 +145,8 @@ def test_plot_tprr_dashboard_subplot_titles_match_panel_titles(
 def test_plot_tprr_dashboard_returns_figure(tmp_path: Path) -> None:
     """Returning the Figure lets callers do further inspection / testing
     without re-loading from disk."""
-    panels = [
-        PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))
-    ]
-    fig = plot_tprr_dashboard(
-        panels=panels, run_id="run", output_path=tmp_path / "x.html"
-    )
+    panels = [PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))]
+    fig = plot_tprr_dashboard(panels=panels, run_id="run", output_path=tmp_path / "x.html")
     assert isinstance(fig, go.Figure)
 
 
@@ -171,14 +155,15 @@ def test_plot_tprr_dashboard_includes_plotlyjs_via_cdn(tmp_path: Path) -> None:
     Keeps file size ~50KB (cdn) instead of ~3MB (inline) per dashboard;
     Phase 10 sweeps will produce dozens of files."""
     output = tmp_path / "dashboard.html"
-    panels = [
-        PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))
-    ]
-    plot_tprr_dashboard(
-        panels=panels, run_id="run", output_path=output
-    )
+    panels = [PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))]
+    plot_tprr_dashboard(panels=panels, run_id="run", output_path=output)
     html_text = output.read_text()
-    assert "cdn.plot.ly" in html_text or "plotly-latest" in html_text or "plot-latest" in html_text or "cdn.plotly" in html_text
+    assert (
+        "cdn.plot.ly" in html_text
+        or "plotly-latest" in html_text
+        or "plot-latest" in html_text
+        or "cdn.plotly" in html_text
+    )
 
 
 def test_plot_tprr_dashboard_default_layout_is_white_background(
@@ -186,12 +171,8 @@ def test_plot_tprr_dashboard_default_layout_is_white_background(
 ) -> None:
     """Institutional look: white plot + paper background, not Plotly's
     default light-grey."""
-    panels = [
-        PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))
-    ]
-    fig = plot_tprr_dashboard(
-        panels=panels, run_id="run", output_path=tmp_path / "x.html"
-    )
+    panels = [PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))]
+    fig = plot_tprr_dashboard(panels=panels, run_id="run", output_path=tmp_path / "x.html")
     assert fig.layout.plot_bgcolor == "white"
     assert fig.layout.paper_bgcolor == "white"
 
@@ -206,15 +187,9 @@ def test_plot_tprr_dashboard_deterministic_under_same_inputs(
 ) -> None:
     """Same panels + same run_id → byte-identical figure JSON across two
     invocations. CLAUDE.md non-negotiable: deterministic computation."""
-    panels = [
-        PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))
-    ]
-    fig_a = plot_tprr_dashboard(
-        panels=panels, run_id="r", output_path=tmp_path / "a.html"
-    )
-    fig_b = plot_tprr_dashboard(
-        panels=panels, run_id="r", output_path=tmp_path / "b.html"
-    )
+    panels = [PanelSpec(title="A", row=1, col=1, builder=_trace_adding_builder("a"))]
+    fig_a = plot_tprr_dashboard(panels=panels, run_id="r", output_path=tmp_path / "a.html")
+    fig_b = plot_tprr_dashboard(panels=panels, run_id="r", output_path=tmp_path / "b.html")
     # Compare the JSON dict (skip uid which Plotly may set on traces).
     dict_a = fig_a.to_dict()
     dict_b = fig_b.to_dict()

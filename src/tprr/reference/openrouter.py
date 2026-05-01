@@ -60,14 +60,11 @@ USER_AGENT = "Noble-Argon-TPRR/0.1 research"
 TIMEOUT_SECONDS = 30.0
 API_BASE = "https://openrouter.ai/api/v1"
 RANKINGS_URL = (
-    "https://raw.githubusercontent.com/jampongsathorn/"
-    "openrouter-rankings/main/data/latest.json"
+    "https://raw.githubusercontent.com/jampongsathorn/openrouter-rankings/main/data/latest.json"
 )
 
 # repo root / data / raw / openrouter — independent of cwd.
-DEFAULT_CACHE_DIR: Path = (
-    Path(__file__).resolve().parents[3] / "data" / "raw" / "openrouter"
-)
+DEFAULT_CACHE_DIR: Path = Path(__file__).resolve().parents[3] / "data" / "raw" / "openrouter"
 
 
 def fetch_models(
@@ -78,9 +75,7 @@ def fetch_models(
 ) -> dict[str, Any]:
     """Fetch the global model catalogue. Cached by date under ``models/``."""
     as_of = as_of_date or date.today()
-    cache_path = (
-        (cache_dir or DEFAULT_CACHE_DIR) / "models" / f"{as_of.isoformat()}.json"
-    )
+    cache_path = (cache_dir or DEFAULT_CACHE_DIR) / "models" / f"{as_of.isoformat()}.json"
     return _fetch_with_cache(
         cache_path=cache_path,
         url=f"{API_BASE}/models",
@@ -102,11 +97,7 @@ def fetch_model_endpoints(
     """
     as_of = as_of_date or date.today()
     cache_path = (
-        (cache_dir or DEFAULT_CACHE_DIR)
-        / "endpoints"
-        / author
-        / slug
-        / f"{as_of.isoformat()}.json"
+        (cache_dir or DEFAULT_CACHE_DIR) / "endpoints" / author / slug / f"{as_of.isoformat()}.json"
     )
     return _fetch_with_cache(
         cache_path=cache_path,
@@ -130,11 +121,7 @@ def fetch_rankings(
     2026-04-27 entry on Tier C historical backfill).
     """
     as_of = as_of_date or date.today()
-    cache_path = (
-        (cache_dir or DEFAULT_CACHE_DIR)
-        / "rankings"
-        / f"{as_of.isoformat()}.json"
-    )
+    cache_path = (cache_dir or DEFAULT_CACHE_DIR) / "rankings" / f"{as_of.isoformat()}.json"
     return _fetch_with_cache(
         cache_path=cache_path,
         url=RANKINGS_URL,
@@ -159,9 +146,7 @@ def _fetch_with_cache(
 
     payload = _http_get_json(url, client)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    cache_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     return payload
 
 
@@ -181,9 +166,7 @@ def _http_get_json(url: str, client: httpx.Client | None) -> dict[str, Any]:
         try:
             payload = response.json()
         except json.JSONDecodeError as exc:
-            raise ValueError(
-                f"OpenRouter response from {url} is not valid JSON: {exc}"
-            ) from exc
+            raise ValueError(f"OpenRouter response from {url} is not valid JSON: {exc}") from exc
         if not isinstance(payload, dict):
             raise ValueError(
                 f"OpenRouter response from {url} expected a JSON object at "
@@ -200,9 +183,7 @@ def _load_cached_json(path: Path) -> dict[str, Any]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise ValueError(
-            f"cached OpenRouter response at {path} is malformed: {exc}"
-        ) from exc
+        raise ValueError(f"cached OpenRouter response at {path} is malformed: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(
             f"cached OpenRouter response at {path} expected a JSON object "
@@ -416,9 +397,7 @@ def enrich_with_rankings_volume(
     Only Tier C panel rows are touched. Other-tier rows pass through
     unchanged.
     """
-    volume_by_constituent = _build_rankings_volume_lookup(
-        rankings_json, model_registry
-    )
+    volume_by_constituent = _build_rankings_volume_lookup(rankings_json, model_registry)
 
     out = panel_df.copy()
     if len(out) == 0 or "attestation_tier" not in out.columns:
@@ -436,9 +415,7 @@ def enrich_with_rankings_volume(
         else:
             existing = str(out.at[idx, "notes"]) if "notes" in out.columns else ""
             out.at[idx, "notes"] = (
-                _NO_RANKINGS_NOTE
-                if not existing
-                else f"{existing};{_NO_RANKINGS_NOTE}"
+                _NO_RANKINGS_NOTE if not existing else f"{existing};{_NO_RANKINGS_NOTE}"
             )
             unmatched_constituents.add(cid)
 
@@ -574,10 +551,6 @@ def _build_panel_df(rows: list[dict[str, Any]]) -> pd.DataFrame:
             }
         )
     df = pd.DataFrame(rows)
-    df["observation_date"] = (
-        pd.to_datetime(df["observation_date"]).astype("datetime64[ns]")
-    )
-    df["submitted_at"] = (
-        pd.to_datetime(df["submitted_at"]).astype("datetime64[ns]")
-    )
+    df["observation_date"] = pd.to_datetime(df["observation_date"]).astype("datetime64[ns]")
+    df["submitted_at"] = pd.to_datetime(df["submitted_at"]).astype("datetime64[ns]")
     return df[_PANEL_COLUMNS].reset_index(drop=True)

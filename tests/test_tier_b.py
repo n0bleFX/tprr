@@ -528,9 +528,7 @@ def test_uncovered_two_model_hand_computed_numerical() -> None:
         out.loc[out["constituent_id"] == "provider_x/cheap", "volume_mtok_7d"].iloc[0]
     )
     expensive_vol = float(
-        out.loc[
-            out["constituent_id"] == "provider_x/expensive", "volume_mtok_7d"
-        ].iloc[0]
+        out.loc[out["constituent_id"] == "provider_x/expensive", "volume_mtok_7d"].iloc[0]
     )
     assert cheap_vol == pytest.approx(expected_cheap_7d, rel=1e-12)
     assert expensive_vol == pytest.approx(expected_expensive_7d, rel=1e-12)

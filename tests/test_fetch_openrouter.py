@@ -23,9 +23,7 @@ AS_OF = date(2026, 4, 27)
 
 
 def _load_script_main() -> object:
-    spec = importlib.util.spec_from_file_location(
-        "fetch_openrouter_under_test", SCRIPT_PATH
-    )
+    spec = importlib.util.spec_from_file_location("fetch_openrouter_under_test", SCRIPT_PATH)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     sys.modules["fetch_openrouter_under_test"] = module
@@ -56,25 +54,19 @@ def test_writes_panel_parquet(end_to_end_run: Path) -> None:
 
 
 def test_panel_validates_schema(end_to_end_run: Path) -> None:
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     PanelObservationDF.validate(panel)
 
 
 def test_all_rows_are_tier_c(end_to_end_run: Path) -> None:
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     assert (panel["attestation_tier"] == "C").all()
 
 
 def test_aggregate_rows_have_openrouter_aggregate_contributor_id(
     end_to_end_run: Path,
 ) -> None:
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     aggregate_rows = panel[panel["source"] == "openrouter_models"]
     assert len(aggregate_rows) > 0
     assert (aggregate_rows["contributor_id"] == "openrouter:aggregate").all()
@@ -83,9 +75,7 @@ def test_aggregate_rows_have_openrouter_aggregate_contributor_id(
 def test_endpoint_rows_have_per_provider_contributor_ids(
     end_to_end_run: Path,
 ) -> None:
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     endpoint_rows = panel[panel["source"] == "openrouter_endpoints"]
     assert len(endpoint_rows) > 0
     # Each contributor_id starts with 'openrouter:' and is NOT 'openrouter:aggregate'
@@ -96,18 +86,14 @@ def test_endpoint_rows_have_per_provider_contributor_ids(
 
 def test_match_rate_15_of_16(end_to_end_run: Path) -> None:
     """15 of 16 registry constituents produce an aggregate row."""
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     aggregate_rows = panel[panel["source"] == "openrouter_models"]
     assert aggregate_rows["constituent_id"].nunique() == 15
 
 
 def test_meta_llama_4_70b_hosted_unmatched(end_to_end_run: Path) -> None:
     """The one documented unmatched constituent has no panel row."""
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     assert "meta/llama-4-70b-hosted" not in set(panel["constituent_id"])
 
 
@@ -119,9 +105,7 @@ def test_only_aggregate_rows_carry_rankings_volume(end_to_end_run: Path) -> None
     rankings is a constituent-level aggregate; assigning it to all 1+N
     Tier C rows for a constituent would double-count.
     """
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     endpoint_rows = panel[panel["source"] == "openrouter_endpoints"]
     assert (endpoint_rows["volume_mtok_7d"] == 0).all()
 
@@ -130,9 +114,7 @@ def test_at_least_one_constituent_has_rankings_derived_volume(
     end_to_end_run: Path,
 ) -> None:
     """deepseek/deepseek-v3-2 should have non-zero rankings-derived volume."""
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     deepseek_aggregate = panel[
         (panel["constituent_id"] == "deepseek/deepseek-v3-2")
         & (panel["source"] == "openrouter_models")
@@ -145,12 +127,9 @@ def test_unmatched_aggregate_rows_have_no_rankings_data_flag(
     end_to_end_run: Path,
 ) -> None:
     """Aggregate rows for constituents not in rankings get the flag in notes."""
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     unmatched_aggregate = panel[
-        (panel["source"] == "openrouter_models")
-        & (panel["volume_mtok_7d"] == 0)
+        (panel["source"] == "openrouter_models") & (panel["volume_mtok_7d"] == 0)
     ]
     assert len(unmatched_aggregate) > 0
     assert (unmatched_aggregate["notes"] == "no_rankings_data").all()
@@ -158,12 +137,9 @@ def test_unmatched_aggregate_rows_have_no_rankings_data_flag(
 
 def test_prices_post_x1e6_are_reasonable_magnitude(end_to_end_run: Path) -> None:
     """Spot check: GPT-5 output ~$10/Mtok, not 0.00001 or 10000000."""
-    panel = pd.read_parquet(
-        end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet"
-    )
+    panel = pd.read_parquet(end_to_end_run / f"openrouter_panel_{AS_OF.isoformat()}.parquet")
     gpt5_aggregate = panel[
-        (panel["constituent_id"] == "openai/gpt-5")
-        & (panel["source"] == "openrouter_models")
+        (panel["constituent_id"] == "openai/gpt-5") & (panel["source"] == "openrouter_models")
     ]
     assert len(gpt5_aggregate) == 1
     output_price = gpt5_aggregate.iloc[0]["output_price_usd_mtok"]

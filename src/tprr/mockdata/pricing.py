@@ -65,13 +65,13 @@ _STEP_EVENTS_COLUMNS: dict[str, str] = {
 class TierPricingParams:
     """Stochastic process parameters per tier (docs/findings/pricing_model_design.md)."""
 
-    rate_per_year: float            # Poisson rate of step events
-    mu_daily: float                 # Mean daily return
-    sigma_daily: float              # Daily return volatility
-    down_magnitude_lo: float        # Step-down lower bound (uniform draw)
-    down_magnitude_hi: float        # Step-down upper bound
-    up_magnitude_lo: float          # Step-up lower bound
-    up_magnitude_hi: float          # Step-up upper bound
+    rate_per_year: float  # Poisson rate of step events
+    mu_daily: float  # Mean daily return
+    sigma_daily: float  # Daily return volatility
+    down_magnitude_lo: float  # Step-down lower bound (uniform draw)
+    down_magnitude_hi: float  # Step-down upper bound
+    up_magnitude_lo: float  # Step-up lower bound
+    up_magnitude_hi: float  # Step-up upper bound
     down_probability: float = 0.75  # Probability a step event is a step-down
 
 

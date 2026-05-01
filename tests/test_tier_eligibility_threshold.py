@@ -345,9 +345,7 @@ def test_constituent_with_only_ineligible_tiers_excluded() -> None:
         tier_b_volume_fn=_stub_volume_fn(0.0),
         decisions_out=decisions,
     )
-    phantom_rows = [
-        r for r in decisions if r["constituent_id"] == "phantom/tierc-only"
-    ]
+    phantom_rows = [r for r in decisions if r["constituent_id"] == "phantom/tierc-only"]
     assert len(phantom_rows) == 1
     assert not phantom_rows[0]["included"]
     assert (

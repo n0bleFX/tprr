@@ -60,13 +60,9 @@ def generate_contributor_panel(
     seed). model_registry was added because tier_code is required by
     PanelObservationDF and is not in baseline_prices.
     """
-    baseline_indexed = baseline_prices.set_index(
-        ["date", "constituent_id"]
-    ).sort_index()
+    baseline_indexed = baseline_prices.set_index(["date", "constituent_id"]).sort_index()
 
-    tier_by_constituent = {
-        m.constituent_id: m.tier for m in model_registry.models
-    }
+    tier_by_constituent = {m.constituent_id: m.tier for m in model_registry.models}
     valid_constituents = set(tier_by_constituent.keys())
     for profile in contributor_panel.contributors:
         unknown = sorted(set(profile.covered_models) - valid_constituents)
@@ -109,9 +105,7 @@ def _generate_observation_path(
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
     """Generate input/output observation arrays for one (contributor, model)."""
     baseline_in = (
-        baseline_indexed.xs(constituent_id, level="constituent_id")[
-            "baseline_input_price_usd_mtok"
-        ]
+        baseline_indexed.xs(constituent_id, level="constituent_id")["baseline_input_price_usd_mtok"]
         .to_numpy()
         .astype(np.float64)
     )
@@ -125,20 +119,20 @@ def _generate_observation_path(
     n_days = len(baseline_in)
 
     # Per (contributor, model) RNG — same independence pattern as pricing.py.
-    seed_seq = np.random.SeedSequence([
-        seed,
-        _stable_int(profile.contributor_id),
-        _stable_int(constituent_id),
-    ])
+    seed_seq = np.random.SeedSequence(
+        [
+            seed,
+            _stable_int(profile.contributor_id),
+            _stable_int(constituent_id),
+        ]
+    )
     rng = np.random.default_rng(seed_seq)
 
     sigma = profile.daily_noise_sigma_pct / 100.0
     bias_factor = 1.0 + profile.price_bias_pct / 100.0
 
     is_error = rng.random(n_days) < profile.error_rate
-    sigma_per_day = np.where(
-        is_error, sigma * _ERROR_NOISE_AMPLIFICATION, sigma
-    )
+    sigma_per_day = np.where(is_error, sigma * _ERROR_NOISE_AMPLIFICATION, sigma)
     noise = rng.standard_normal(n_days) * sigma_per_day
 
     multiplier = bias_factor * (1.0 + noise)
@@ -155,9 +149,9 @@ def _assemble_rows(
     output_path: npt.NDArray[np.float64],
 ) -> pd.DataFrame:
     """Pack one (contributor, model) series into PanelObservationDF rows."""
-    submitted_at = (
-        dates.normalize() + pd.Timedelta(hours=_SUBMITTED_AT_HOUR_UTC)
-    ).astype("datetime64[ns]")
+    submitted_at = (dates.normalize() + pd.Timedelta(hours=_SUBMITTED_AT_HOUR_UTC)).astype(
+        "datetime64[ns]"
+    )
     return pd.DataFrame(
         {
             "observation_date": dates,

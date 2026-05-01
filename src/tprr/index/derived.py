@@ -123,12 +123,16 @@ def _compute_ratio_index(
     if numerator_df.empty or denominator_df.empty:
         return pd.DataFrame(), None
 
-    merged = numerator_df.merge(
-        denominator_df,
-        on="as_of_date",
-        suffixes=("_num", "_den"),
-        how="inner",
-    ).sort_values("as_of_date").reset_index(drop=True)
+    merged = (
+        numerator_df.merge(
+            denominator_df,
+            on="as_of_date",
+            suffixes=("_num", "_den"),
+            how="inner",
+        )
+        .sort_values("as_of_date")
+        .reset_index(drop=True)
+    )
 
     rows: list[dict[str, Any]] = []
     prior_ratio: float | None = None
@@ -141,9 +145,7 @@ def _compute_ratio_index(
         num = float(rec["raw_value_usd_mtok_num"])
 
         if any_suspended or not (np.isfinite(num) and np.isfinite(denom) and denom > 0):
-            ratio = (
-                float(prior_ratio) if prior_ratio is not None else float("nan")
-            )
+            ratio = float(prior_ratio) if prior_ratio is not None else float("nan")
             reason = (
                 str(rec["suspension_reason_num"])
                 if suspended_num

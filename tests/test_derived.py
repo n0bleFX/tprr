@@ -114,9 +114,7 @@ def test_fpr_basic_ratio() -> None:
     assert float(fpr_df.iloc[0]["raw_value_usd_mtok"]) == pytest.approx(14.0)
     assert float(fpr_df.iloc[0]["index_level"]) == pytest.approx(100.0)
     assert float(fpr_df.iloc[1]["raw_value_usd_mtok"]) == pytest.approx(57.0 / 4.2)
-    assert float(fpr_df.iloc[1]["index_level"]) == pytest.approx(
-        100.0 * (57.0 / 4.2) / 14.0
-    )
+    assert float(fpr_df.iloc[1]["index_level"]) == pytest.approx(100.0 * (57.0 / 4.2) / 14.0)
 
 
 def test_fpr_index_code_is_tprr_fpr() -> None:
@@ -218,9 +216,7 @@ def test_ser_basic_ratio() -> None:
     assert float(ser_df.iloc[0]["raw_value_usd_mtok"]) == pytest.approx(10.0)
     assert float(ser_df.iloc[0]["index_level"]) == pytest.approx(100.0)
     assert float(ser_df.iloc[1]["raw_value_usd_mtok"]) == pytest.approx(4.2 / 0.45)
-    assert float(ser_df.iloc[1]["index_level"]) == pytest.approx(
-        100.0 * (4.2 / 0.45) / 10.0
-    )
+    assert float(ser_df.iloc[1]["index_level"]) == pytest.approx(100.0 * (4.2 / 0.45) / 10.0)
 
 
 def test_ser_index_code_is_tprr_ser() -> None:

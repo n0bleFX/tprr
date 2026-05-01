@@ -102,8 +102,7 @@ def generate_volumes(
     missing_profiles = panel_contributor_ids - set(contrib_by_id.keys())
     if missing_profiles:
         raise ValueError(
-            f"panel_df references contributors not in contributor_panel: "
-            f"{sorted(missing_profiles)}"
+            f"panel_df references contributors not in contributor_panel: {sorted(missing_profiles)}"
         )
 
     all_dates = pd.DatetimeIndex(sorted(panel_df["observation_date"].unique()))
@@ -113,9 +112,7 @@ def generate_volumes(
     base_scale_by_id: dict[str, float] = {}
     for cid, profile in contrib_by_id.items():
         shared_mult_by_id[cid] = _build_shared_multiplier_path(cid, n_days, seed)
-        base_scale_by_id[cid] = _VOLUME_SCALE_BASELINE_MTOK_PER_DAY[
-            profile.volume_scale
-        ]
+        base_scale_by_id[cid] = _VOLUME_SCALE_BASELINE_MTOK_PER_DAY[profile.volume_scale]
 
     pairs = panel_df[["contributor_id", "constituent_id"]].drop_duplicates()
     mult_frames: list[pd.DataFrame] = []
@@ -146,22 +143,18 @@ def generate_volumes(
         how="left",
     )
     if out["_daily_volume_mtok"].isna().any():
-        raise RuntimeError(
-            "volume merge left null daily volumes; check date alignment"
-        )
+        raise RuntimeError("volume merge left null daily volumes; check date alignment")
 
-    out = out.sort_values(
-        ["contributor_id", "constituent_id", "observation_date"]
-    ).reset_index(drop=True)
+    out = out.sort_values(["contributor_id", "constituent_id", "observation_date"]).reset_index(
+        drop=True
+    )
 
     if "volume_mtok_7d" in out.columns:
         out = out.drop(columns=["volume_mtok_7d"])
 
-    out["volume_mtok_7d"] = out.groupby(
-        ["contributor_id", "constituent_id"]
-    )["_daily_volume_mtok"].transform(
-        lambda x: x.rolling(_TRAILING_WINDOW_DAYS, min_periods=1).sum()
-    )
+    out["volume_mtok_7d"] = out.groupby(["contributor_id", "constituent_id"])[
+        "_daily_volume_mtok"
+    ].transform(lambda x: x.rolling(_TRAILING_WINDOW_DAYS, min_periods=1).sum())
 
     out = out.drop(columns=["_daily_volume_mtok"])
     return out[original_columns]
@@ -196,9 +189,7 @@ def _build_pair_components(
 
     log_idio = np.zeros(n_days, dtype=np.float64)
     if n_days > 1:
-        log_idio[1:] = np.cumsum(
-            rng.normal(0.0, _MODEL_IDIO_WALK_SIGMA, n_days - 1)
-        )
+        log_idio[1:] = np.cumsum(rng.normal(0.0, _MODEL_IDIO_WALK_SIGMA, n_days - 1))
     idio_path = np.exp(log_idio)
     return offset, idio_path
 
@@ -218,9 +209,5 @@ def daily_volume_series(
     plumbing.
     """
     shared_mult = _build_shared_multiplier_path(contributor_id, n_days, seed)
-    offset, idio_path = _build_pair_components(
-        contributor_id, constituent_id, n_days, seed
-    )
-    return np.maximum(
-        base_scale * shared_mult * offset * idio_path, _MIN_DAILY_VOLUME_MTOK
-    )
+    offset, idio_path = _build_pair_components(contributor_id, constituent_id, n_days, seed)
+    return np.maximum(base_scale * shared_mult * offset * idio_path, _MIN_DAILY_VOLUME_MTOK)

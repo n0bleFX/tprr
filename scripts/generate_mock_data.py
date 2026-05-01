@@ -49,10 +49,7 @@ from tprr.mockdata.volume import generate_volumes
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Generate clean mock panel + change events for the TPRR backtest "
-            "window."
-        )
+        description=("Generate clean mock panel + change events for the TPRR backtest window.")
     )
     parser.add_argument(
         "--start",
@@ -110,21 +107,13 @@ def main(argv: list[str] | None = None) -> int:
         scenarios_path=args.scenarios,
     )
 
-    print(
-        f"Generating mock panel + change events: "
-        f"{args.start} to {args.end}, seed={args.seed}"
-    )
-    print(
-        f"Registry: {len(cfg.model_registry)} models, "
-        f"{len(cfg.contributors)} contributors"
-    )
+    print(f"Generating mock panel + change events: {args.start} to {args.end}, seed={args.seed}")
+    print(f"Registry: {len(cfg.model_registry)} models, {len(cfg.contributors)} contributors")
 
     baseline, step_events = generate_baseline_prices(
         cfg.model_registry, args.start, args.end, args.seed
     )
-    panel = generate_contributor_panel(
-        baseline, cfg.contributors, cfg.model_registry, args.seed
-    )
+    panel = generate_contributor_panel(baseline, cfg.contributors, cfg.model_registry, args.seed)
     panel = generate_volumes(panel, cfg.contributors, args.seed)
     events = generate_change_events(
         panel, step_events, cfg.model_registry, cfg.contributors, args.seed
@@ -132,12 +121,8 @@ def main(argv: list[str] | None = None) -> int:
     panel = apply_twap_to_panel(panel, events)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    clean_panel_path = (
-        args.output_dir / f"mock_panel_clean_seed{args.seed}.parquet"
-    )
-    clean_events_path = (
-        args.output_dir / f"mock_change_events_clean_seed{args.seed}.parquet"
-    )
+    clean_panel_path = args.output_dir / f"mock_panel_clean_seed{args.seed}.parquet"
+    clean_events_path = args.output_dir / f"mock_change_events_clean_seed{args.seed}.parquet"
     panel.to_parquet(clean_panel_path, index=False)
     events.to_parquet(clean_events_path, index=False)
 
@@ -179,18 +164,13 @@ def _compose_scenarios_from_yaml(
     scenario_manifest_dir.mkdir(parents=True, exist_ok=True)
 
     print()
-    print(
-        f"Composing {len(cfg.scenarios.scenarios)} scenarios from "
-        f"{args.scenarios}"
-    )
+    print(f"Composing {len(cfg.scenarios.scenarios)} scenarios from {args.scenarios}")
 
     for spec in cfg.scenarios.scenarios:
         # Pre-flight runs on the CLEAN events (the baseline against which
         # event-clear-day annotations are stated). Composing happens on
         # deep copies so each scenario is independent of every other.
-        preflight_event_clear_check(
-            spec, clean_events, cfg.contributors, args.start
-        )
+        preflight_event_clear_check(spec, clean_events, cfg.contributors, args.start)
 
         panel_copy = clean_panel.copy()
         events_copy = clean_events.copy()
@@ -207,9 +187,7 @@ def _compose_scenarios_from_yaml(
             manifest=manifest,
         )
 
-        scenario_panel_path, scenario_events_path = _scenario_artifact_paths(
-            spec, args
-        )
+        scenario_panel_path, scenario_events_path = _scenario_artifact_paths(spec, args)
         panel_out.to_parquet(scenario_panel_path, index=False)
         events_out.to_parquet(scenario_events_path, index=False)
         manifest_path = manifest.write(scenario_manifest_dir)
@@ -222,16 +200,9 @@ def _compose_scenarios_from_yaml(
         )
 
 
-def _scenario_artifact_paths(
-    spec: ScenarioEntry, args: argparse.Namespace
-) -> tuple[Path, Path]:
-    panel_path = (
-        args.output_dir / f"mock_panel_{spec.id}_seed{args.seed}.parquet"
-    )
-    events_path = (
-        args.output_dir
-        / f"mock_change_events_{spec.id}_seed{args.seed}.parquet"
-    )
+def _scenario_artifact_paths(spec: ScenarioEntry, args: argparse.Namespace) -> tuple[Path, Path]:
+    panel_path = args.output_dir / f"mock_panel_{spec.id}_seed{args.seed}.parquet"
+    events_path = args.output_dir / f"mock_change_events_{spec.id}_seed{args.seed}.parquet"
     return panel_path, events_path
 
 
@@ -249,9 +220,7 @@ def _print_summary(
     n_rows = len(panel)
     date_min = panel["observation_date"].min()
     date_max = panel["observation_date"].max()
-    n_days = (
-        pd.Timestamp(date_max).normalize() - pd.Timestamp(date_min).normalize()
-    ).days + 1
+    n_days = (pd.Timestamp(date_max).normalize() - pd.Timestamp(date_min).normalize()).days + 1
     n_years = n_days / 365.0
 
     print()
@@ -269,18 +238,13 @@ def _print_summary(
     print()
     print("Mean volume_mtok_7d by contributor:")
     by_contrib = (
-        panel.groupby("contributor_id")["volume_mtok_7d"]
-        .mean()
-        .sort_values(ascending=False)
+        panel.groupby("contributor_id")["volume_mtok_7d"].mean().sort_values(ascending=False)
     )
     for cid, mean_vol in by_contrib.items():
         print(f"  {cid:<25} {mean_vol:>12.3f}")
 
     print()
-    print(
-        f"Wrote {events_path} ({len(events):,} rows, "
-        f"from {len(step_events)} step events)"
-    )
+    print(f"Wrote {events_path} ({len(events):,} rows, from {len(step_events)} step events)")
 
     print()
     print("Events by reason:")
@@ -294,19 +258,14 @@ def _print_summary(
 
     print()
     print("Events by tier x reason:")
-    grid = events_with_tier.groupby(["tier", "reason"]).size().unstack(
-        fill_value=0
-    )
+    grid = events_with_tier.groupby(["tier", "reason"]).size().unstack(fill_value=0)
     header = "  tier      " + " ".join(f"{c:>22}" for c in grid.columns)
     print(header)
     for tier in ["TPRR_F", "TPRR_S", "TPRR_E"]:
         if tier not in grid.index:
             continue
         row = grid.loc[tier]
-        print(
-            f"  {tier:<8}  "
-            + " ".join(f"{int(row[c]):>22}" for c in grid.columns)
-        )
+        print(f"  {tier:<8}  " + " ".join(f"{int(row[c]):>22}" for c in grid.columns))
 
     pairs = (
         panel[["tier_code", "contributor_id", "constituent_id"]]
@@ -318,8 +277,7 @@ def _print_summary(
     print()
     print(f"Per-pair event rate over {n_years:.2f} years:")
     print(
-        f"  {'tier':<8}  {'pairs':>6}  {'events':>7}  "
-        f"{'events/pair':>12}  {'events/pair/yr':>15}"
+        f"  {'tier':<8}  {'pairs':>6}  {'events':>7}  {'events/pair':>12}  {'events/pair/yr':>15}"
     )
     for tier in ["TPRR_F", "TPRR_S", "TPRR_E"]:
         n_pairs = int(n_pairs_by_tier.get(tier, 0))
@@ -328,10 +286,7 @@ def _print_summary(
             continue
         per_pair = n_events / n_pairs
         per_pair_yr = per_pair / n_years if n_years > 0 else 0.0
-        print(
-            f"  {tier:<8}  {n_pairs:>6}  {n_events:>7}  "
-            f"{per_pair:>12.2f}  {per_pair_yr:>15.2f}"
-        )
+        print(f"  {tier:<8}  {n_pairs:>6}  {n_events:>7}  {per_pair:>12.2f}  {per_pair_yr:>15.2f}")
 
 
 if __name__ == "__main__":
