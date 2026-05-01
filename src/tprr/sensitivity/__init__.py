@@ -30,6 +30,13 @@ from tprr.sensitivity.manifest import (
     read_manifest,
     upsert_manifest_row,
 )
+from tprr.sensitivity.multi_seed import (
+    MultiSeedRun,
+    build_clean_panel_runs,
+    build_clean_plus_scenario_runs,
+    regenerate_panel_for_seed,
+    run_multi_seed_sweep,
+)
 from tprr.sensitivity.pipeline_rerun import (
     PipelineRerunRun,
     build_threshold_runs,
@@ -45,15 +52,20 @@ from tprr.sensitivity.sweep import SweepRun, run_in_memory_sweep
 __all__ = [
     "MANIFEST_COLUMNS",
     "BaselineInputs",
+    "MultiSeedRun",
     "PipelineRerunRun",
     "SweepRun",
+    "build_clean_panel_runs",
+    "build_clean_plus_scenario_runs",
     "build_threshold_runs",
     "build_twap_ordering_runs",
     "load_baseline",
     "load_pipeline_inputs",
     "read_manifest",
     "recompute_indices_under_override",
+    "regenerate_panel_for_seed",
     "run_in_memory_sweep",
+    "run_multi_seed_sweep",
     "run_pipeline_at_config",
     "run_pipeline_rerun_sweep",
     "run_pipeline_with_scenario",

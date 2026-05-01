@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/mlest/AppData/Local/Temp/claude/c--Users-mlest-TPRR/04baeda7-2b57-45e1-b57f-7906398fe502/tasks/**)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

@@ -12,6 +12,9 @@ data/indices/charts/*
 !data/indices/charts/README.md
 data/indices/sweeps/*
 !data/indices/sweeps/manifest.csv
+!data/indices/sweeps/multi_seed/
+data/indices/sweeps/multi_seed/*
+!data/indices/sweeps/multi_seed/*.parquet
 *.db-journal
 .env
 .DS_Store
