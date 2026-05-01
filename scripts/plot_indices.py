@@ -15,16 +15,20 @@ Usage::
     uv run python scripts/plot_indices.py [--seed 42] [--start YYYY-MM-DD]
         [--end YYYY-MM-DD]
 
-Phase 9 batches:
-- Batch A (current): scaffolds the script, renders 1 panel (TPRR_F)
+Phase 9 batches (all closed):
+- Batch A: scaffold the script, render 1 panel (TPRR_F)
 - Batch B: full Group 1 (6 panels — F/S/E levels, FPR/SER, B-overlay)
-- Batch C: Group 2 (tier weight share + n_constituents)
-- Batch D: Group 3 (scenario overlays vs clean baseline)
-- Batch E: close-out
+- Batch C: Group 2 (tier weight share + n_constituents) — 6 panels
+- Batch D: Group 3 (scenario overlays vs clean baseline) — 6 panels
+- Batch E: close-out (this commit; docstring + memory + decision log)
+
+Final dashboard layout: 18 panels in a 6x3 grid (rows 1-2 Group 1,
+rows 3-4 Group 2, rows 5-6 Group 3 scenarios). HTML output ~1MB via
+plotly cdn include. Phase 11 may add static export (PNG/SVG via
+kaleido) as a separate dependency add.
 
 The disk-loading helpers below mirror ``scripts/compute_indices.py``;
-Phase 9 close-out may extract a shared library entry point if the
-duplication grows.
+the duplication is acceptable at v0.1 scale.
 """
 
 from __future__ import annotations

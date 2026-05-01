@@ -1137,3 +1137,42 @@ Output schema: `[contributor_id, constituent_id, suspension_date, reinstatement_
 
 **Methodology section**: 4.2.2 (data quality checks — suspension/reinstatement criteria)
 
+## 2026-04-30 — Phase 9 close-out: dashboard renders Phase 7H methodology refinements and scenario evidence in 18-panel grid
+
+**Status**: Phase 9 closes with the dashboard at 18 panels covering three groups (DL 2026-04-30 Phase 9 design walkthrough). Phase 7H (cliff-edge resolution + Tier B recalibration + suspension reinstatement) closed in parallel mid-Phase-9 and is reflected in the dashboard's pipeline output.
+
+**Phase 9 deliverables (all closed)**:
+- Group 1 (6 panels): F/S/E index levels + FPR/SER ratios + B-vs-core blended overlay
+- Group 2 (6 panels): F/S/E tier weight shares (stacked area) + F/S/E active constituent counts (lines)
+- Group 3 (6 panels): scenario overlays for fat_finger_high, intraday_spike, correlated_blackout, stale_quote, shock_price_cut, sustained_manipulation — each showing F/S/E levels under that scenario vs clean baseline
+
+**Phase 7H deliverables (all closed mid-Phase-9)**:
+- Batch A: within-tier-share normalization (refactor; bounded [0, 1] w_vol)
+- Batch B: continuous blending replaces priority fall-through (long-format audit; coefficient × share × haircut per tier)
+- Batch C: Tier B confidence haircut 0.9 → 0.5; tier ordering A > C > B confirmed
+- Batch D: bidirectional 3-day-exclude / 10-day-reinstate suspension criteria
+
+**Empirical resolution** (TPRR_F tier_a_weight_share at base_date 2026-01-01 on seed-42 backtest):
+- Pre-7H (priority fall-through, raw volume): 0.0012, n_a=3
+- Batch A: 0.5083, n_a=3
+- Batch B: 0.6980, n_a=3
+- Batch C: 0.8063, n_a=3
+- Batch D: 0.9261, n_a=6 (all F-tier constituents back in Tier A)
+
+The cliff-edge dynamics finding from DL 2026-04-30 Phase 9 visual diagnostic entry is fully resolved by Phase 7H. The dashboard renders both the smooth tier-share trajectories (Group 2) and the per-scenario divergence-from-baseline (Group 3) cleanly.
+
+**Phase 10 obligations (queued)**:
+- λ sensitivity sweep (recompute from ConstituentDecisionDF audit)
+- Tier B haircut sensitivity sweep (0.4 / 0.5 / 0.6 — DL Batch C entry)
+- Coefficient sweep (alternate (0.5, 0.35, 0.15), (0.7, 0.2, 0.1) — DL Phase 7H design entry)
+- Reinstatement threshold sweep (5 / 10 / 15 / 20 days — DL Batch D entry)
+- TWAP ordering comparison on scenario panels (DL 2026-04-30 Batch E entry)
+- Suspension threshold sweep (45-min vs 3-day rule, scenario 1 vs 6 — DL 2026-04-29 suspension counter entry)
+- Slot-level gate threshold sensitivity (15% canonical vs 20% / 25% — DL 2026-04-29 gate parameters entry)
+- Multi-seed runs to characterize seed-42 specificity of all findings
+
+**Phase 11 narrative material**:
+The cumulative Phase 5-7-9 + Phase 7H story is the central methodology contribution of v0.1: validation surfaced cliff-edge dynamics under literal-canon Section 3.3.2 priority fall-through; we proposed and implemented modified methodology (within-tier-share + continuous blending + Tier B recalibration + symmetric reinstatement); the modified methodology produces smooth, manipulation-resistant index dynamics on the seed-42 backtest. Phase 10 quantifies parameter sensitivity; Phase 11 documents.
+
+**Methodology section**: cumulative across 3.3.1, 3.3.2, 3.3.3, 4.2.2.
+
