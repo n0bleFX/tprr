@@ -1176,3 +1176,82 @@ The cumulative Phase 5-7-9 + Phase 7H story is the central methodology contribut
 
 **Methodology section**: cumulative across 3.3.1, 3.3.2, 3.3.3, 4.2.2.
 
+## 2026-05-01 — TPRR base date convention: index launch date for production; v0.1 backtest uses end-of-backtest as presentation convenience
+
+**Decision**: TPRR is fundamentally a reference rate (USD per Mtok), normalized as an index (rebased to 100) for presentation. Production base date = index launch date (industry standard, matching DXY's Bretton Woods anchor and Bloomberg Commodity Index's launch-date anchor). Pre-launch history backfilled retroactively against the anchored base. v0.1 backtest uses 2026-01-01 as base date for presentation purposes only — nothing methodological rests on this choice.
+
+**Context**: Phase 9 dashboard shows all 8 indices landing at index_level=100.0000 on 2026-01-01. Question of whether base date should anchor at backtest end (current convention) vs at a methodologically meaningful historical date (e.g., GPT-4 API launch March 2023) surfaced during Phase 10 design discussion.
+
+**Two-pronged representation**:
+- `raw_value_usd_mtok`: dimensional reference rate. Used for absolute pricing context (CFO/treasurer audience: "what does an inference token cost?")
+- `index_level`: rebased to 100 on base date. Used for trajectory analysis (analyst audience: "how has the market evolved relative to base?")
+
+Both are already populated on every IndexValue row. Phase 11 publication selects whichever framing fits each section.
+
+**Production v1.0 obligation**: When TPRR begins live publication, base date anchors at launch day. Backfill to a meaningfully chosen historical date (likely GPT-4 API launch March 14 2023, for the substantive narrative anchor of "frontier-capability inference market beginning") becomes a v1.0 deliverable. Requires real provider price history for all 16 constituents — Wayback Machine API archives + analyst reports + customer-leaked rate cards. Out of scope for v0.1 (synthetic Tier A panel).
+
+**Industry precedent**:
+- DXY: March 1973 launch (Bretton Woods end), base 100
+- Bloomberg Commodity Index: 1991 launch, base 100
+- WTI / Brent / Henry Hub: reference rates, no rebasing — published in natural units
+- TPRR: hybrid — reference rate that is also indexed, two-pronged representation
+
+**Methodology section**: 3.4 (rebase convention)
+
+## 2026-05-01 — Three-tier hierarchy bias profiles (Phase 11 framing)
+
+**Decision**: Phase 11 publication frames the three-tier hierarchy not as "use the highest-confidence signal" but as "triangulate across three signals with distinct bias profiles, none unbiased, but each capturing a different slice of the market." This framing positions TPRR's three-tier structure as analogous to commodity benchmark methodology where multiple data sources cross-check each other rather than competing for "the best" signal.
+
+**Tier-by-tier bias profiles documented**:
+
+**Tier A — Enterprise contributor panel**:
+- Bias direction: enterprise-segment overweight, smaller-customer underrepresented
+- Bias magnitude: depends on panel composition; v0.1 synthetic panel calibrated to plausible enterprise mix
+- Strengths: highest precision on enterprise spend; direct attestation; auditable
+- Limitations: structural sample of enterprise users only; misses developer/research/consumer segments; v0.1 panel size of 10 is artificially small
+- Methodologically: highest-confidence signal but inherently a sample, not the population
+
+**Tier B — Provider revenue-derived implied volumes**:
+- Bias direction: upward bias from non-API revenue inclusion (subscriptions, licensing, services); upward bias from Enterprise flat-rate tiers where effective per-token rates differ from published rates
+- Bias magnitude: documented as plausibly 30-50% upward; reflected in Phase 7H 0.5 haircut
+- Strengths: whole-provider scope; auditable revenue data for public companies
+- Limitations: revenue-to-volume derivation chain compounds bias; private-company revenue requires analyst triangulation; "API revenue" definition varies across providers
+- Methodologically: imprecise but informative when interpreted with appropriate skepticism
+
+**Tier C — Third-party rankings (OpenRouter)**:
+- Bias direction: developer/researcher-segment overweight, enterprise underrepresented; cost-efficiency-seeking user base overweight; potential APAC/open-source overweight given OpenRouter's user base composition
+- Bias magnitude: empirical — top-9 rankings on snapshot date showed 8 of 9 entries from non-registry providers (Moonshot Kimi, Tencent Hunyuan, MiniMax, StepFun Step, NVIDIA Nemotron) reflecting OpenRouter's developer-segment user mix
+- Strengths: direct third-party measurement; no provider influence; verifiable data source
+- Limitations: small slice of total enterprise inference market; user-base self-selection (developers/researchers seeking cost efficiency); regional skew; v0.1 only ingested top-9 rankings rather than full catalog (Phase 4 implementation choice, not methodology constraint)
+- Methodologically: lowest precision but lowest direct manipulation surface; valuable as cross-check signal
+
+**Combined methodology rationale**:
+No single tier is unbiased. The three-tier hierarchy works precisely BECAUSE it triangulates across sources with different bias profiles. A finding that emerges across all three tiers is more robust than one supported by only one tier; a divergence across tiers signals data-quality investigation rather than methodology failure.
+
+This is consistent with mature commodity benchmark practice. ICE Brent doesn't treat physical North Sea cargoes as "ground truth" against which forward trades are biased — it treats both as legitimate signals with documented coverage and bias profiles.
+
+**Phase 11 narrative implications**:
+- Frame Tier C's structural limitations as "designed signal, not failed primary source"
+- Frame Tier B's bias profile as "imprecise but interpretable, with confidence haircut calibrated accordingly"
+- Frame Tier A's bias as "enterprise sample bias, the best available but not unbiased"
+- The cliff-edge resolution from Phase 7H Batches A-D is then framed as: "the methodology gracefully handles cross-tier triangulation when no single tier dominates by magnitude, producing stable index dynamics that reflect signal-weighted consensus rather than any single source"
+
+**v0.2+ enhancement paths**:
+- Tier A: expand panel to 50-100 contributors; add segment-stratified sampling (large enterprise / mid-market / SMB)
+- Tier B: lobby providers for token-volume disclosure or audited carve-outs of API revenue
+- Tier C: ingest OpenRouter full models endpoint instead of top-9 rankings; add complementary third-party data sources (industry surveys, developer platform analytics)
+
+None of these v0.2+ enhancements eliminate bias; they reduce magnitude and improve confidence. The three-tier hierarchy as a design pattern is robust to imperfect data sources because it's designed for them.
+
+**Phase 11 publication framing checklist**:
+- [ ] Explicitly state "no tier is unbiased" up front
+- [ ] Document each tier's bias profile transparently
+- [ ] Frame three-tier hierarchy as triangulation, not primacy
+- [ ] Acknowledge Tier C's developer-segment self-selection
+- [ ] Acknowledge Tier B's revenue-attribution challenges
+- [ ] Acknowledge Tier A's enterprise sample bias
+- [ ] Frame v0.1 findings as proof-of-methodology with acknowledged data limitations
+- [ ] v1.0+ roadmap addresses bias reduction across all three tiers
+
+**Methodology section**: 3.3.2 (three-tier hierarchy framing)
+
