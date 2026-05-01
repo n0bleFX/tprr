@@ -1332,3 +1332,82 @@ Phase 11 writeup frames this as "Phase 10 Batch 10A surfaced a methodology speci
 
 **Methodology section**: 3.3.2 (three-tier hierarchy — tier eligibility under continuous blending), 3.3.3 (within-tier-share normalization — the layer where degeneracy surfaces with 1 constituent)
 
+## 2026-05-01 — Phase 10 Batch 10B: pipeline-rerun sweeps (suspension threshold, reinstatement threshold, gate threshold, TWAP ordering)
+
+**Decision**: Phase 10 Batch 10B closes the four pipeline-rerun sensitivity sweeps that complement Batch 10A's three in-memory sweeps. These four parameters (suspension_threshold_days, reinstatement_threshold_days, quality_gate_pct, default_ordering) cannot be recomputed from the Phase 7H Batch B audit because each changes the audit row set itself — the pipeline must rerun from gate-and-suspension reconstruction onward. The sweeps quantify how index dynamics depend on each parameter; the manifest captures per-sweep telemetry so Phase 11 writeup queries can find both the parameter-shape parquet and the runtime profile per dimension.
+
+**Implementation**:
+- `src/tprr/sensitivity/baseline.py` refactored to expose `BaselineInputs`, `load_pipeline_inputs`, `run_pipeline_at_config`, `run_pipeline_with_scenario` so pipeline-rerun sweeps load disk inputs once and call `run_pipeline_at_config` per parameter point. `load_baseline` preserved as a thin wrapper for Batch 10A drivers.
+- `src/tprr/sensitivity/pipeline_rerun.py` (new): `PipelineRerunRun` dataclass, `run_pipeline_rerun_sweep` orchestrator, `build_threshold_runs` and `build_twap_ordering_runs` convenience builders.
+- `src/tprr/sensitivity/manifest.py` extended with 4 new columns (`pipeline_runtime_s`, `n_active_constituents_at_base_date`, `n_suspension_intervals`, `n_reinstatement_events`) — Batch 10A in-memory sweeps populate these as NaN; Batch 10B sweeps populate them with median values across the sweep's runs. Backwards-compat read fills NaN for older CSVs.
+- 4 driver scripts: `scripts/{suspension,reinstatement,gate,twap_ordering}_sweep.py`.
+- 10 new tests in `tests/test_sensitivity_pipeline_rerun.py` covering sweep runner, manifest extension, builder labels, empirical sanity (lower gate → more exclusions; orderings produce non-identical output).
+
+**Sweep parameters and total compute**:
+
+| Sweep | Range | n_runs | Pipeline runtime/run | Total |
+|---|---|---|---|---|
+| suspension_threshold_days | 2 / 3 / 5 / 7 | 4 | ~34s | 2.3 min |
+| reinstatement_threshold_days | 5 / 10 / 15 / 20 | 4 | ~39s | 2.6 min |
+| quality_gate_pct | 0.05 / 0.10 / 0.15 / 0.20 / 0.25 / 0.30 | 6 | ~39s | 3.9 min |
+| TWAP ordering × panel | (twap_then_weight, weight_then_twap) × (clean + 6 scenarios) | 14 | ~65s (incl. scenario composition) | 15.2 min |
+
+Total Batch 10B compute: ~24 minutes. Total parquet output: ~16 MB across 4 sweeps (much smaller than initial estimate; long-format pivot semantics + parquet compression).
+
+**Per-sweep findings**:
+
+**Suspension threshold sweep**:
+- Per-threshold pair-suspension counts: 197 / 161 / 14 / 0 (intervals decrease monotonically as threshold relaxes — threshold=7 produces zero suspensions on the seed-42 clean panel because no pair has 7 consecutive fire-days).
+- TPRR_F base_date raw_value invariant across all 4 thresholds (30.2405). Reinstatement-by-base-date effect: 10-day clean window clears every suspended pair before the 366-day backtest window closes.
+- Intermediate-day TPRR_F: 75/366 days differ (thr=2 vs thr=7), max abs delta $5.40/Mtok (~16% of typical raw value).
+- TPRR_E intermediate-day sensitivity: 186/366 days differ (51% of trajectory).
+
+**Reinstatement threshold sweep**:
+- Per-threshold pair-suspension counts: identical (161, matching default suspension threshold). Reinstatement only affects when a suspended pair re-enters; suspension count is fixed by the suspension threshold.
+- TPRR_F base_date raw_value invariant (30.2405) — the wider range [5, 20] still allows reinstatement before backtest end.
+- Intermediate-day TPRR_F: 80/366 days differ (reinst=5 vs reinst=20), max abs delta $6.80/Mtok.
+- TPRR_E intermediate: 227/366 days differ (62% of trajectory). Reinstatement threshold produces the largest TPRR_E intermediate-day sensitivity of the 4 sweeps.
+
+**Gate threshold sweep**:
+- TPRR_F base_date raw_value VARIES at low thresholds: 28.2315 (gate=5%) → 28.94 (10%) → 30.2405 (15%+). Strict gates catch legitimate price movements as outliers, suspending pairs that don't reinstate by base_date.
+- TPRR_S base_date: 3.3109 (5%, 10%) → 3.2927 (15%+). Convergence above the default 15%.
+- TPRR_E base_date: invariant (0.1880).
+- Intermediate-day TPRR_F: 212/366 days differ (gate=5% vs gate=30%), max abs $5.27/Mtok.
+- TPRR_E intermediate: 323/366 days differ (88% — most sensitive of any sweep dimension).
+- Per-gate `all_pairs_suspended` audit-row counts: 64 / 30 / 32 / 32 / 18 / 0 (5% gate is materially stricter; 30% gate produces no suspension cascades).
+- **Largest base-date impact of the 4 sweeps**: gate threshold is the only parameter that shifts TPRR_F base_date raw_value at all.
+
+**TWAP ordering sweep**:
+- Clean panel at base_date: TPRR_F twap_then_weight = 30.2405 vs weight_then_twap = 30.2404 — delta $0.0001/Mtok (essentially zero).
+- Intermediate-day TPRR_F: 72/366 days differ between orderings, max abs $1.44/Mtok (~5% of typical), mean abs $0.013 (most days near-zero).
+- TPRR_S / TPRR_E ordering deltas proportionally similar but smaller in absolute terms (TPRR_S max abs $0.030; TPRR_E max abs $0.050).
+- **All 7 panels produce identical TPRR_F TWAP-ordering deltas** (n_diff=72/366, max_abs=1.4445 across clean + 6 scenarios). This means the F-tier index is invariant to which scenario was applied at base_date — the gate + suspension cascade absorbs the perturbations before they reach the F-tier aggregation.
+- Cross-scenario divergence on TPRR_S (twap_then_weight ordering, scenarios that target S-tier): minimal at index level. shock_price_cut and stale_quote produce ZERO divergence from clean across the 366-day backtest. fat_finger_high differs from clean on 1 day (max $0.0008). sustained_manipulation differs on 62 days (max $0.006).
+
+**Striking cross-sweep finding — base-date convergence**:
+
+Three of the four sweeps (suspension, reinstatement, TWAP ordering) leave TPRR_F base_date raw_value either unchanged or differing by less than $0.001/Mtok. Only the gate threshold sweep shifts TPRR_F base_date — and only at strict gate values (5%, 10%) below the canonical 15%. This is a **publishable robustness story** for institutional audiences: the methodology produces a base-date-anchored reference rate that is invariant to suspension-and-reinstatement parameter choices within the swept ranges.
+
+**Striking cross-sweep finding — intermediate-day sensitivity**:
+
+The same parameters that leave base_date untouched produce substantial intermediate-day trajectory variation. TPRR_E in particular shows 62-88% of days differing across the swept ranges for reinstatement and gate thresholds. **Two-layer Phase 11 framing required**: institutional reference-rate consumers (CFOs, treasurers reading the published level) see methodology robustness; analyst trajectory consumers (analysts reading the intermediate-day series) see methodology sensitivity. Both framings are accurate and complementary.
+
+**Striking finding — manipulation absorption on F-tier**:
+
+The TWAP ordering sweep ran 6 scenarios × 2 orderings on F-tier and produced byte-identical TPRR_F TWAP-ordering deltas across all panels. This is the gate-and-suspension cascade doing manipulation absorption: F-tier constituents have ≥3 contributors, the data quality gate filters out the scenario-injected outliers slot-by-slot, and the F-tier index never sees the perturbation reach the aggregation layer. **Phase 11 narrative**: this is the methodology working as designed — scenarios that the v0.1 mock data injected are visible in the audit (excluded slots, suspended pairs) but not in the published index level.
+
+**Phase 11 narrative implications**:
+- Frame base-date robustness as the published-rate guarantee: regulator and Index Committee audiences ask "what if we changed the threshold?" and get "the rate doesn't change at base_date."
+- Frame intermediate-day sensitivity as the analyst-visibility guarantee: analyst audiences pivoting on the trajectory see methodology-induced variation when relevant parameters move.
+- Frame the F-tier scenario-absorption finding as evidence the methodology's manipulation resistance is structural — not just a property of the scenario suite, but of the dual-weighted formula combined with the gate + suspension layer.
+- The two TWAP orderings are *practically equivalent* on this seed-42 backtest — the canonical twap_then_weight choice is well-defended (matches commodity benchmark practice; weight_then_twap produces ≤$1.44/Mtok max delta which is small in absolute and percentage terms).
+
+**Cross-references**:
+- DL 2026-04-30 Phase 7 Batch E (TWAP ordering choice — Q1 lock to twap_then_weight as default)
+- DL 2026-04-30 Phase 7H Batch D (suspension reinstatement criteria — 3-day exclude / 10-day reinstate)
+- DL 2026-04-29 Phase 6 slot-level quality gate parameters (15% deviation canonical)
+- DL 2026-05-01 Phase 10 Batch 10A (in-memory sweeps for lambda/haircut/coefficient — complementary sweep coverage)
+- DL 2026-05-01 base date convention (the rebase anchor whose invariance shows up here)
+
+**Methodology section**: 3.3.2 (suspension/reinstatement under continuous blending), 4.2.2 (slot-level gate threshold), 4.2.1 (TWAP ordering choice — empirically defended)
+

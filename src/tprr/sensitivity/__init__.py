@@ -18,10 +18,23 @@ Public surface:
 - ``read_manifest`` / ``upsert_manifest_row``: manifest CSV catalogue
 """
 
+from tprr.sensitivity.baseline import (
+    BaselineInputs,
+    load_baseline,
+    load_pipeline_inputs,
+    run_pipeline_at_config,
+    run_pipeline_with_scenario,
+)
 from tprr.sensitivity.manifest import (
     MANIFEST_COLUMNS,
     read_manifest,
     upsert_manifest_row,
+)
+from tprr.sensitivity.pipeline_rerun import (
+    PipelineRerunRun,
+    build_threshold_runs,
+    build_twap_ordering_runs,
+    run_pipeline_rerun_sweep,
 )
 from tprr.sensitivity.recompute import (
     recompute_indices_under_override,
@@ -31,10 +44,19 @@ from tprr.sensitivity.sweep import SweepRun, run_in_memory_sweep
 
 __all__ = [
     "MANIFEST_COLUMNS",
+    "BaselineInputs",
+    "PipelineRerunRun",
     "SweepRun",
+    "build_threshold_runs",
+    "build_twap_ordering_runs",
+    "load_baseline",
+    "load_pipeline_inputs",
     "read_manifest",
     "recompute_indices_under_override",
     "run_in_memory_sweep",
+    "run_pipeline_at_config",
+    "run_pipeline_rerun_sweep",
+    "run_pipeline_with_scenario",
     "upsert_manifest_row",
     "with_overrides",
 ]
