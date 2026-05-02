@@ -104,9 +104,24 @@ v1.3 should:
 
 4. **Two-layer documentation in Phase 11 release**: methodology white-paper for institutional audiences should be structured around the two layers explicitly. Not "here's one published number"; instead "here's the published level, here's the trajectory, here's how parameters affect each."
 
+## Post-Step 3 update — F-tier breaks the two-layer framing in a useful direction
+
+Phase 10 Batch 10C Step 3 (default × 20 seeds × 6 scenarios cross-product, run after this finding doc was first written) produced a result that **extends** the two-layer story rather than contradicting it: at default config, the F-tier published reference rate AND F-tier intermediate-day trajectory are **both** invariant to v0.1 scenario application. Across 120 (seed, scenario) pairs and all 366 backtest days, every TPRR_F datapoint is byte-identical to the corresponding clean-panel value.
+
+The two-layer framing (published-rate robustness + analyst trajectory sensitivity) was originally derived from parameter sweeps (Batch 10B) — methodology-parameter changes leave base_date invariant but produce trajectory variation. **For scenario absorption on F-tier**, both layers are absorbed simultaneously: there is no analyst trajectory variation to surface, because the F-tier index does not see the scenarios at any day.
+
+This is methodologically distinct from the parameter-sweep two-layer framing:
+- Parameter sweeps: published rate robust, trajectory sensitive (the two-layer story)
+- Scenario sweeps on F-tier (default config, v0.1 suite): both robust (the absorption story — see [f_tier_scenario_absorption_at_default_config.md](f_tier_scenario_absorption_at_default_config.md))
+- Scenario sweeps on S-tier and E-tier (default config, v0.1 suite): published rate robust, trajectory variation under specific scenarios (the two-layer story holds in attenuated form)
+
+Phase 11 narrative should distinguish these three regimes. The two-layer framing remains correct for parameter sensitivity and for non-F-tier scenario absorption; F-tier scenario absorption is the stronger result that "no layer needs to be defended on F-tier under the v0.1 suite at default config."
+
 ## Cross-references
 
 - DL 2026-05-01 Phase 10 Batch 10B — full sweep findings
+- DL 2026-05-01 Phase 10 Batch 10C (continuation) — Step 3 cross-product evidence cited in the post-Step-3 update above
+- [f_tier_scenario_absorption_at_default_config.md](f_tier_scenario_absorption_at_default_config.md) — the F-tier scenario absorption finding referenced in the post-Step-3 update
 - [gate_threshold_most_consequential_parameter.md](gate_threshold_most_consequential_parameter.md) — companion finding (gate is the only base-date-non-invariant parameter, and it converges)
 - [twap_ordering_empirical_equivalence.md](twap_ordering_empirical_equivalence.md) — companion finding (TWAP ordering is one of the three base-date-invariant parameters)
 - DL 2026-04-30 Phase 7H Batch D — suspension reinstatement criteria (3-day exclude / 10-day reinstate)

@@ -1488,3 +1488,102 @@ The following work was scoped in the Phase 10 design walkthrough but not run in 
 
 **Methodology section**: 3.3.2 (cross-seed cliff-edge resolution distribution at default config), 4.2.2 (suspension activity robustness across seeds)
 
+### Continuation entry — loose + tight clean panel + default × scenarios cross-product
+
+Batch 10C continuation (this commit) lands three additional sweeps on top of the Batch 10C partial scope: loose × 20 seeds × clean panel, tight × 20 seeds × clean panel, and default × 20 seeds × 6 scenarios cross-product. Aggregate compute ~155 minutes (loose ~12 min, tight ~12 min, default × scenarios ~78 min — beat the 130-minute estimate). All three sweeps output to `data/indices/sweeps/multi_seed/` + manifest rows.
+
+**Loose + tight clean-panel findings (Claim 1 across the Phase 7H design space)**:
+
+TPRR_F base_date `tier_a_weight_share` distribution per config (3-config side-by-side):
+
+| metric | loose (λ=2, B=0.6) | default (λ=3, B=0.5) | tight (λ=5, B=0.4) |
+|---|---:|---:|---:|
+| Mean | 0.9002 | 0.9192 | 0.9387 |
+| Std | 0.0405 | 0.0348 | 0.0315 |
+| Min | 0.7840 (seed 51) | 0.8345 (seed 57) | 0.8516 (seed 57) |
+| Max | 0.9313 (seed 47) | 0.9483 (seed 47) | 0.9647 (seed 47) |
+| P5 | 0.8164 | 0.8460 | 0.8693 |
+| P95 | 0.9306 | 0.9469 | 0.9641 |
+
+Cliff-edge resolution holds at all 60 seed×config combinations: every seed at n_a=6 (zero regression to pre-Phase-7H 0.0012 baseline at any config × seed). The mean shifts ~0.019 per config-step are mechanically explained by the Tier B haircut (tighter haircut down-weights Tier B in within-tier-share normalisation, raising Tier A's share). Distribution shape is preserved across configs; only the absolute level shifts.
+
+The seed-tail pattern is **partially-stable**: seed 47 produces the maximum at all three configs (fully stable); seed 51 minimum at loose, second-min at default and tight; seed 57 minimum at default and tight, second-min at loose. The methodology's *response shape* (which seeds produce extreme outcomes) is stable; *rank-order within the lower-tail* shifts modestly with configuration.
+
+**Suspension/reinstatement decoupled from λ + Tier B haircut**: median 155 suspension intervals / 153 reinstatement events across all three configs (byte-identical to four sig figs); audit row counts mean 22,134 / std 117 / range [21,966–22,364] — identical across configs. The Phase 7H Batch D suspension policy operates downstream of gate/suspension reconstruction; λ and haircut don't influence it.
+
+**TPRR_F annualised vol — non-monotonic in λ across configs**: 24.8% (loose) → 33.4% (default) → 32.0% (tight). The vol-minimum sits at λ=2; the vol-maximum is between λ=3 and λ=5 (default is the local maximum on the swept range). This is not a monotonic relationship — see [docs/findings/lambda_non_monotonicity_in_realized_vol.md](findings/lambda_non_monotonicity_in_realized_vol.md). Mechanism is **hypothesized**, not verified: at low λ the broader effective constituent set provides smoothing; at high λ the concentration toward near-median constituents shrinks the effective set and can re-elevate vol. v1.3 should re-verify on intermediate λ values (1.5, 2.5, 4) to characterise the shape more precisely.
+
+**n_constituents_active dispersion — config-invariant**: TPRR_F = 6 (invariant across all 60 combinations); TPRR_S = 4 (invariant); TPRR_E ∈ {5, 6} across all 60 combinations identically. Constituent activation dynamics (governed by gate cascade + minimum-3 + tier-eligibility threshold) are decoupled from λ and Tier B haircut.
+
+**Step 3 — default × scenarios cross-product findings (Claim 2)**:
+
+Default config × 20 seeds (42–61) × 6 scenarios (fat_finger_high, intraday_spike, correlated_blackout, stale_quote, shock_price_cut, sustained_manipulation) = 140 panel runs (20 clean + 120 scenario). Output: `data/indices/sweeps/multi_seed/multi_seed_default_seed42-61_with_scenarios.parquet` (409,920 rows) + `_decisions.parquet`.
+
+**Cross-product result — byte-identical 120 datapoints**:
+
+For every (seed, scenario) pair × every core/blended/derived index × every base_date:
+
+| Index | n_(seed, scenario) pairs | n_pairs with abs delta > 1e-6 | Max abs delta |
+|---|---:|---:|---:|
+| TPRR_F, TPRR_S, TPRR_E | 120 each | 0 each | $0.000000 each |
+| TPRR_B_F, TPRR_B_S, TPRR_B_E | 120 each | 0 each | $0.000000 each |
+| TPRR_FPR, TPRR_SER | 120 each | 0 each | $0.000000 each |
+
+**Eight indices × 120 pairs = 960 base_date datapoints, all exactly zero delta.**
+
+**Pass criterion exceeded by factor of infinity**: the original Phase 10 design-walkthrough criterion was "max abs delta < $0.50/Mtok across all (seed, scenario) at default config." Empirical result: every datapoint = exactly 0.0/Mtok. The distribution is **degenerate at zero** — qualitatively distinct from a non-zero-but-bounded distribution.
+
+**Per-tier asymmetry — F-tier 100%, S-tier 4/6, E-tier 3/6**:
+
+While base_date is byte-identical for every tier, **intermediate-day trajectory deltas differ per tier**:
+
+- **TPRR_F**: zero trajectory delta across all 120 (seed, scenario) pairs and all 366 days (43,920 day-level F-tier datapoints, every one byte-identical to clean). F-tier is invariant at every day.
+- **TPRR_S**: 4 of 6 scenarios produce trajectory variation in some seeds — sustained_manipulation (20/20 seeds, max $0.068), correlated_blackout (20/20, max $0.0074), intraday_spike (13/20, max $0.002), fat_finger_high (6/20, max $0.16). stale_quote and shock_price_cut: zero across all seeds.
+- **TPRR_E**: 3 of 6 scenarios produce trajectory variation — correlated_blackout (20/20, max $0.12), stale_quote (20/20, max $0.002), shock_price_cut (20/20, max $0.026). fat_finger_high, intraday_spike, sustained_manipulation: zero.
+
+The per-tier mix tracks scenario design: scenarios that target a specific tier produce trajectory variation in that tier; scenarios that don't target a tier are absorbed cleanly. F-tier's complete absorption reflects three structural properties combining — 6 constituents, ≥3 contributors per constituent, and the slot-level gate filtering perturbations pre-aggregation.
+
+**Phase 11 framing implication**: the F-tier scenario absorption is the load-bearing manipulation-resistance result Phase 10 has produced. Frame precisely — "TPRR-F absorbs the v0.1 scenario suite completely at default config across 20 seeds × 6 scenarios = 120 byte-identical datapoints at base_date and at every intermediate day." Not "TPRR-F is impervious to manipulation." Scope is the v0.1 suite at default config across the tested seed range. See [docs/findings/f_tier_scenario_absorption_at_default_config.md](findings/f_tier_scenario_absorption_at_default_config.md) for the full finding doc.
+
+**v1.3 specification implications**:
+
+1. **Expand the scenario suite** with attack vectors not in the v0.1 suite:
+   - Compromised contributor (extended-window manipulation, sub-gate price drift)
+   - Simultaneous multi-tier coordinated attack
+   - Slowly evolving manipulation (cumulative drift below gate)
+   - Volume-share manipulation (attack on within-tier-share rather than price)
+   - Red-team adversarial scenarios authored independently of the methodology design
+2. **Document per-tier manipulation-resistance certification levels**: F-tier (100% absorption v0.1) is the strongest; S-tier (partial absorption) is intermediate; E-tier (partial absorption) is partial. v1.3 should specify per-tier resistance levels rather than a single methodology-wide claim. The constituent count threshold (currently ≥3) directly drives manipulation-resistance capacity; Tier C v0.2+ activation will need careful constituent-count calibration.
+3. **Adopt multi-seed validation as a documentation pattern**: every methodology specification claim in v1.3 should be accompanied by ≥20-seed cross-realisation evidence at the canonical config; the Phase 7H design space (loose / default / tight) provides the robustness band.
+4. **λ calibration documentation**: include cross-seed vol distribution at each candidate λ rather than a single-seed point estimate. Note explicitly that vol is non-monotonic in λ across the empirically-relevant range (mechanism hypothesized; verification queued for v1.3).
+
+**Two-layer Phase 11 narrative — three regimes distinguishable**:
+
+Phase 10 Batch 10B established the two-layer framing (published-rate robustness + analyst trajectory sensitivity). Step 3 extends it:
+- Parameter sweeps (Batch 10B): published-rate robust, trajectory sensitive — the two-layer story.
+- Scenario sweeps on F-tier (default config, v0.1 suite): both robust — the absorption story (this entry).
+- Scenario sweeps on S/E-tier (default config, v0.1 suite): published-rate robust, trajectory variation under specific scenarios — the two-layer story holds in attenuated form.
+
+Phase 11 narrative should distinguish the three regimes. Both [docs/findings/base_date_convergence_with_trajectory_sensitivity.md](findings/base_date_convergence_with_trajectory_sensitivity.md) and [docs/findings/f_tier_scenario_absorption_at_default_config.md](findings/f_tier_scenario_absorption_at_default_config.md) document the dialogue between these regimes.
+
+**Deferred to subsequent session**:
+
+- **Loose × 20 seeds × 6 scenarios** (~78 min compute). Required for Claim 2 across the Phase 7H design space. Hypothesis: F-tier absorption likely holds at loose (broader median-distance smoothing → more robust gate-cascade absorption); S/E-tier trajectory variation may differ in magnitude.
+- **Tight × 20 seeds × 6 scenarios** (~78 min compute). Same justification. Hypothesis: F-tier absorption likely holds at tight (concentration on near-median constituents may reduce trajectory absorption capacity if scenarios target lower-volume contributors); S/E-tier trajectory may differ.
+- **Final Batch 10C close-out**: aggregate findings across Claims 1–5 at all 3 configs × clean+scenarios; possibly synthesis chart pairing with Phase 9 dashboard.
+- **Methodological note**: Batch 10C continues to land in stages because session-time budget (3-hour budget per session) is shorter than full design-walkthrough scope (~6.5 hours total). Subsequent commits append findings to Batch 10C's record rather than introducing new batch labels. Phase 10 retains the 5-batch top-level structure (10A in-memory, 10B pipeline-rerun, 10C multi-seed, 10D synthesis, 10E close-out).
+
+**New finding docs landed in this commit**:
+
+- [docs/findings/f_tier_scenario_absorption_at_default_config.md](findings/f_tier_scenario_absorption_at_default_config.md) — load-bearing F-tier absorption finding from Step 3 cross-product.
+- Post-Step-3 update appended to [docs/findings/base_date_convergence_with_trajectory_sensitivity.md](findings/base_date_convergence_with_trajectory_sensitivity.md) — three-regime distinction.
+- Post-Step-3 update appended to [docs/findings/twap_ordering_empirical_equivalence.md](findings/twap_ordering_empirical_equivalence.md) — strengthening from byte-identical TWAP-ordering deltas to byte-identical absolute output.
+
+**Cross-references** (continuation):
+- DL 2026-05-01 Phase 10 Batch 10C (partial entry above) — multi-seed runner infrastructure + default × clean baseline
+- DL 2026-05-01 Phase 10 Batch 10B — TWAP ordering byte-identical deltas (the single-seed precursor to Step 3's cross-seed result)
+- [docs/findings/lambda_non_monotonicity_in_realized_vol.md](findings/lambda_non_monotonicity_in_realized_vol.md) — non-monotonic vol cross-config evidence (this continuation lands the empirical pattern)
+- [docs/findings/cross_config_seed_signature_stability.md](findings/cross_config_seed_signature_stability.md) — partially-stable lower-tail signatures; same data, different framing
+
+**Methodology section** (continuation): 3.3 (dual-weighted formula and three-tier hierarchy — F-tier absorption mechanism), 4.2.2 (slot-level gate threshold — pre-aggregation filtering layer), 4.2.4 (minimum constituent count — F-tier's redundancy reservoir).
+

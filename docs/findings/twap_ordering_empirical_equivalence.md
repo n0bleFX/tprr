@@ -93,6 +93,12 @@ v1.3 should:
 3. **Specify the v1.3 sensitivity-sweep documentation pattern**: every parameter swept should include a published-level delta + intermediate-day delta + cross-scenario invariance check. The TWAP-ordering sweep is a clean template.
 4. **Re-validate on real data in v1.3+**: the empirical equivalence claim depends on the v0.1 panel's gate-exclusion frequency. Real provider data with different gate-exclusion patterns may produce different intermediate-day deltas. The base-date equivalence ($0.0001/Mtok) is unlikely to change materially, but intermediate-day max-delta numbers should be re-verified.
 
+## Post-Step 3 update — strengthening from byte-identical TWAP-ordering deltas to byte-identical absolute output
+
+Phase 10 Batch 10C Step 3 (default config × 20 seeds × 6 scenarios cross-product, run after this finding doc was first written) strengthens the Batch 10B byte-identical result materially. The Batch 10B finding observed "scenarios produce byte-identical TPRR_F TWAP-ordering *deltas* across all 7 panels at fixed seed-42" — i.e. the *difference between orderings* was scenario-invariant. Step 3 establishes a stronger result: at default config (which uses twap_then_weight), **scenarios produce byte-identical TPRR_F absolute output across 20 seeds, not just byte-identical ordering deltas at one seed**. Every TPRR_F datapoint at every day at every seed at every scenario is byte-identical to the clean-panel value.
+
+This means the Batch 10B "scenarios are absorbed before reaching F-tier aggregation" mechanism — originally observed via TWAP-ordering delta invariance — is in fact a property of the absolute F-tier output, not just of the ordering-delta. The gate-cascade absorption holds at every seed and every scenario at the F-tier published level. Phase 11 narrative should reference [f_tier_scenario_absorption_at_default_config.md](f_tier_scenario_absorption_at_default_config.md) for the full Step 3 finding; this TWAP-ordering finding is the **single-seed precursor** that Step 3 generalised across 20 seeds.
+
 ## Cross-references
 
 - DL 2026-04-30 Phase 7 Batch E — TWAP ordering choice (Q1 lock to twap_then_weight as default; commodity precedent argument)
