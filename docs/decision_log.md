@@ -1587,3 +1587,5 @@ Phase 11 narrative should distinguish the three regimes. Both [docs/findings/bas
 
 **Methodology section** (continuation): 3.3 (dual-weighted formula and three-tier hierarchy — F-tier absorption mechanism), 4.2.2 (slot-level gate threshold — pre-aggregation filtering layer), 4.2.4 (minimum constituent count — F-tier's redundancy reservoir).
 
+**Decisions parquet tracking convention change (post-Batch-10C continuation)**: Decisions parquets (ConstituentDecisionDF audit frames) stop being committed going forward; only IndexValueDF parquets are tracked. Reasoning: decisions parquets are recomputable from pipeline rerun (Batch 10A's recompute infrastructure makes this tractable); indices parquets represent published methodology output. Repo size growing past 300MB with all decisions parquets included is unnecessary given recomputability. Existing decisions parquets remain in git history (no force-push rewrite). Phase 10 synthesis (Batch 10D) regenerates decisions parquets locally during sweep work for cross-reference; commits only indices going forward. .gitignore updated to exclude data/indices/sweeps/multi_seed/*_decisions.parquet.
+

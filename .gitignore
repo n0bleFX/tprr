@@ -15,8 +15,10 @@ data/indices/sweeps/*
 !data/indices/sweeps/multi_seed/
 data/indices/sweeps/multi_seed/*
 !data/indices/sweeps/multi_seed/*.parquet
+data/indices/sweeps/multi_seed/*_decisions.parquet
 *.db-journal
 .env
 .DS_Store
 .ipynb_checkpoints/
 /docs/findings/charts/
+.claude/
