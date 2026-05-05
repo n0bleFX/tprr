@@ -1543,7 +1543,7 @@ While base_date is byte-identical for every tier, **intermediate-day trajectory 
 
 The per-tier mix tracks scenario design: scenarios that target a specific tier produce trajectory variation in that tier; scenarios that don't target a tier are absorbed cleanly. F-tier's complete absorption reflects three structural properties combining — 6 constituents, ≥3 contributors per constituent, and the slot-level gate filtering perturbations pre-aggregation.
 
-**Phase 11 framing implication**: the F-tier scenario absorption is the load-bearing manipulation-resistance result Phase 10 has produced. Frame precisely — "TPRR-F absorbs the v0.1 scenario suite completely at default config across 20 seeds × 6 scenarios = 120 byte-identical datapoints at base_date and at every intermediate day." Not "TPRR-F is impervious to manipulation." Scope is the v0.1 suite at default config across the tested seed range. See [docs/findings/f_tier_scenario_absorption_at_default_config.md](findings/f_tier_scenario_absorption_at_default_config.md) for the full finding doc.
+**Phase 11 framing implication**: the F-tier scenario absorption is the load-bearing manipulation-resistance result Phase 10 has produced. Frame precisely — "TPRR-F absorbs the v0.1 scenario suite completely at default config across 20 seeds × 6 scenarios = 120 byte-identical datapoints at base_date and at every intermediate day." Not "TPRR-F is impervious to manipulation." Scope is the v0.1 suite at default config across the tested seed range. See [docs/findings/f_tier_scenario_absorption_methodology_level.md](findings/f_tier_scenario_absorption_methodology_level.md) for the full finding doc.
 
 **v1.3 specification implications**:
 
@@ -1564,7 +1564,7 @@ Phase 10 Batch 10B established the two-layer framing (published-rate robustness 
 - Scenario sweeps on F-tier (default config, v0.1 suite): both robust — the absorption story (this entry).
 - Scenario sweeps on S/E-tier (default config, v0.1 suite): published-rate robust, trajectory variation under specific scenarios — the two-layer story holds in attenuated form.
 
-Phase 11 narrative should distinguish the three regimes. Both [docs/findings/base_date_convergence_with_trajectory_sensitivity.md](findings/base_date_convergence_with_trajectory_sensitivity.md) and [docs/findings/f_tier_scenario_absorption_at_default_config.md](findings/f_tier_scenario_absorption_at_default_config.md) document the dialogue between these regimes.
+Phase 11 narrative should distinguish the three regimes. Both [docs/findings/base_date_convergence_with_trajectory_sensitivity.md](findings/base_date_convergence_with_trajectory_sensitivity.md) and [docs/findings/f_tier_scenario_absorption_methodology_level.md](findings/f_tier_scenario_absorption_methodology_level.md) document the dialogue between these regimes.
 
 **Deferred to subsequent session**:
 
@@ -1575,7 +1575,7 @@ Phase 11 narrative should distinguish the three regimes. Both [docs/findings/bas
 
 **New finding docs landed in this commit**:
 
-- [docs/findings/f_tier_scenario_absorption_at_default_config.md](findings/f_tier_scenario_absorption_at_default_config.md) — load-bearing F-tier absorption finding from Step 3 cross-product.
+- [docs/findings/f_tier_scenario_absorption_methodology_level.md](findings/f_tier_scenario_absorption_methodology_level.md) — load-bearing F-tier absorption finding from Step 3 cross-product.
 - Post-Step-3 update appended to [docs/findings/base_date_convergence_with_trajectory_sensitivity.md](findings/base_date_convergence_with_trajectory_sensitivity.md) — three-regime distinction.
 - Post-Step-3 update appended to [docs/findings/twap_ordering_empirical_equivalence.md](findings/twap_ordering_empirical_equivalence.md) — strengthening from byte-identical TWAP-ordering deltas to byte-identical absolute output.
 
@@ -1588,4 +1588,92 @@ Phase 11 narrative should distinguish the three regimes. Both [docs/findings/bas
 **Methodology section** (continuation): 3.3 (dual-weighted formula and three-tier hierarchy — F-tier absorption mechanism), 4.2.2 (slot-level gate threshold — pre-aggregation filtering layer), 4.2.4 (minimum constituent count — F-tier's redundancy reservoir).
 
 **Decisions parquet tracking convention change (post-Batch-10C continuation)**: Decisions parquets (ConstituentDecisionDF audit frames) stop being committed going forward; only IndexValueDF parquets are tracked. Reasoning: decisions parquets are recomputable from pipeline rerun (Batch 10A's recompute infrastructure makes this tractable); indices parquets represent published methodology output. Repo size growing past 300MB with all decisions parquets included is unnecessary given recomputability. Existing decisions parquets remain in git history (no force-push rewrite). Phase 10 synthesis (Batch 10D) regenerates decisions parquets locally during sweep work for cross-reference; commits only indices going forward. .gitignore updated to exclude data/indices/sweeps/multi_seed/*_decisions.parquet.
+
+---
+
+## 2026-05-05 — Phase 10 Batch 10C (final): loose + tight × 20 seeds × 6 scenarios cross-product — methodology-level F-tier absorption confirmed
+
+Continuation of Batch 10C cross-product sweep (closes the work deferred in the 2026-05-01 continuation entry). Two new pipeline-rerun sweeps:
+
+- `multi_seed_loose_seed42-61_with_scenarios` — 140 panel runs (20 clean + 120 scenario), 409,920 rows, ~35s/run
+- `multi_seed_tight_seed42-61_with_scenarios` — 140 panel runs (20 clean + 120 scenario), 409,920 rows, ~34.5s/run
+
+Both committed as IndexValueDF parquets per the new tracking convention; decisions parquets generated locally for cross-reference but excluded from git per `.gitignore`. Per-config suspension shape identical to default-with-scenarios (155 suspension intervals, 154 reinstatement events, 6 active F-tier constituents at base_date).
+
+**Headline finding — F-tier scenario absorption is methodology-level, not default-specific**:
+
+> **3 configs × 20 seeds × 6 scenarios × 366 days = 131,760 F-tier daily datapoints, every one byte-identical to clean.**
+
+Maximum F-tier trajectory delta across the entire cross-product is ≤ 1.4×10⁻¹⁴ (machine-epsilon float arithmetic noise). The ~120 datapoints per config that the prior 2026-05-01 continuation entry documented at default are now confirmed at loose and tight with the same byte-identical result. The result is a structural methodology property, not a default-config tuning artifact.
+
+**Per-tier asymmetry — F 100%, S 4/6, E 3/6 invariant across configs**:
+
+| Tier | n_pairs (of 120) with any traj delta — default | loose | tight | n_scenarios producing variation |
+|---|---:|---:|---:|---:|
+| TPRR_F | 0 | 0 | 0 | 0 / 6 |
+| TPRR_S | 59 | 58 | 58 | 4 / 6 |
+| TPRR_E | 60 | 60 | 60 | 3 / 6 |
+
+The same 4 S-tier scenarios (sustained_manipulation, correlated_blackout, intraday_spike, fat_finger_high) produce variation across all 3 configs; same 3 E-tier scenarios (correlated_blackout, shock_price_cut, stale_quote) across all 3 configs. Per-scenario seed-counts differ by at most 1 (intraday_spike S-tier: 13 → 12 → 12). Max abs deltas vary modestly (~10–20% per cell) but the qualitative response signature is identical across configs.
+
+**Mechanism — upstream vs downstream parameter regime distinction**:
+
+The methodology has two parameter regimes operating at different points in the pipeline:
+
+- **Upstream (filtering layer)**: slot-level gate (15% / 5-day trailing average), minimum-3-contributors threshold, suspension/reinstatement policy. Operates on raw slot-level prices before aggregation.
+- **Downstream (aggregation layer)**: λ (median-distance exponential weighting), Tier B haircut, blending coefficients. Operates on already-filtered signals.
+
+The Phase 7H continuous-blending parameters swept here (λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}) are all **downstream**. The gate-cascade + minimum-3 + suspension policy filter scenario perturbations *before* they reach the blending step. Downstream parameters redistribute weight on surviving signals; they cannot reintroduce filtered-out signals. This explains why scenario absorption is invariant to the Phase 7H configs: the absorption mechanism operates upstream of the parameters being varied.
+
+**Scope of the structural claim — Phase 7H design space, not arbitrary parameters**:
+
+- Structural with respect to Phase 7H continuous-blending design space: λ, Tier B haircut, blending coefficients within the loose / default / tight envelope.
+- **Not** claimed structural with respect to upstream parameters (gate threshold, minimum-3 threshold, suspension policy). Batch 10B's gate threshold sweep (DL 2026-05-01 Batch 10B) confirms strict gate settings shift TPRR_F base_date raw_value, hinting upstream parameter changes would affect absorption — though the cross-product (gate × scenarios × seeds) was not run.
+
+**Phase 11 narrative — headline manipulation-resistance result**:
+
+This is the strongest publishable manipulation-resistance result Phase 10 has produced and should be the **headline finding for Phase 11's manipulation-resistance section**.
+
+- Recommended framing: "Across the Phase 7H continuous-blending design space (λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}, 60 seed × config combinations), 6 v0.1 scenarios, and the full 366-day backtest, TPRR-F produces byte-identical output to the corresponding clean panels at every day. The dual-weighted formula combined with the slot-level gate, three-tier hierarchy, and minimum-3-constituents requirement absorbs the v0.1 scenario suite completely on the F-tier index, invariantly to the downstream blending parameters."
+- Discouraged framing: "TPRR is impervious to manipulation" (overstates the v0.1-suite-at-Phase-7H-design-space scope) or "F-tier absorption holds across all parameter values" (overstates beyond the swept Phase 7H envelope).
+
+The precise framing — "absorbs the v0.1 scenario suite invariantly across the Phase 7H continuous-blending design space" — is both accurate and impressive. Institutional reviewers will probe scope; precision earns credibility.
+
+**Three-regime distinction extends with cross-config evidence**:
+
+The two-layer Phase 11 framing (published-rate robustness + analyst trajectory sensitivity) now distinguishes three regimes, with cross-config evidence for each:
+
+- Parameter sweeps (Batch 10B, single-seed × 4 dimensions): published-rate robust (3 of 4 dimensions), trajectory sensitive (all 4) — the two-layer story.
+- F-tier scenario sweeps (Batch 10C final, 3 configs × 20 seeds × 6 scenarios): both robust at every day — the absorption story, **structural across the Phase 7H downstream design space**.
+- S/E-tier scenario sweeps (Batch 10C final): published-rate robust, trajectory variation under specific scenarios with **config-invariant per-scenario response signature** — the two-layer story holds in attenuated form, with the specific tier × scenario response pattern itself now empirically established as a methodology property.
+
+**v1.3 specification implications**:
+
+1. **Run upstream-parameter × scenarios × seeds cross-products** in v1.3+ to characterise whether absorption holds across upstream parameter variation, or only within Phase 7H downstream design space:
+   - Gate threshold × scenarios × seeds
+   - Minimum-3 threshold × scenarios × seeds
+   - Suspension/reinstatement policy × scenarios × seeds
+2. **Expand the scenario suite** with attack vectors not covered by v0.1 (compromised contributor, multi-tier coordinated, slow drift below gate, volume-share manipulation, red-team adversarial) — preserved from prior 2026-05-01 continuation entry.
+3. **Per-tier manipulation-resistance certification levels** — F-tier (100% absorption v0.1 across Phase 7H design space) is the strongest; S-tier (partial absorption, config-invariant signature) intermediate; E-tier (partial absorption, config-invariant signature) partial. Now empirically supportable across configs.
+
+**File changes in this commit**:
+
+- Renamed and rewrote: `docs/findings/f_tier_scenario_absorption_at_default_config.md` → `docs/findings/f_tier_scenario_absorption_methodology_level.md`. Old default-config-specific framing was misleading post-cross-config result; new doc captures the methodology-level finding with upstream/downstream mechanism articulation and scope clarification.
+- Updated `docs/findings/README.md` index entry.
+- New analysis script: `scripts/analyze_claim2_cross_config.py` (loads 3 with-scenarios parquets, computes base_date + full-trajectory absorption tables; reusable for v1.3 cross-config analyses).
+- Sweep parquets (indices only per new convention): `multi_seed_loose_seed42-61_with_scenarios.parquet`, `multi_seed_tight_seed42-61_with_scenarios.parquet`. Decisions parquets regenerated locally; not staged.
+- Manifest updated with 2 new rows.
+
+**Cross-references**:
+
+- DL 2026-05-01 Phase 10 Batch 10C continuation — Step 3 default-config result this entry generalises
+- DL 2026-05-01 Phase 10 Batch 10B — gate threshold sweep (the upstream parameter whose scenario interaction is uncharacterised; v1.3 follow-up)
+- [docs/findings/f_tier_scenario_absorption_methodology_level.md](findings/f_tier_scenario_absorption_methodology_level.md) — full finding doc (this commit)
+- [docs/findings/base_date_convergence_with_trajectory_sensitivity.md](findings/base_date_convergence_with_trajectory_sensitivity.md) — companion finding (two-layer framing this entry extends to three-regime)
+- [docs/findings/gate_threshold_most_consequential_parameter.md](findings/gate_threshold_most_consequential_parameter.md) — companion finding (the upstream parameter whose interaction with scenarios is the next characterisation target)
+- [docs/findings/cross_config_seed_signature_stability.md](findings/cross_config_seed_signature_stability.md) — companion finding (cross-seed stability that this absorption builds on)
+
+**Methodology section** (final): 3.3 (dual-weighted formula and three-tier hierarchy — F-tier absorption mechanism), 4.2.2 (slot-level gate threshold — pre-aggregation filtering layer; upstream regime), 4.2.4 (minimum constituent count — F-tier's redundancy reservoir; upstream regime).
+
+**Phase 10 status**: Batches 10A (in-memory), 10B (pipeline-rerun parameter sweeps), 10C (multi-seed + scenario cross-product) closed. 10D (synthesis charts) and 10E (close-out) remain — Phase 11 narrative drafting can begin in parallel with the 10D synthesis work given the headline finding is established.
 

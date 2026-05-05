@@ -38,7 +38,9 @@ ordering comparison) and any exploratory work that surfaces something publishabl
 - [cross_config_seed_signature_stability.md](cross_config_seed_signature_stability.md) —
   Same seeds occupy distribution tails across loose / default / tight configs;
   methodology cross-seed response structure is config-invariant
-- [f_tier_scenario_absorption_at_default_config.md](f_tier_scenario_absorption_at_default_config.md) —
-  TPRR-F absorbs the v0.1 scenario suite completely at default config across
-  20 seeds × 6 scenarios = 120 byte-identical datapoints at base_date and at
-  every intermediate day; F-tier 100%, S-tier 4/6 scenarios, E-tier 3/6 scenarios
+- [f_tier_scenario_absorption_methodology_level.md](f_tier_scenario_absorption_methodology_level.md) —
+  TPRR-F absorbs the v0.1 scenario suite completely across the Phase 7H
+  continuous-blending design space (3 configs × 20 seeds × 6 scenarios × 366
+  days = 131,760 F-tier daily datapoints, every one byte-identical to clean);
+  per-scenario S/E-tier response signatures (4/6 and 3/6) invariant across configs.
+  Headline result for Phase 11 manipulation-resistance section
