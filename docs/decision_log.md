@@ -1748,3 +1748,11 @@ F-tier byte-identical scenario absorption across the Phase 7H continuous-blendin
 
 **Methodology section** (Phase 10 close): no further methodology section addressed in this entry; the gap is the methodology document rewrite itself, deferred to Phase 11.
 
+---
+
+## 2026-05-05 — Phase 10 final close-out marker
+
+Phase 10 sealed across all 5 batches (10A in-memory, 10B pipeline-rerun, 10C multi-seed + scenarios, 10D synthesis, 10E close-out housekeeping). [docs/findings/phase_10_synthesis.md](findings/phase_10_synthesis.md) is the bridge artifact for Phase 11. The methodology specification document rewrite ([docs/tprr_methodology.md](tprr_methodology.md)) — folding Phase 7H Batches A–D plus the Phase 10A tier-eligibility threshold into the canonical methodology sections, and absorbing the 2 documentation gaps from §6 of the synthesis — is the load-bearing deferred work.
+
+Substantive close-out details (5-batch / 13-sweep / 8-finding-doc / 9-spec-item scope, Phase 11 readiness check, deferred items, build status) are captured in the 2026-05-05 Phase 10 close-out entry above; this marker confirms the sealing event.
+

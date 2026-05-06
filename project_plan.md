@@ -8,6 +8,18 @@
 
 ---
 
+## Phase status (as of 2026-05-05)
+
+- Phases 0–9: closed.
+- Phase 10 (sensitivity / validation): closed across 5 batches — 10A in-memory, 10B pipeline-rerun, 10C multi-seed + scenarios, 10D synthesis, 10E close-out. 13 sweeps, 8 finding docs. Headline: F-tier byte-identical scenario absorption across the Phase 7H continuous-blending design space (131,760 daily datapoints byte-identical to clean). See [docs/findings/phase_10_synthesis.md](docs/findings/phase_10_synthesis.md) for the bridge artifact.
+- Phase 11 (publication + methodology spec rewrite): **active**. Two primary deliverables:
+  - Methodology specification document rewrite ([docs/tprr_methodology.md](docs/tprr_methodology.md)) — folds Phase 7H Batches A–D plus the Phase 10A tier-eligibility threshold into the canonical methodology sections. This is the load-bearing deferred work.
+  - Publication prose drawing from [docs/findings/phase_10_synthesis.md](docs/findings/phase_10_synthesis.md) as scaffolding — lift [PUBLICATION-GRADE] tagged content forward, fold [METHODOLOGY-DOC] tagged content into the spec rewrite.
+
+  Optional Phase 11 scope expansion: gate × scenarios × seeds cross-product (~8 hours compute) to strengthen the F-tier absorption claim's scope; current scope clauses cover the gap honestly without this addition.
+
+---
+
 ## Success criteria
 
 A credible demonstration — to yourself first, then to a CFO or VC — of seven concrete facts:
