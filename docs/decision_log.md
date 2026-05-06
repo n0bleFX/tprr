@@ -1677,3 +1677,74 @@ The two-layer Phase 11 framing (published-rate robustness + analyst trajectory s
 
 **Phase 10 status**: Batches 10A (in-memory), 10B (pipeline-rerun parameter sweeps), 10C (multi-seed + scenario cross-product) closed. 10D (synthesis charts) and 10E (close-out) remain — Phase 11 narrative drafting can begin in parallel with the 10D synthesis work given the headline finding is established.
 
+---
+
+## 2026-05-05 — Phase 10 close-out: validation rigor across Phase 7H design space, manipulation-resistance methodology-level finding established
+
+Audit-trail companion to Phase 10 Batch 10D synthesis ([docs/findings/phase_10_synthesis.md](findings/phase_10_synthesis.md)). This entry captures the Phase 10 close-out scope as completed, the Phase 11 publication readiness check, the outstanding items deferred to Phase 11, and the build status going into Phase 11. Phase 10 work spanned 2026-05-01 (Batch 10A) → 2026-05-05 (Batches 10C final + 10D synthesis + this 10E close-out).
+
+**Phase 10 scope as completed**:
+
+- **5 batches**:
+  - 10A — in-memory sensitivity sweeps (λ, Tier B haircut, blending coefficients) + tier-eligibility threshold methodology refinement
+  - 10B — pipeline-rerun sensitivity sweeps (suspension threshold, reinstatement threshold, gate threshold, TWAP ordering)
+  - 10C — multi-seed runner + scenario × multi-seed cross-product (default → loose → tight); landed in three commits across 2026-05-01 → 2026-05-05
+  - 10D — synthesis writeup ([docs/findings/phase_10_synthesis.md](findings/phase_10_synthesis.md))
+  - 10E — close-out (this entry; effectively co-landed with 10D)
+- **13 sensitivity sweeps** in [data/indices/sweeps/manifest.csv](../data/indices/sweeps/manifest.csv): 3 single-seed (Batch 10A) + 4 single-seed (Batch 10B) + 6 multi-seed (Batch 10C: 3 configs × {clean, with_scenarios})
+- **8 Phase 10 finding docs** in [docs/findings/](findings/) (excluding the 2 Phase 2 docs):
+  - [base_date_convergence_with_trajectory_sensitivity.md](findings/base_date_convergence_with_trajectory_sensitivity.md)
+  - [cross_config_seed_signature_stability.md](findings/cross_config_seed_signature_stability.md)
+  - [f_tier_scenario_absorption_methodology_level.md](findings/f_tier_scenario_absorption_methodology_level.md)
+  - [gate_threshold_most_consequential_parameter.md](findings/gate_threshold_most_consequential_parameter.md)
+  - [lambda_non_monotonicity_in_realized_vol.md](findings/lambda_non_monotonicity_in_realized_vol.md)
+  - [tier_eligibility_threshold_mechanism.md](findings/tier_eligibility_threshold_mechanism.md)
+  - [twap_ordering_empirical_equivalence.md](findings/twap_ordering_empirical_equivalence.md)
+  - [phase_10_synthesis.md](findings/phase_10_synthesis.md) (this batch)
+- **9 specification items** surfaced and tracked through Phase 7H + Phase 10 validation work, split per [phase_10_synthesis.md](findings/phase_10_synthesis.md) §6 taxonomy into **7 methodology gaps + 2 documentation gaps** (full enumeration in DL 2026-05-01 Phase 10 Batch 10A entry):
+  - **Methodology gaps (7)** — 4 implemented in v0.1 (Phase 7H + Phase 10A): cliff-edge dynamics → continuous blending; cross-tier magnitude → within-tier-share normalisation; one-way ratchet → bidirectional reinstatement; tier-eligibility threshold (the load-bearing closures). 3 queued for v1.3: Tier B haircut value calibration refinement; Tier B revenue derivation chain expansion; v0.1 Tier C coverage sparseness.
+  - **Documentation gaps (2)** — Phase 11 spec-rewrite deliverable: continuous blending price-aggregation formal documentation; three-tier hierarchy bias profile formal documentation. Implementation already correct in v0.1; the methodology spec doc text is the gap.
+
+**Headline result established**:
+
+F-tier byte-identical scenario absorption across the Phase 7H continuous-blending design space — 131,760 daily datapoints, every one identical to clean. Documented in [f_tier_scenario_absorption_methodology_level.md](findings/f_tier_scenario_absorption_methodology_level.md). Scope clarified: structural with respect to Phase 7H downstream parameters (λ, Tier B haircut, blending coefficients); not claimed structural with respect to upstream parameters (gate threshold, minimum-3, suspension policy). The cross-product gate × scenarios × seeds was not run (Batch 10C scope was Phase 7H downstream design space).
+
+**Phase 11 publication readiness check**:
+
+- ✓ Headline manipulation-resistance finding empirically established with cross-config evidence
+- ✓ Two-layer / three-regime parameter sensitivity story documented (parameter sweeps → two-layer; F-tier scenario absorption → both robust; S/E-tier scenario absorption → two-layer attenuated with config-invariant per-scenario response signature)
+- ✓ Methodology refinement arc documented (DL 2026-04-30 Phase 7H entries + DL 2026-05-01 Batch 10A entry)
+- ✓ Three-tier hierarchy bias profile framing documented (DL 2026-05-01 entry; ready for Phase 11 prose)
+- ✓ v1.3 specification items list complete with taxonomy (9 items = 7 methodology + 2 doc-text; 4 of 7 methodology gaps implemented in v0.1, 3 queued for v1.3, 2 doc-text items scoped as Phase 11 spec-rewrite deliverable)
+- ✓ Synthesis doc with [PUBLICATION-GRADE] / [AUDIT-TRAIL] / [METHODOLOGY-DOC] tags ready as scaffolding for Phase 11 author
+- ✓ Build state clean: 711 tests passing, mypy --strict clean on src/, ruff clean
+
+**Outstanding items deferred to Phase 11**:
+
+1. **Methodology specification document rewrite** ([docs/tprr_methodology.md](tprr_methodology.md)). The canonical methodology doc still reflects pre-Phase-7H literal canonical Section 3.3.2 priority fall-through; v0.1 implementation matches the proposed v1.3 specification but the spec text has not been folded back. The rewrite is part of Phase 11 publication preparation. Synthesis doc §7.7 flags this gap explicitly.
+
+2. **Gate × scenarios × seeds cross-product** (optional Phase 11 scope addition). Current F-tier absorption claim's scope clauses cover the gap honestly ("structural with respect to Phase 7H continuous-blending design space; not claimed structural with respect to upstream parameters"). Phase 11 author judgment call whether to add this cross-product to scope to strengthen the claim. ~78 min compute per gate value × scenarios × seeds; sweep across 6 gate values would be ~8 hours of pipeline work.
+
+3. **Phase 11 publication prose itself**. Synthesis doc is internal scaffolding tagged for lift-forward. Phase 11 author expands [PUBLICATION-GRADE] tagged content into institutional-audience prose, weaves in [AUDIT-TRAIL] cross-references where reviewers will probe scope, and folds [METHODOLOGY-DOC] items into the methodology specification rewrite.
+
+**Build status going into Phase 11**:
+
+- Repository at `e170c13` (Phase 10 Batch 10C final, pushed to origin/main 2026-05-05) plus this Batch 10D commit pending review
+- 13 sensitivity sweeps reproducible from manifest + sweep parquets + multi-seed runner infrastructure
+- Test coverage: 711 tests passing on a 62-second test run
+- Type safety: mypy --strict clean on src/ (34 source files)
+- Lint: ruff clean (1 unrelated pre-existing format drift in `notebooks/02a_explore_baseline.ipynb` flagged as out-of-scope; not in any Phase 10 commit's working tree)
+- Phase 9 dashboard remains the visual baseline; Phase 11 publication chart work may add chart-pair synthesis derived from Phase 10 sweeps if Phase 11 scope includes it
+
+**Cross-references**:
+
+- [phase_10_synthesis.md](findings/phase_10_synthesis.md) — internal scaffolding for Phase 11 (this batch)
+- DL 2026-05-05 Phase 10 Batch 10C final — the headline absorption finding entry
+- DL 2026-05-01 Phase 10 Batch 10A — the ninth v1.3 specification gap closure (tier-eligibility threshold)
+- DL 2026-05-01 Phase 10 Batch 10B — the four pipeline-rerun parameter sweeps (base-date convergence + gate-as-most-consequential)
+- DL 2026-05-01 Phase 10 Batch 10C partial + continuation — the multi-seed clean and scenarios cross-product foundation
+- DL 2026-04-30 Phase 7H methodology design — the candidate v1.3 specification implemented in v0.1 as the validation experiment
+- DL 2026-04-30 Phase 9 close-out — the cumulative empirical resolution table that anchors §1.4 of the synthesis
+
+**Methodology section** (Phase 10 close): no further methodology section addressed in this entry; the gap is the methodology document rewrite itself, deferred to Phase 11.
+

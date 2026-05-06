@@ -44,3 +44,8 @@ ordering comparison) and any exploratory work that surfaces something publishabl
   days = 131,760 F-tier daily datapoints, every one byte-identical to clean);
   per-scenario S/E-tier response signatures (4/6 and 3/6) invariant across configs.
   Headline result for Phase 11 manipulation-resistance section
+- [phase_10_synthesis.md](phase_10_synthesis.md) —
+  Internal scaffolding for Phase 11 publication authoring. Aggregates 7
+  Phase 10 finding docs + 13 sensitivity sweeps into 8 sections per the
+  proposed Phase 11 narrative structure. Content tagged
+  [PUBLICATION-GRADE] / [AUDIT-TRAIL] / [METHODOLOGY-DOC] for lift-forward decisions
