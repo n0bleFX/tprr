@@ -1,18 +1,26 @@
 # Methodology-Level F-Tier Scenario Absorption
 
-**Source**: Phase 10 Batch 10C final — cross-product sweep across 3 configs (default / loose / tight) × 20 seeds × 6 scenarios (clean + 6 scenarios per seed × config = 420 panel runs total). Cross-config evidence supersedes the prior default-config-only finding.
+**Source**: Phase 10 Batch 10C final (cross-config Phase 7H continuous-blending design space) + **Phase 11 Batch 11A** (cross-gate upstream parameter sweep, 2026-05-06). Combined evidence spans both downstream and upstream parameter axes.
 
-**Status**: Empirical finding. **Headline result for Phase 11 manipulation-resistance section.** Scope is structural with respect to the Phase 7H continuous-blending design space; not claimed structural with respect to upstream parameters (gate threshold, minimum-3, suspension policy).
+**Status**: Empirical finding. **Headline result for Phase 11 manipulation-resistance section.** Scope is structural across two parameter axes tested: (a) the Phase 7H continuous-blending design space (downstream — λ, Tier B haircut, blending coefficients), and (b) the gate-threshold range (upstream). See [gate_x_scenarios_absorption.md](gate_x_scenarios_absorption.md) for the cross-gate finding's standalone documentation.
 
 ## Finding
 
-TPRR-F absorbs the v0.1 scenario suite completely across the Phase 7H continuous-blending design space:
+TPRR-F absorbs the v0.1 scenario suite completely across **both** parameter axes tested:
 
-> **3 configs × 20 seeds × 6 scenarios × 366 days = 131,760 F-tier daily datapoints, every one byte-identical to the corresponding clean-panel value.**
+> **Phase 10 Batch 10C** — 3 configs × 20 seeds × 6 scenarios × 366 days = **131,760 F-tier daily datapoints, byte-identical to clean.**
+>
+> **Phase 11 Batch 11A** — 6 gates × 20 seeds × 6 scenarios × 366 days = **263,520 F-tier daily datapoints, byte-identical to clean.**
+>
+> **Cumulative across both axes**: **395,280 F-tier daily datapoints, every one byte-identical to clean** (with the canonical config × gate=15% cell tested in both experiments, providing cross-experiment reproducibility verification of the absorption result).
 
-Not a single F-tier delta exceeds machine precision at any config, seed, scenario, or day. The maximum observed F-tier trajectory delta across all 131,760 datapoints is ≤ 1.4×10⁻¹⁴ — below float-arithmetic noise floor, well below any methodologically meaningful tolerance.
+Not a single F-tier delta exceeds machine precision at any config, gate, seed, scenario, or day. The maximum observed F-tier trajectory delta across both cross-products is ≤ 1.4×10⁻¹⁴ — below float-arithmetic noise floor, well below any methodologically meaningful tolerance.
 
-The absorption is **invariant to the Phase 7H continuous-blending parameters swept**: λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}, blending coefficients held at the canonical (A=0.6, C=0.3, B=0.1). Same per-scenario response signature on S-tier and E-tier across all 3 configs.
+The absorption is structural across:
+- **Phase 7H continuous-blending design space (downstream)**: λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}, blending coefficients held at the canonical (A=0.6, C=0.3, B=0.1).
+- **Gate-threshold range (upstream)**: `quality_gate_pct ∈ {0.05, 0.10, 0.15, 0.20, 0.25, 0.30}` — the full Batch 10B-swept range, including the strict gates (5%, 10%) where Batch 10B documented material clean-panel TPRR_F base_date level shifts.
+
+Same per-scenario response signature on S-tier and E-tier across all 3 Phase 7H configs and all 6 gate values: same 4 scenarios produce variation on S-tier (correlated_blackout, sustained_manipulation, intraday_spike, fat_finger_high), same 3 on E-tier (correlated_blackout, shock_price_cut, stale_quote). E-tier scenario response magnitude monotonically damps as gate loosens; S-tier swings non-monotonically with gate (per [gate_x_scenarios_absorption.md](gate_x_scenarios_absorption.md) §"Mechanism").
 
 ## Empirical evidence
 
@@ -103,20 +111,25 @@ S-tier (4 constituents) and E-tier (5–6 constituents but lighter contributor r
 
 ## Scope of the structural claim
 
-The absorption claim is **structural with respect to the Phase 7H continuous-blending design space**: λ, Tier B haircut, and blending coefficients within the loose / default / tight envelope. Not a claim that holds for arbitrary parameter values — verification was performed within the swept range.
+The absorption claim is **structural with respect to both swept parameter axes**:
 
-The claim is **not** structural with respect to upstream parameters (gate threshold, minimum-3 threshold, suspension policy):
+- **Downstream — Phase 7H continuous-blending design space**: λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}, blending coefficients within the loose / default / tight envelope. Verified in Phase 10 Batch 10C.
+- **Upstream — gate-threshold range**: `quality_gate_pct ∈ {0.05, 0.10, 0.15, 0.20, 0.25, 0.30}`. Verified in Phase 11 Batch 11A. The cross-gate result is striking because Batch 10B documented that the strict gates (5%, 10%) materially shift the clean-panel TPRR_F base_date raw_value (28.23 vs 30.24 at canonical 15%); despite the level shift, the **scenario delta** stays byte-identical at zero across the full gate range. The clean-panel level moves; the scenario response is invariantly absorbed.
 
-- Batch 10B's gate threshold sweep (DL 2026-05-01 Batch 10B; [gate_threshold_most_consequential_parameter.md](gate_threshold_most_consequential_parameter.md)) confirms strict gate settings (5%, 10%) shift TPRR-F base_date raw_value materially. This hints that upstream parameter changes would affect absorption.
-- The cross-product of gate × scenarios × seeds was **not run** as part of Phase 10. The single-config gate sweep on the clean panel showed gate-driven shifts; scenario × gate interaction is uncharacterised.
-- Minimum-3 threshold sensitivity has not been swept against scenarios.
-- Suspension policy parameters (3-day suspend, 10-day reinstate) have been swept on the clean panel (Batch 10B); not against scenarios.
+Not a claim that holds for arbitrary parameter values — verification was performed within the swept ranges. See [gate_x_scenarios_absorption.md](gate_x_scenarios_absorption.md) §"Acknowledged remaining scope gaps" for the parameter axes that **were not** swept against scenarios:
+
+- Minimum-3 threshold × scenarios (the redundancy mechanism itself; testing might be tautological by construction)
+- Suspension/reinstatement policy × scenarios
+- TWAP ordering × multi-seed × scenarios (Batch 10B did seed-42 only)
+- Tier-eligibility threshold × scenarios
+
+These remain v1.3+ items.
 
 ## Honest calibration acknowledgement
 
 The byte-identical result is consistent with the methodology being well-tuned to the specific failure modes the v0.1 scenario suite was designed to test. The scenarios — fat-finger high, intraday spike, correlated blackout, stale quote, shock price cut, sustained manipulation — were authored alongside the methodology, with the methodology's gate-and-suspension mechanisms in mind. They target specific perturbation patterns the gate is designed to catch.
 
-This finding therefore demonstrates that **the methodology absorbs the v0.1 scenarios it was designed to absorb**, and does so invariantly across the Phase 7H downstream design space. It does not yet demonstrate absorption of:
+This finding therefore demonstrates that **the methodology absorbs the v0.1 scenarios it was designed to absorb**, and does so invariantly across both swept parameter axes (Phase 7H continuous-blending design space + gate-threshold range). It does not yet demonstrate absorption of:
 
 - **Compromised contributor scenarios**: an attacker controlling a single contributor's slot-level prices over an extended window (not just isolated outlier slots), with prices drifting slowly enough to avoid the 5-day trailing-average gate.
 - **Simultaneous multi-tier coordinated attacks**: scenarios that perturb F, S, and E tiers simultaneously to overwhelm the cross-tier blending dynamics.
@@ -126,43 +139,65 @@ This finding therefore demonstrates that **the methodology absorbs the v0.1 scen
 
 These are v1.3+ items. Phase 11 narrative should be precise about what's tested and what isn't.
 
+## Per-tier mechanism by redundancy reservoir size
+
+The cross-gate cross-product surfaces a per-tier mechanism keyed to **redundancy reservoir size** (constituent count × contributor depth per constituent). Three regimes:
+
+- **F-tier (6 constituents × ≥3 contributors per constituent)** — redundancy reservoir is large enough that scenarios are absorbed across the full gate range tested. Absorption is structural across upstream and downstream parameter combinations tested. The dual-weighted formula's averaging across F-tier's broad surviving constituent set produces zero scenario delta at every gate. **F-tier sits in the "absorption regime."**
+
+- **E-tier (5–6 constituents)** — smaller redundancy reservoir; scenarios produce trajectory variation. Magnitude monotonically damps as gate loosens — looser gate filters less raw slot variation, but the wider surviving constituent set absorbs more through averaging. **E-tier sits in the "filter-and-absorb regime" with monotonic gate-dependence.**
+
+- **S-tier (4 constituents)** — smallest redundancy reservoir. Scenarios produce trajectory variation that swings **non-monotonically** with gate — strict gates suspend more constituents (less averaging cushion → larger response); moderate gates produce unstable small-constituent-count interactions. **S-tier sits in the "filter-and-absorb regime" with non-monotonic gate-dependence.**
+
+Per-tier response correlates with redundancy reservoir size; the non-monotonic vs monotonic gate-dependence emerges from constituent count thresholds. F-tier's redundancy dominance puts it in the absorption regime; S/E-tier's smaller redundancy puts them in the filter-and-absorb regime with magnitude depending on gate-redundancy interaction.
+
+This is a v1.3 specification implication: per-tier manipulation-resistance certification (F = absorption-regime; S/E = filter-and-absorb-regime) maps directly to constituent count. Tier C's v0.2+ activation (when ≥3 Tier C constituents per index tier) will activate Tier C in whichever regime its constituent count places it.
+
 ## Phase 11 narrative implication
 
 This is the **headline manipulation-resistance result** for Phase 11. Phase 11 should frame it precisely:
 
-**Recommended framing**: "Across the Phase 7H continuous-blending design space (λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}, 60 seed × config combinations), 6 v0.1 scenarios, and the full 366-day backtest, TPRR-F produces byte-identical output to the corresponding clean panels at every day — 131,760 F-tier daily datapoints, every one identical to clean. The dual-weighted formula combined with the slot-level gate, three-tier hierarchy, and minimum-3-constituents requirement absorbs the v0.1 scenario suite completely on the F-tier index, invariantly to the downstream blending parameters. S-tier and E-tier indices show small trajectory variations under specific scenarios, with per-scenario response signatures that are also essentially config-invariant — reflecting tier-specific structural differences in constituent count and contributor redundancy."
+**Recommended framing**: "TPRR-F absorbs the v0.1 scenario suite completely across the full Phase 7H continuous-blending design space (3 configs × λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}) AND across the upstream gate-threshold range (6 values: 5% / 10% / 15% / 20% / 25% / 30%) — 395,280 F-tier daily datapoints across both axes, every one byte-identical to clean. The dual-weighted formula combined with the slot-level gate, three-tier hierarchy, and minimum-3-constituents requirement absorbs the v0.1 scenario suite completely on the F-tier index, **across every methodology parameter combination tested in Phase 10 + Phase 11A at the values swept**. S-tier and E-tier indices show small trajectory variations under specific scenarios, with per-scenario response signatures that are essentially parameter-invariant — reflecting tier-specific structural differences in constituent count and contributor redundancy. Per-tier mechanism: F-tier sits in an absorption regime; S/E-tier sit in a filter-and-absorb regime with magnitude depending on gate-redundancy interaction."
 
-**Discouraged framing**:
-- "TPRR is impervious to manipulation." Overstates scope. The attack surface is the v0.1 scenario suite at the swept Phase 7H design points.
-- "F-tier absorption holds across all parameter values." Overstates scope. Verified within the Phase 7H design space; upstream parameters (gate, minimum-3, suspension) not swept against scenarios.
+**Discouraged framings**:
+- "TPRR is impervious to manipulation." Overstates scope. The attack surface is the v0.1 scenario suite at the swept Phase 7H + gate values.
+- "F-tier absorption holds across all parameter values." Overstates scope. Verified across two parameter axes (Phase 7H continuous-blending + gate threshold); other axes (minimum-3, suspension/reinstatement, tier-eligibility, TWAP ordering at multi-seed) were NOT swept against scenarios — see [gate_x_scenarios_absorption.md](gate_x_scenarios_absorption.md) §"Acknowledged remaining scope gaps."
+- "Across every methodology parameter swept in Phase 10 + Phase 11A" — slightly overstates because some parameters were swept on the clean panel only, not against scenarios. Use the precise "**combination tested**" qualifier.
 
-**Why this distinction matters**: institutional reviewers will probe scope. Overclaiming invites push-back ("what about a compromised contributor?", "what about a 5% gate?"); underclaiming wastes a strong result. The precise framing — "absorbs the v0.1 scenario suite invariantly across the Phase 7H continuous-blending design space" — is both accurate and impressive.
+**Why this distinction matters**: institutional reviewers will probe scope. Overclaiming invites push-back ("what about minimum-2?"); underclaiming wastes a strong result. The precise framing — "absorbs the v0.1 scenario suite across every methodology parameter combination tested in Phase 10 + Phase 11A at the values swept" — is both accurate and impressive.
 
 ## v1.3 specification implications
 
 v1.3 manipulation-testing work should:
 
-1. **Run upstream-parameter × scenarios × seeds cross-products** to characterise whether absorption holds across upstream parameter variation, or only within Phase 7H downstream design space:
-   - Gate threshold × scenarios × seeds
-   - Minimum-3 threshold × scenarios × seeds
-   - Suspension/reinstatement policy × scenarios × seeds
+1. **Address the remaining upstream-parameter-axis gaps** (gate × scenarios × seeds is now done; the rest are not):
+   - Minimum-3 threshold × scenarios × seeds — the redundancy mechanism itself; testing might be tautological by construction (lowering the minimum mechanically breaks the redundancy reservoir on which the absorption regime depends), but worth verifying empirically.
+   - Suspension/reinstatement policy × scenarios × seeds — Batch 10B swept on clean panel; not against scenarios.
+   - TWAP ordering × multi-seed × scenarios — Batch 10B did seed-42 only; multi-seed extension not run.
+   - Tier-eligibility threshold × scenarios — only verified at default threshold under v0.1 Tier C dormancy.
 2. **Expand the scenario suite** with the attack vectors flagged in the calibration section:
    - Compromised contributor (extended-window manipulation, sub-gate price drift)
    - Simultaneous multi-tier coordinated attack
    - Slowly evolving manipulation (cumulative drift below gate)
    - Volume-share manipulation (attack on within-tier-share rather than price)
    - Red-team adversarial scenarios authored independently of the methodology design
-3. **Re-run the multi-seed cross-product at v1.3 scenarios**: any new scenario in v1.3 should be tested across 20 seeds × default config minimum, with loose/tight cross-products as soak tests.
+3. **Re-run the multi-seed cross-product at v1.3 scenarios**: any new scenario in v1.3 should be tested across 20 seeds × default config minimum, with loose/tight × full gate range as soak tests.
 4. **Document the F-tier absorption asymmetry as a design property**: F-tier's 6-constituent breadth + contributor redundancy is the methodology's primary manipulation-resistance reservoir. v1.3 should formalise this — the constituent count threshold (currently ≥3) directly drives manipulation-resistance capacity. Tier C's v0.2+ activation will need careful constituent-count calibration.
-5. **Specify per-tier manipulation-resistance certification levels**: F-tier (6 constituents, 100% absorption v0.1 across Phase 7H design space) is the strongest; S-tier (4 constituents, partial absorption with config-invariant per-scenario signature) is intermediate; E-tier (5–6 constituents but lighter contributor redundancy) is partial. v1.3 documentation could specify per-tier resistance levels rather than a single methodology-wide claim.
+5. **Specify per-tier manipulation-resistance certification levels** based on the regime distinction documented in §"Per-tier mechanism by redundancy reservoir size":
+   - F-tier (6 constituents) — **absorption regime**: zero scenario delta across both swept parameter axes
+   - E-tier (5-6 constituents) — **filter-and-absorb regime, monotonic gate-dependence**: scenario response damps as gate loosens
+   - S-tier (4 constituents) — **filter-and-absorb regime, non-monotonic gate-dependence**: small-constituent-count interactions with gate-induced suspension produce non-monotonic response
+   v1.3 documentation should specify per-tier resistance levels rather than a single methodology-wide claim.
 
 ## Cross-references
 
 - DL 2026-05-01 Phase 10 Batch 10C continuation — Step 3 default-config cross-product (the precursor to the cross-config result this doc captures)
 - DL 2026-05-05 Phase 10 Batch 10C final — loose + tight cross-product yielding the methodology-level result
+- DL 2026-05-06 Phase 11 Batch 11A — gate × scenarios × seeds cross-product extending the claim to the upstream gate axis
+- [gate_x_scenarios_absorption.md](gate_x_scenarios_absorption.md) — standalone finding doc for the cross-gate result (Phase 11 Batch 11A)
 - [base_date_convergence_with_trajectory_sensitivity.md](base_date_convergence_with_trajectory_sensitivity.md) — companion finding (the two-layer framing this finding extends)
 - [twap_ordering_empirical_equivalence.md](twap_ordering_empirical_equivalence.md) — companion finding (the gate-cascade absorption mechanism, Batch 10B foundation)
-- [gate_threshold_most_consequential_parameter.md](gate_threshold_most_consequential_parameter.md) — companion finding (the upstream gate threshold whose absorption interaction is uncharacterised)
+- [gate_threshold_most_consequential_parameter.md](gate_threshold_most_consequential_parameter.md) — companion finding (the upstream gate threshold whose scenario absorption interaction is now characterised in this doc + the cross-gate companion)
 - [cross_config_seed_signature_stability.md](cross_config_seed_signature_stability.md) — companion finding (cross-seed stability that this absorption depends on)
 - DL 2026-04-30 Phase 7H Batch B — continuous blending (the downstream layer this absorption operates above)
 - DL 2026-04-30 Phase 7H Batch D — suspension reinstatement criteria (the suspension cycle that produces base_date convergence)

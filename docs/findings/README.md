@@ -49,3 +49,17 @@ ordering comparison) and any exploratory work that surfaces something publishabl
   Phase 10 finding docs + 13 sensitivity sweeps into 8 sections per the
   proposed Phase 11 narrative structure. Content tagged
   [PUBLICATION-GRADE] / [AUDIT-TRAIL] / [METHODOLOGY-DOC] for lift-forward decisions
+
+## Phase 11 — Publication preparation + extended validation
+
+- [gate_x_scenarios_absorption.md](gate_x_scenarios_absorption.md) —
+  Cross-gate F-tier scenario absorption (Phase 11 Batch 11A). 6 gate
+  values × 20 seeds × 6 scenarios × 366 days = 263,520 F-tier daily
+  datapoints byte-identical to clean. Strengthens the prior F-tier
+  absorption finding's scope clause from "structural with respect to
+  Phase 7H downstream design space" to "structural across both upstream
+  (gate threshold) AND downstream (Phase 7H continuous-blending)
+  parameter axes at the values swept." Cumulative across both
+  cross-products: 395,280 F-tier datapoints byte-identical. Per-tier
+  mechanism: F-tier absorption regime; S/E-tier filter-and-absorb regime
+  with redundancy-reservoir-size-keyed gate dependence

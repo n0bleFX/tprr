@@ -1756,3 +1756,81 @@ Phase 10 sealed across all 5 batches (10A in-memory, 10B pipeline-rerun, 10C mul
 
 Substantive close-out details (5-batch / 13-sweep / 8-finding-doc / 9-spec-item scope, Phase 11 readiness check, deferred items, build status) are captured in the 2026-05-05 Phase 10 close-out entry above; this marker confirms the sealing event.
 
+---
+
+## 2026-05-06 — Phase 11 Batch 11A: gate × scenarios × seeds cross-product strengthens F-tier absorption to upstream parameter space
+
+Phase 11 begins with an empirical scope-clause refinement on the headline manipulation-resistance result. The prior F-tier absorption finding ([f_tier_scenario_absorption_methodology_level.md](findings/f_tier_scenario_absorption_methodology_level.md)) scope-claused the result as "structural with respect to Phase 7H continuous-blending design space; not claimed structural with respect to upstream parameters." Phase 11 Batch 11A runs the gate × scenarios × seeds cross-product that Phase 10 Batch 10C deferred, and the result strengthens the claim materially.
+
+**Cross-product scope**: 6 gate values × 20 seeds × 6 scenarios + clean baseline = 840 panel runs total, run across two compute sessions on 2026-05-05 and 2026-05-06.
+
+- Session 1: gates 5%, 10%, 15% (~230 minutes compute, 420 runs)
+- Session 2: gates 20%, 25%, 30% (~210 minutes compute, 420 runs)
+- Total compute ~7.3 hours
+
+**Headline result — F-tier byte-identical scenario absorption holds at every gate value tested**:
+
+| gate | F-tier base_date pairs nonzero | F-tier full-trajectory pairs nonzero | F-tier max traj abs ($/Mtok) |
+|---|---:|---:|---:|
+| 5pct | 0 / 120 | 0 / 120 | 7.1×10⁻¹⁵ (machine epsilon) |
+| 10pct | 0 / 120 | 0 / 120 | 7.1×10⁻¹⁵ (machine epsilon) |
+| 15pct | 0 / 120 | 0 / 120 | 7.1×10⁻¹⁵ (machine epsilon) |
+| 20pct | 0 / 120 | 0 / 120 | 7.1×10⁻¹⁵ (machine epsilon) |
+| 25pct | 0 / 120 | 0 / 120 | 7.1×10⁻¹⁵ (machine epsilon) |
+| 30pct | 0 / 120 | 0 / 120 | 7.1×10⁻¹⁵ (machine epsilon) |
+
+Cross-gate F-tier datapoint count: 6 × 20 × 6 × 366 = **263,520 F-tier daily datapoints, every one byte-identical to clean**. Combined with Phase 10 Batch 10C (131,760 datapoints across the Phase 7H continuous-blending design space), the cumulative absorbed-datapoint count across both upstream and downstream parameter axes is **395,280** (with the canonical config × gate=15% cell tested in both experiments, providing cross-experiment reproducibility verification of the absorption result).
+
+**Predictions vs reality**: prior session prompt predicted F-tier absorption "may degrade at gate=10%" and "likely breaks down at gate=5%". Both predictions refuted in the strongest possible direction — F-tier absorption holds byte-identical across the full gate range tested, including gates where Batch 10B's clean-panel sweep documented material TPRR_F base_date level shifts (28.23 at 5% vs 30.24 at canonical 15%). The clean-panel level moves; the scenario delta is invariantly absorbed.
+
+**S-tier and E-tier per-tier mechanism — redundancy reservoir size**:
+
+The cross-gate result surfaces a per-tier mechanism keyed to constituent count × contributor depth:
+
+- **F-tier (6 constituents)**: redundancy reservoir large enough that scenarios are absorbed across the full gate range tested. **Absorption regime** — zero scenario delta at every gate.
+- **E-tier (5–6 constituents)**: smaller reservoir; **filter-and-absorb regime with monotonic gate-dependence** — scenario response magnitude monotonically damps as gate loosens (correlated_blackout max delta drops from $0.245/Mtok at gate=5% to $0.0023/Mtok at gate=30%, two orders of magnitude).
+- **S-tier (4 constituents)**: smallest reservoir; **filter-and-absorb regime with non-monotonic gate-dependence** — scenarios produce trajectory variation that swings non-monotonically with gate (e.g., correlated_blackout max delta swings 0.016 → 0.386 → 0.0074 across gates 5/10/15). Strict gates suspend more constituents (less averaging cushion → larger response); moderate gates produce unstable small-constituent-count interactions.
+
+Per-tier response correlates with redundancy reservoir size. The non-monotonic vs monotonic gate-dependence emerges from constituent count thresholds. F-tier's redundancy dominance puts it in the absorption regime; S/E-tier's smaller redundancy puts them in the filter-and-absorb regime with magnitude depending on gate-redundancy interaction.
+
+**Phase 11 narrative — strengthened framing**:
+
+Recommended framing: "TPRR-F absorbs the v0.1 scenario suite completely across the full Phase 7H continuous-blending design space (3 configs × λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}) AND across the upstream gate-threshold range (6 values: 5% / 10% / 15% / 20% / 25% / 30%) — 395,280 F-tier daily datapoints across both axes, every one byte-identical to clean. The dual-weighted formula combined with the slot-level gate, three-tier hierarchy, and minimum-3-constituents requirement absorbs the v0.1 scenario suite completely on the F-tier index, **across every methodology parameter combination tested in Phase 10 + Phase 11A at the values swept**."
+
+The "combination tested" qualifier preserves scope precision: Phase 10 + Phase 11A swept the Phase 7H continuous-blending design space (Phase 10 Batch 10C) and the gate-threshold range (Phase 11 Batch 11A) against the v0.1 scenarios. Other parameter axes were NOT swept against scenarios — see [gate_x_scenarios_absorption.md](findings/gate_x_scenarios_absorption.md) §"Acknowledged remaining scope gaps":
+- Minimum-3 threshold × scenarios (the redundancy mechanism itself; testing might be tautological by construction)
+- Suspension/reinstatement policy × scenarios (Batch 10B swept on clean panel; not against scenarios)
+- TWAP ordering × multi-seed × scenarios (Batch 10B did seed-42 only)
+- Tier-eligibility threshold × scenarios
+
+These remain v1.3+ items.
+
+**Driver implementation — gate × scenarios × seeds cross-product runner**:
+
+- New driver: `scripts/gate_x_scenarios_x_seeds_sweep.py` — Session-resumable across two invocations; output filename encodes which gate values this invocation covers
+- New builder helper: `build_gate_x_scenario_runs` added to `src/tprr/sensitivity/multi_seed.py`; reuses existing `seed_inputs_cache` so per-seed panel regeneration fires once across all gates within a single sweep call (load-bearing for ~8-hour compute budget)
+- New analysis script: `scripts/analyze_gate_x_scenarios.py` — loads N parquets, partitions by `parameter_label`, surfaces per-gate base_date + full-trajectory + per-scenario breakdowns
+- 5 new tests in `tests/test_sensitivity_gate_x_scenarios.py` covering builder semantics + caching assertion + cross-parquet schema consistency. The caching test is the load-bearing one: 2 gates × 2 seeds × 1 panel = 4 runs; asserts `_inputs_for_seed` call count == 2 (= unique seeds, NOT seeds × gates).
+
+**File outputs (this commit)**:
+
+- 2 new sweep parquets (indices only per Batch 10A convention; decisions parquets generated locally and gitignored):
+  - `data/indices/sweeps/multi_seed/gate_x_scenarios_seed42-61_gates_5_10_15.parquet` (Session 1, 11 MB indices)
+  - `data/indices/sweeps/multi_seed/gate_x_scenarios_seed42-61_gates_20_25_30.parquet` (Session 2, 9.2 MB indices)
+- Manifest 2 new rows tagged `sweep_kind="gate_x_scenarios_x_seeds"`, `parameter_dim="gate_x_seed"`
+- New finding doc: `docs/findings/gate_x_scenarios_absorption.md`
+- Updates: `docs/findings/f_tier_scenario_absorption_methodology_level.md` (fold cross-gate result; per-tier mechanism section; refined framing), `docs/findings/phase_10_synthesis.md` §4.4 (scope clause strengthened), `docs/findings/README.md` (new Phase 11 section indexed)
+- New driver + builder helper + analysis script + tests as listed above
+
+**Cross-references**:
+
+- DL 2026-05-05 Phase 10 Batch 10C final — the prior cross-product on Phase 7H continuous-blending design space (this batch extends to upstream gate axis)
+- DL 2026-05-01 Phase 10 Batch 10B — gate threshold sweep on clean panel (this batch extends to scenarios × multi-seed)
+- DL 2026-05-05 Phase 10 close-out — outstanding item flagged "Optional Phase 11 scope expansion: gate × scenarios × seeds cross-product to strengthen the F-tier absorption claim's scope" — this batch closes that optional item
+- [docs/findings/gate_x_scenarios_absorption.md](findings/gate_x_scenarios_absorption.md) — this batch's standalone finding doc
+- [docs/findings/f_tier_scenario_absorption_methodology_level.md](findings/f_tier_scenario_absorption_methodology_level.md) — updated companion finding (cumulative claim across both axes)
+
+**Methodology section** (Phase 11A close): no further methodology section addressed in this entry; the gap is the methodology document rewrite itself (preserved from Phase 10 close-out), deferred to Phase 11 publication preparation. Per-tier manipulation-resistance certification levels (absorption regime vs filter-and-absorb regime) are a v1.3 specification item that Phase 11A's per-tier mechanism finding now empirically grounds.
+
+
+

@@ -303,3 +303,52 @@ def build_clean_plus_scenario_runs(
                 )
             )
     return runs
+
+
+def build_gate_x_scenario_runs(
+    *,
+    base_config: IndexConfig,
+    gate_values: list[float],
+    seeds: list[int],
+    scenario_ids: list[str],
+) -> list[MultiSeedRun]:
+    """Build (gate x seed x {clean + N scenarios}) cross-product runs.
+
+    Each gate value produces an IndexConfig with ``quality_gate_pct``
+    overridden. Run ordering is gate-major then seed-major then panel:
+    all runs at gate[0] (across seeds x panels) precede all runs at
+    gate[1], etc. Within each gate, the seed cache in
+    ``run_multi_seed_sweep`` regenerates each seed's panel exactly once
+    on first encounter; subsequent gates reuse the cached panel for the
+    same seed because the cache key is seed-only (gate is a downstream
+    config parameter, not a panel-regeneration input).
+
+    ``parameter_label`` format: ``"gate={int(value*100)}pct"`` (e.g.
+    ``"gate=5pct"``, ``"gate=15pct"``). Used for groupby filtering at
+    analysis time.
+    """
+    runs: list[MultiSeedRun] = []
+    for gate_value in gate_values:
+        gate_config = base_config.model_copy(update={"quality_gate_pct": float(gate_value)})
+        label = f"gate={round(gate_value * 100)}pct"
+        for seed in seeds:
+            runs.append(
+                MultiSeedRun(
+                    parameter_label=label,
+                    new_config=gate_config,
+                    seed=seed,
+                    panel_id="clean",
+                    scenario_id=None,
+                )
+            )
+            for scenario_id in scenario_ids:
+                runs.append(
+                    MultiSeedRun(
+                        parameter_label=label,
+                        new_config=gate_config,
+                        seed=seed,
+                        panel_id=scenario_id,
+                        scenario_id=scenario_id,
+                    )
+                )
+    return runs

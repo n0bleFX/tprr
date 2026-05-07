@@ -231,10 +231,21 @@ The F-tier's structural advantage rests on three properties combining at the ups
 
 ### 4.4 Scope of the structural claim
 
-**[PUBLICATION-GRADE]** Phase 11 prose must be precise about scope to earn institutional credibility. The absorption claim is:
+**[PUBLICATION-GRADE]** Phase 11 prose must be precise about scope to earn institutional credibility. **Updated 2026-05-06 after Phase 11 Batch 11A** — the original "not structural with respect to upstream parameters" scope clause has been superseded; cross-gate scenario sweep confirms F-tier absorption holds across the upstream gate axis as well. See [gate_x_scenarios_absorption.md](gate_x_scenarios_absorption.md) for the standalone cross-gate finding.
 
-- **Structural with respect to the Phase 7H continuous-blending design space**: λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}. Verified within the swept envelope.
-- **Not** structural with respect to upstream parameters (gate threshold, minimum-3, suspension policy). Batch 10B's gate threshold sweep confirms strict gate settings shift TPRR-F base_date materially. The cross-product of gate × scenarios × seeds was **not run** as part of Phase 10. Scenario × upstream-parameter interaction is uncharacterised.
+The absorption claim is now:
+
+- **Structural with respect to the Phase 7H continuous-blending design space (downstream)**: λ ∈ {2, 3, 5}, Tier B haircut ∈ {0.4, 0.5, 0.6}. Verified within the swept envelope (Phase 10 Batch 10C — 131,760 F-tier datapoints byte-identical).
+- **Structural with respect to the gate-threshold range (upstream)**: `quality_gate_pct ∈ {0.05, 0.10, 0.15, 0.20, 0.25, 0.30}`. Verified within the swept envelope (Phase 11 Batch 11A — 263,520 F-tier datapoints byte-identical).
+- **Cumulative**: 395,280 F-tier datapoints across both axes, every one byte-identical to clean (with the canonical config × gate=15% cell tested in both experiments, providing cross-experiment reproducibility verification of the absorption result).
+
+The claim is **not** structural with respect to other upstream-parameter axes that were NOT swept against scenarios:
+- Minimum-3 threshold × scenarios (the redundancy mechanism itself; testing might be tautological by construction)
+- Suspension/reinstatement policy × scenarios (Batch 10B swept on clean panel; not against scenarios)
+- TWAP ordering × multi-seed × scenarios (Batch 10B did seed-42 only)
+- Tier-eligibility threshold × scenarios
+
+These remain v1.3+ items per [gate_x_scenarios_absorption.md](gate_x_scenarios_absorption.md) §"Acknowledged remaining scope gaps."
 
 ### 4.5 Acknowledged calibration — v0.1 scenario suite specifically
 
