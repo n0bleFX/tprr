@@ -1877,5 +1877,39 @@ Document scope statement at header preserved. All §-references and formula nota
 
 Files in this commit: docs/tprr_methodology.md (revisions), docs/decision_log.md (this entry).
 
+## 2026-05-08 — Phase 11 Batch 11C-i: TPRR Development and Validation document (prose)
+
+The TPRR Development and Validation document — Noble's internal engineering and validation companion to the canonical methodology specification — was drafted across §1 (Origin and Strategic Context, Noble's voice), §2 (Methodology Development Arc, third-person research voice), §3 (Empirical Validation Findings, third-person research voice), §4 (Future Roadmap, Noble's voice), and §5 (References and Cross-Index, neutral). Document final state: 13,464 words across 567 lines, structured around the Phase 7H + Phase 10A methodology refinement arc and the Phase 10 + Phase 11A empirical validation cross-products.
+
+Five chart placeholders embedded with full Caption / Source / Data values / Recommended visualization / File location metadata: Chart 2.1 (cliff-edge resolution arc, in §2.8), Chart 3.1 (TPRR-F/-S/-E index level over time, in §3.1), Chart 3.2 (F-tier scenario absorption six-panel, in §3.8), Chart 3.3 (per-tier asymmetry across gate range, in §3.9), Chart 3.4 (gate × scenarios cross-product per-tier overlay, in §3.10). Chart production deferred to Batch 11C-ii.
+
+Global stylistic sweeps applied matching Track A methodology-spec amendment policy: British → American English spelling sweep (zero residual British spellings); em-dash sweep (replaced with commas, semicolons, parentheticals, or sentence breaks per judgment policy; em-dashes preserved only in DL entry citation prefixes verbatim, per established citation format).
+
+Document scope clarification: header explicitly positions the document as Noble's internal engineering and validation companion. The external-facing TPRR Methodology White Paper for academic readers and external Index Committee audiences is scheduled for Phase 12 (separate publication-preparation work; not part of Phase 11 close-out).
+
+Phase 11 sequence:
+- Batch 11A ✓ (gate × scenarios × seeds cross-product, 263,520 F-tier datapoints byte-identical)
+- Batch 11B ✓ (methodology specification v1.3 canonical)
+- Batch 11B amendment ✓ (methodology spec offline review revisions, Track A 2026-05-08)
+- Batch 11C-i (this commit, internal development doc prose, charts deferred)
+- Batch 11C-ii (chart production for internal dev doc, future session)
+- Phase 11 close-out + tag
+
+Phase 12 (publication preparation, future phase):
+- Batch 12A (external TPRR Methodology White Paper draft)
+- Batch 12B (white paper review cycles + commit)
+- Phase 12 close-out
+
+**Files in this commit**:
+- docs/tprr_development.md (new file, ~13,464 words, 566 lines)
+- docs/decision_log.md (this entry appended)
+
+**Cross-references**:
+- Methodology spec: docs/tprr_methodology.md (canonical companion)
+- Phase 11 sequence: 2026-05-06 Phase 11 Batch 11A; 2026-05-07 Phase 11 Batch 11B; 2026-05-08 Phase 11 Batch 11B amendment
+- Phase 10 close-out at v0.1-phase-10-complete (commit 07c0ef1)
+- All 9 finding docs in docs/findings/ (referenced throughout §3)
+- Phase 10 synthesis at docs/findings/phase_10_synthesis.md (primary scaffolding source for §2-§3)
+
 
 
