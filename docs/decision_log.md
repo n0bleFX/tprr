@@ -1832,5 +1832,40 @@ These remain v1.3+ items.
 
 **Methodology section** (Phase 11A close): no further methodology section addressed in this entry; the gap is the methodology document rewrite itself (preserved from Phase 10 close-out), deferred to Phase 11 publication preparation. Per-tier manipulation-resistance certification levels (absorption regime vs filter-and-absorb regime) are a v1.3 specification item that Phase 11A's per-tier mechanism finding now empirically grounds.
 
+## 2026-05-07 — Phase 11 Batch 11B: methodology specification document split — canonical methodology spec produced
+
+Phase 11 methodology document rewrite (originally scoped as a single document combining methodology specification with validation narrative) restructured into two separate documents to serve their distinct audiences cleanly:
+
+- **docs/tprr_methodology.md** (this batch): canonical TPRR Methodology Specification v1.3, ~6,900 words, scope-restricted to institutional benchmark reviewer audience (Bloomberg, FTSE Russell, derivative counterparties, regulators). States the methodology as-is without development history, empirical validation references, or forward-looking product roadmap. Drop-in reference document for IOSCO-compliance review.
+
+- **docs/tprr_development.md** (Batch 11C, deferred): development and validation narrative covering methodology refinement arc (Phase 7H Batches A-D, Phase 10A tier-eligibility threshold), empirical validation findings (Phase 10 + 11A scenario absorption work), per-tier mechanism interpretation, future product architecture (derivative applications, distribution strategy), v1.4+ roadmap, IOSCO disclosure trajectory. Publication-ready prose for institutional research reader audience.
+
+Subtraction rules applied to the methodology spec:
+- All decision log citations removed
+- All finding doc cross-references removed
+- All Phase 7H / Phase 10 / Phase 11A references removed
+- All v1.2 supersession framing removed
+- All empirical validation language removed (395,280-datapoint claim moved to development doc)
+- §6 Derivative Applications removed (development doc)
+- §7 Data Distribution and Licensing removed (development doc)
+- §8.2 Methodology Development Roadmap removed (development doc)
+- §8.1 Version History collapsed to single line: 'v1.3, effective 2026-05-06: first published methodology specification'
+- §9 Disclaimers preserved; §6/§7 renumbered
+
+Voice and clarity improvements applied per Matt's v2 review: corrected typos (assymetrical → asymmetric); fixed TPRR-B ratio inconsistency to '75:25 (output:input)' standardized across §1, §3.3.4, §5.2; corrected §4.2.1 intra-period price change paragraph direction (system understates by attenuating intra-day price changes by up to 15 minutes; bounded at ~3% of daily fixing window); 'trimmed or Winsorized mean' terminology fix; LIBOR-to-SOFR generalized to 'post-2012 benchmark reform' avoiding conflict with §2.2 positive LIBOR framing; document-scope header line documenting the split; redundant interstitial paragraph removed.
+
+Document scope statement at header documents the split explicitly so future readers understand the v1.3 methodology spec was deliberately scope-restricted from a larger working draft, with the development/validation content moved to the companion document.
+
+Phase 11 remaining work: Batch 11C (development doc + 4-5 purpose-built charts) → Phase 11 close-out + tag.
+
+**Files in this commit**:
+- docs/tprr_methodology.md (substantial rewrite, ~6,900 words from prior ~8,600-word working draft)
+- docs/decision_log.md (this entry appended)
+
+**Cross-references**:
+- Prior Phase 11 entries: 2026-05-06 Phase 11 Batch 11A (gate × scenarios × seeds cross-product)
+- Phase 10 close-out at v0.1-phase-10-complete (commit 07c0ef1)
+- Phase 11 batch sequence: 11A ✓ → 11B (this) → 11C (development doc, scoped including 4-5 purpose-built charts derived from validation work) → close-out + tag
+
 
 
