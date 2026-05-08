@@ -1867,5 +1867,15 @@ Phase 11 remaining work: Batch 11C (development doc + 4-5 purpose-built charts) 
 - Phase 10 close-out at v0.1-phase-10-complete (commit 07c0ef1)
 - Phase 11 batch sequence: 11A ✓ → 11B (this) → 11C (development doc, scoped including 4-5 purpose-built charts derived from validation work) → close-out + tag
 
+## 2026-05-08 — Phase 11 Batch 11B amendment: methodology specification offline review revisions
+
+Matt's offline review of the v1.3 methodology specification surfaced eighteen substantive content revisions plus two global stylistic sweeps. Substantive revisions cover §1 Executive Summary expansion (Mtok denomination explanation, commodity-grade tier framing analogy, formatting refinement of tier and analytics tables, mechanisms list converted to numbered list); §2 phrasing tightening; §3.1 eligibility table polish; §3.3.1 critical typo fix ('Input token costs do present' → 'Input token costs do not present' — single-word negation that inverts the methodological rationale); §3.3.1 specificity (TPRR-F/S/E rather than TPRR generically); §3.3.2.1 expanded preservation framing for Tier B (anticipates future public reporting transparency); §3.3.2.2 unit consistency (Mtok); §4.2 sub-section renaming to 'Manipulation Control N: [name]' pattern improving navigability of the six-control framework; §4.2.1 polling-interval clarifications; §5.2 grammar fix and quarterly-report disclosure commitment.
+
+Global stylistic sweeps: British → American English spelling (standardised → standardized, organisations → organizations, behaviour → behavior, favour → favor, etc.); em-dash removal with judgment policy (replace em-dashes with commas, semicolons, or parentheticals where possible; split into sentences where standalone reads better; keep em-dash sparingly for final-clause-of-sentence emphasis only).
+
+Document scope statement at header preserved. All §-references and formula notation intact. The amendment does not modify the methodology specification's substantive content; it refines the prose for institutional benchmark reviewer audience.
+
+Files in this commit: docs/tprr_methodology.md (revisions), docs/decision_log.md (this entry).
+
 
 
