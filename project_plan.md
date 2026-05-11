@@ -580,16 +580,19 @@ Phase 11 close-out tagged at v0.1-phase-11-complete.
 
 ---
 
-## Phase 12 — External Publication Preparation — PLANNED
+## Phase 12 — External Publication Preparation — CLOSED 2026-05-11
 
-Phase 12 prepares external-facing publications for academic readers and external Index Committee audiences. The internal development document (Phase 11 Batch 11C-i) serves as Noble's institutional-memory companion; Phase 12 produces purpose-built artifacts for external audiences.
+Phase 12 produced the external-facing TPRR Methodology White Paper for academic readers and external Index Committee audiences. The internal development document (Phase 11 Batch 11C-i) serves as Noble's institutional-memory companion; the white paper is the purpose-built artifact for external distribution.
 
-Planned batches:
-- Batch 12A: TPRR Methodology White Paper draft (academic + Index Committee audience; strips phase/batch references; recasts methodology design rationale; adds academic-style introduction; includes real references section citing Brent / SOFR / LIBOR reform / IOSCO Principles / relevant academic literature; ~6,000-9,000 words target)
-- Batch 12B: White paper review cycles + commit
-- Phase 12 close-out
+Phase 12 deliverable: docs/tprr_white_paper.md — 8,614 words, six sections plus a 14-entry alphabetical references list, four inline figures cross-referencing the visualization artifacts in the internal development document. Title block reflects pre-publication draft status (Draft, May 2026); the effective date will be set when institutional review concludes and the document is ready for external distribution.
 
-Differential decline rate finding from Phase 11C-ii (TPRR-E ~73%, TPRR-S ~49%, TPRR-F ~42% from 2025-Q1 to base_date) identified as anchor for white paper introduction section on tier-differentiated commoditization dynamics.
+Phase 12 sequence:
+- Batch 12A: TPRR Methodology White Paper draft, committed at 743b226 (primary) + 9f1556d (title block correction)
+- Phase 12 close-out (this commit + tag v0.1-phase-12-complete)
+
+Batch 12B (internal review cycles) was not run. External review of Batch 12A is treated as a Phase 13 input rather than a Batch 12B internal review cycle; any white paper revisions resulting from external review become Phase 13 work.
+
+Differential decline rate finding from Phase 11C-ii (TPRR-E ~73%, TPRR-S ~49%, TPRR-F ~42% from 2025-Q1 to base_date) is the standalone empirical observation anchoring the tier-differentiated commoditization framing in §2.4 and §4.2 of the white paper.
 
 ---
 

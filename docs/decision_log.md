@@ -2022,5 +2022,37 @@ Cross-references:
 - Development document: docs/tprr_development.md (internal engineering companion, sealed at commit da1c4b9)
 - Phase 11 close-out tagged at v0.1-phase-11-complete (commit 3c2ffd5)
 
+## 2026-05-11 — Phase 12 close-out
+
+Phase 12 (External Publication Preparation) marked closed at Batch 12A without running Batch 12B internal review cycles. project_plan.md updated to reflect Phase 12 close-out and Phase 13 input scoping.
+
+**Decision**: Phase 12 closes at Batch 12A as the milestone deliverable. Batch 12B (internal review cycles in the Track A pattern from Phase 11) was not run.
+
+**Rationale for skipping Batch 12B**: External review of Batch 12A creates higher-leverage feedback than another internal review cycle at this stage of the document's maturity. Six pause checkpoints during Batch 12A drafting, each with substantive verification, have addressed the categories of issue internal review catches (citation hygiene, numerical consistency, factual accuracy against current data, recasting of internal-jargon source content, structural framework decisions). The marginal yield from another internal cycle is lower than the value of structured external feedback from trusted reviewers. Provisional patent filing removed the disclosure-timing constraint that previously gated external methodology distribution; selective external review (a small set of trusted reviewers with individual cover messages framing specific feedback asks) builds institutional credibility and supports Phase 13+ workstreams (Index Committee recruitment, Bloomberg/LSEG distribution conversations, broader institutional outreach).
+
+**Scope clarification**: External review feedback on Batch 12A becomes Phase 13 scope. Any white paper revisions resulting from external review become Phase 13 work rather than retroactively reopening Phase 12. The white paper's title block currently reflects pre-publication draft status (Draft, May 2026); the effective date will be set when institutional review concludes and the document is ready for external distribution.
+
+**Phase 13 candidate workstreams**: External review feedback ingestion is one of multiple Phase 13 candidate workstreams. Phase 13 candidate workstreams identified to date include contributor onboarding pipeline (operationalizing the Tier A attestation layer with real provider billing data); Index Committee recruitment outreach; Bloomberg/LSEG distribution conversations; adversarial-scenario red-team authoring (expanding the v0.1 scenario suite per the §4.4 limitations in the white paper). Phase 13 scoping occurs in a future session once external review feedback is in hand.
+
+Phase 12 artifacts:
+- docs/tprr_white_paper.md (8,614 words, six sections plus 14-entry alphabetical references list, four inline figures, pre-publication draft status)
+- All numerical claims reconciled to current Phase 11A data state
+- Citations grounded in the locked anchor list of benchmark-design academic literature, institutional governance documentation, commodity-benchmark methodology guides, and the contemporary manipulation literature
+
+Phase 12 sequence:
+- Batch 12A ✓ (white paper draft, commits 743b226 + 9f1556d title-block correction)
+- Batch 12B not run (rationale above)
+- Phase 12 close-out (this commit + tag)
+
+Tag: v0.1-phase-12-complete
+
+**Cross-references**:
+- Phase 11 close-out at v0.1-phase-11-complete (commit 3c2ffd5)
+- Phase 12 Batch 12A primary commit: 743b226 (white paper draft, includes the detailed DL entry covering the deliverable, the six-checkpoint drafting sequence, and the λ volatility divergence flag between the white paper's current-data values and the dev doc / finding doc's earlier-state values)
+- Phase 12 Batch 12A title block correction commit: 9f1556d
+- White paper: docs/tprr_white_paper.md
+- Methodology spec: docs/tprr_methodology.md (canonical companion, sealed at commit 7a691ee)
+- Development document: docs/tprr_development.md (internal engineering companion, sealed at commit da1c4b9)
+
 
 
