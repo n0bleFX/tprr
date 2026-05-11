@@ -23,6 +23,7 @@ dev = [
     "mypy>=1.11.0",
     "jupyter>=1.1.0",
     "ipykernel>=6.29.0",
+    "matplotlib>=3.9.0",
     "pandas-stubs>=2.2.0",
     "types-pyyaml>=6.0.0",
 ]
@@ -38,6 +39,7 @@ ignore = ["E501"]
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["SIM"]
 "notebooks/*" = ["E", "F"]
+"scripts/development_doc_charts.py" = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.13"

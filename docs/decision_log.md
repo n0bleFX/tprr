@@ -1911,5 +1911,46 @@ Phase 12 (publication preparation, future phase):
 - All 9 finding docs in docs/findings/ (referenced throughout §3)
 - Phase 10 synthesis at docs/findings/phase_10_synthesis.md (primary scaffolding source for §2-§3)
 
+## 2026-05-08 — Phase 11 Batch 11C-ii: chart production for TPRR Development and Validation document
+
+Five purpose-built matplotlib SVG charts produced for integration into docs/tprr_development.md per the placeholder metadata embedded in Batch 11C-i:
+
+- Chart 2.1 (cliff-edge resolution arc, §2.8): step chart of TPRR_F base_date tier_a_weight_share trajectory across the Phase 7H + Phase 10A methodology refinement arc; cross-config envelope at endpoint [loose=0.9002, default=0.9192, tight=0.9387] confirms robustness across design space.
+- Chart 3.1 (TPRR-F/-S/-E index level over time, §3.1): three-panel split (one per tier) showing per-day median across 20 seeds with 5th-95th percentile bands; differential decline rates verified across tiers (TPRR-E ~73%, TPRR-S ~49%, TPRR-F ~42% from 2025-Q1 to base_date) reflect efficiency-tier prices declining faster than frontier-tier prices.
+- Chart 3.2 (F-tier scenario absorption, §3.8): single panel showing TPRR-F clean vs correlated_blackout scenario (indistinguishable at chart scale) with per-scenario max |Δ| annotation block confirming complete absorption (three scenarios at exact zero, three scenarios at 2.84×10⁻¹⁴ machine-epsilon noise).
+- Chart 3.3 (per-tier asymmetry across gate range, §3.9): single panel three-series log-scale chart of correlated_blackout signature scenario response per tier across gates 5%-30%; three regimes visually distinct (TPRR-F absorption, TPRR-S filter-and-absorb non-monotonic, TPRR-E filter-and-absorb monotonic).
+- Chart 3.4 (gate × scenarios cross-product per-tier overlay, §3.10): single panel three-series log-scale chart showing median across 6 v0.1 scenarios per (gate, tier) cell; cross-product structure (720 cells per tier) annotated.
+
+Visual design language: three-tier semantic palette (TPRR-F deep navy #1a3a5c, TPRR-S teal #2c8a8a, TPRR-E muted green #5fa869); white background with light-gray horizontal gridlines only; sans-serif typography hierarchy; SVG output for vector/print-quality rendering.
+
+Production toolchain: scripts/development_doc_charts.py reads from existing data/indices/sweeps/multi_seed/ parquets; deterministic outputs reproducible from parquet inputs. Matplotlib added as dev-only dependency in [dependency-groups].dev alongside the existing jupyter/ipykernel tooling, preserving the lean runtime dependency profile (matplotlib is required for documentation chart production, not for index calculation or publication).
+
+Integration: placeholder comment blocks in docs/tprr_development.md replaced with image references + italicized captions per institutional research document convention. Captions use verified data magnitudes (TPRR-F clean baseline $30.11/Mtok at Phase 11A reference state; differential decline rates 73% / 49% / 42% for TPRR-E / TPRR-S / TPRR-F respectively).
+
+Visual iteration history: charts went through five iterations within pause checkpoint 3 (V1 initial production → V2 legend and label fixes → V3 delta line visibility and Y-axis hybrid $ format → V4 band representation restructure and Chart 3.2 consolidation → V5 footnote alignment and Chart 3.1 differential decline rate caption). The iteration cycle surfaced and corrected several substantive issues including: factually incorrect modification name annotations on Chart 2.1 (corrected to methodology-spec terminology); broken matplotlib inset rendering on Chart 3.2 (restructured to single panel with annotation block); misleading Y-axis label semantic on Charts 3.3 and 3.4 ($/Mtok read as price magnitude rather than price difference; corrected to '|scenario − clean| index difference' framing); and band representation overwhelming central lines on Charts 3.1 and 3.4 (resolved by switching Chart 3.1 to per-tier panel split with bands, and removing bands entirely from Chart 3.4).
+
+Phase 11 sequence:
+- Batch 11A ✓ (gate × scenarios × seeds cross-product)
+- Batch 11B ✓ (methodology specification v1.3 canonical)
+- Batch 11B amendment ✓ (methodology spec offline review revisions)
+- Batch 11C-i ✓ (internal development doc prose)
+- Batch 11C-ii (this commit, chart production + integration)
+- Phase 11 close-out + tag (next batch)
+
+Phase 12 (publication preparation, future phase, separate from Phase 11):
+- External-facing TPRR Methodology White Paper for academic readers and external Index Committee audiences; differential decline rate finding identified during chart caption verification will anchor a section of the white paper introduction (commoditization pressure concentrated at efficiency tier; frontier-tier providers retain pricing power as capabilities continue to differentiate).
+
+Files in this commit:
+- scripts/development_doc_charts.py (new file, chart production script)
+- docs/charts/development/cliff_edge_resolution_arc.svg (new)
+- docs/charts/development/tprr_index_level_over_time_canonical.svg (new)
+- docs/charts/development/f_tier_scenario_absorption.svg (new)
+- docs/charts/development/per_tier_asymmetry_across_gate_range.svg (new)
+- docs/charts/development/gate_x_scenarios_per_tier_overlay.svg (new)
+- docs/tprr_development.md (modified — 5 placeholder blocks replaced with image references)
+- pyproject.toml (modified — matplotlib dev-dep addition)
+- uv.lock (modified — dependency lock update)
+- docs/decision_log.md (this entry appended)
+
 
 

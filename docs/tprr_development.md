@@ -178,19 +178,9 @@ Each modification contributes a distinct increment, and the cumulative effect re
 
 The seed-42 trajectory is the reference signal; the methodology-level cliff-edge resolution holds across the broader Phase 7H continuous-blending design space. Across the 60 seed × Phase 7H-config combinations tested in Batch 10C (3 configs × 20 seeds), every seed reports `n_a = 6` at base_date with no regression to the pre-Phase-7H 0.0012 baseline; the cross-config distribution of `tier_a_weight_share` shifts upward modestly (mean 0.90 → 0.92 → 0.94 across loose / default / tight) while the response shape is preserved. The full multi-seed cross-config evidence is in §3.7 below; the point here is that the seed-42 cumulative trajectory generalizes: the cliff-edge resolution is structural across the design space, not a seed-42 artefact.
 
-<!-- CHART_PLACEHOLDER: Chart 2.1 — Cliff-edge resolution arc
-  Caption: "Figure 2.1: TPRR_F base_date tier_a_weight_share trajectory across the Phase 7H + Phase 10A methodology refinement arc, on the seed-42 reference panel. Each modification incrementally relieves cliff-edge dynamics; cumulative refinement produces a 0.0012 → 0.9261 trajectory with full F-tier activation (n_a = 6) at the endpoint."
-  Source: DL 2026-04-30 Phase 9 close-out (Empirical resolution table); DL 2026-04-30 Phase 7H Batches A/B/C/D; DL 2026-05-01 Phase 10 Batch 10A
-  Data values:
-    - Pre-7H literal-canon: 0.0012 (n_a = 3)
-    - Post-Batch A (within-tier-share): 0.5083 (n_a = 3)
-    - Post-Batch B (continuous blending): 0.6980 (n_a = 3)
-    - Post-Batch C (Tier B haircut 0.9 → 0.5; tier ordering A > C > B): 0.8063 (n_a = 3)
-    - Post-Batch D (bidirectional suspension/reinstatement): 0.9261 (n_a = 6)
-    - Post-Batch 10A (tier-eligibility threshold): 0.9261 (n_a = 6)
-  Recommended visualization: Step chart with bars annotated by modification name; secondary axis or annotation showing n_a transition (3 → 6) at the Batch D step. Y-axis 0.0 to 1.0; six discrete x-axis positions for the six trajectory states. Highlight the Batch D step (cliff-edge resolution endpoint) visually distinct from the within-batch-D incremental steps. Optionally include cross-config (loose/default/tight) reference band on the post-trajectory endpoint to indicate the multi-seed × multi-config robustness range from §3.7.
-  File location (when produced): docs/charts/development/cliff_edge_resolution_arc.svg
--->
+![Figure 2.1: TPRR_F base_date tier_a_weight_share trajectory across the Phase 7H + Phase 10A methodology refinement arc, on the seed-42 reference panel. Each modification incrementally relieves cliff-edge dynamics; cumulative refinement produces a 0.0012 → 0.9261 trajectory with full F-tier activation (n_a = 6) at the endpoint. Cross-config range at endpoint shows [loose=0.9002, default=0.9192, tight=0.9387]; default sits inside the envelope, confirming robustness across the Phase 7H continuous-blending design space.](charts/development/cliff_edge_resolution_arc.svg)
+
+*Figure 2.1: TPRR_F base_date tier_a_weight_share trajectory across the Phase 7H + Phase 10A methodology refinement arc, on the seed-42 reference panel. Each modification incrementally relieves cliff-edge dynamics; cumulative refinement produces a 0.0012 → 0.9261 trajectory with full F-tier activation (n_a = 6) at the endpoint. Cross-config range at endpoint shows [loose=0.9002, default=0.9192, tight=0.9387]; default sits inside the envelope, confirming robustness across the Phase 7H continuous-blending design space.*
 
 The cumulative trajectory is the methodology refinement deliverable. It is also the empirical case for taking the v1.3 modifications seriously: the literal-canon implementation produces a degenerate Tier-B-dominated index on the v0.1 reference panel; the v1.3 modifications restore the methodology's intended behavior. The decision to publish v1.3 as the canonical methodology rather than continue with the pre-Phase-7H specification is made on this evidence.
 
@@ -207,19 +197,9 @@ The v1.3 methodology has been empirically tested across 13 sensitivity sweeps ca
 
 Together these cross-products characterize the methodology's response across every primary parameter axis, with multi-seed validation establishing cross-realization robustness on the central axes.
 
-<!-- CHART_PLACEHOLDER: Chart 3.1 — TPRR-F/-S/-E index level over time at canonical config
-  Caption: "Figure 3.1: TPRR-F (frontier), TPRR-S (standard), and TPRR-E (efficiency) daily index levels over the 366-day backtest at canonical config (default Phase 7H, gate=15%, seed-42), all rebased to 100 at the base date 2026-01-01. The reference visualization against which all sensitivity work in §3.3 through §3.10 is compared."
-  Source: data/indices/sweeps/multi_seed/multi_seed_default_seed42-61.parquet (seed-42 row, clean panel)
-  Data values:
-    Three series, 366 days each, x-axis 2025-01-01 → 2026-01-01.
-    All three series rebased to index_level = 100 at 2026-01-01 base_date.
-    TPRR_F daily levels (use raw_value_usd_mtok rebased to 100 at base_date)
-    TPRR_S daily levels (rebased)
-    TPRR_E daily levels (rebased)
-    Reference base_date raw values: TPRR_F = 30.2405, TPRR_S = 3.2927, TPRR_E ≈ 0.5 (approx; pull from parquet)
-  Recommended visualization: Single panel; three lines with distinct colors; legend; horizontal reference line at index_level=100 (base_date anchor); x-axis labelled with quarterly tick marks (2025 Q1 / Q2 / Q3 / Q4 / 2026 Q1); y-axis labelled "Index level (base_date 2026-01-01 = 100)". Optional: shaded band showing the 20-seed multi-seed envelope at default config to illustrate cross-seed dispersion (5th-95th percentile by day across seeds 42-61).
-  File location (when produced): docs/charts/development/tprr_index_level_over_time_canonical.svg
--->
+![Figure 3.1: Per-tier TPRR index level across the 366-day backtest, canonical config. Centerline shows per-day median across 20 seeds (42-61); shaded band shows 5th-95th percentile across seeds. All three tiers rebased to index_level=100 at base_date (2026-01-01); convergence at the right edge is an artifact of this rebasing convention rather than an economic phenomenon. Differential decline rates across tiers: TPRR-E declined ~73% from 2025-Q1 to base_date, TPRR-S declined ~49%, and TPRR-F declined ~42%. These differential rates reflect efficiency-tier prices declining faster than frontier-tier prices over the backtest period — a real economic trend distinct from the geometric rebasing artifact.](charts/development/tprr_index_level_over_time_canonical.svg)
+
+*Figure 3.1: Per-tier TPRR index level across the 366-day backtest, canonical config. Centerline shows per-day median across 20 seeds (42-61); shaded band shows 5th-95th percentile across seeds. All three tiers rebased to index_level=100 at base_date (2026-01-01); convergence at the right edge is an artifact of this rebasing convention rather than an economic phenomenon. Differential decline rates across tiers: TPRR-E declined ~73% from 2025-Q1 to base_date, TPRR-S declined ~49%, and TPRR-F declined ~42%. These differential rates reflect efficiency-tier prices declining faster than frontier-tier prices over the backtest period — a real economic trend distinct from the geometric rebasing artifact.*
 
 The validation work demonstrably tests:
 
@@ -349,16 +329,9 @@ The F-tier's structural advantage rests on three properties combining at the ups
 
 Honest calibration acknowledgement: the byte-identical result is consistent with the methodology being well-tuned to the specific failure modes the v0.1 scenario suite was designed to test. The six scenarios (`fat_finger_high`, `intraday_spike`, `correlated_blackout`, `stale_quote`, `shock_price_cut`, `sustained_manipulation`) were authored alongside the methodology, with the gate-and-suspension mechanisms in mind; they target perturbation patterns the gate is designed to catch. The finding therefore demonstrates that the methodology absorbs the v0.1 scenarios it was designed to absorb, invariantly across the tested parameter combinations. It does not yet demonstrate absorption of compromised-contributor scenarios with sub-gate price drift, simultaneous multi-tier coordinated attacks, slowly evolving manipulation cumulating below the gate threshold, volume-share manipulation on the within-tier-share normalization, or adversarial scenarios authored independently by a red team. These are v1.4+ scope items per §4.1.
 
-<!-- CHART_PLACEHOLDER: Chart 3.2 — F-tier scenario absorption six-panel
-  Caption: "Figure 3.2: TPRR-F daily index level across the 366-day backtest at canonical config (default Phase 7H, gate=15%, seed-42), with each panel overlaying the clean trajectory (solid) against one of the six v0.1 scenarios (dashed). Visual byte-identical match across all six scenarios; the dashed and solid lines are indistinguishable in every panel."
-  Source: DL 2026-05-05 Phase 10 Batch 10C (final): loose + tight × 20 seeds × 6 scenarios cross-product; data/indices/sweeps/multi_seed/multi_seed_default_seed42-61_with_scenarios.parquet; scripts/multi_seed_sweep.py
-  Data values:
-    Six panels, one per scenario. Each panel: TPRR_F daily index level, 366 days, two series (clean, scenario), expected to overlay precisely (max delta ≤ 1.4×10⁻¹⁴ at every day).
-    Scenarios: fat_finger_high; intraday_spike; correlated_blackout; stale_quote; shock_price_cut; sustained_manipulation
-    Reference: at canonical config + seed 42, TPRR_F clean base_date raw_value = 30.2405 USD/Mtok; all six scenario base_date values = 30.2405 USD/Mtok.
-  Recommended visualization: 2×3 grid of small panels; shared y-axis; scenario name as panel title; consistent scale across panels for visual comparison. Single legend (clean / scenario). The visual point is precisely the indistinguishability: make the line styles and colors close enough that the byte-identical match is obvious. Optional: small inset showing the per-day delta values (all near machine epsilon) on a log-scale to make the byte-identical claim visually concrete.
-  File location (when produced): docs/charts/development/f_tier_scenario_absorption_six_panel.svg
--->
+![Figure 3.2: TPRR-F clean panel vs scenario panel under the correlated_blackout v0.1 scenario, canonical config seed-42 across the 366-day backtest. Clean and scenario trajectories are indistinguishable at chart scale. Per-scenario max |Δ| values across all 20 seeds (annotation block, upper right of panel) confirm absorption: three scenarios (fat_finger_high, intraday_spike, shock_price_cut) produce exact zero delta; three scenarios (correlated_blackout, stale_quote, sustained_manipulation) produce maximum |Δ| of 2.84×10⁻¹⁴, within float-arithmetic noise. The methodology's three-tier attestation hierarchy combined with the gated quality filter completely absorbs all six v0.1 scenarios on the F-tier.](charts/development/f_tier_scenario_absorption.svg)
+
+*Figure 3.2: TPRR-F clean panel vs scenario panel under the correlated_blackout v0.1 scenario, canonical config seed-42 across the 366-day backtest. Clean and scenario trajectories are indistinguishable at chart scale. Per-scenario max |Δ| values across all 20 seeds (annotation block, upper right of panel) confirm absorption: three scenarios (fat_finger_high, intraday_spike, shock_price_cut) produce exact zero delta; three scenarios (correlated_blackout, stale_quote, sustained_manipulation) produce maximum |Δ| of 2.84×10⁻¹⁴, within float-arithmetic noise. The methodology's three-tier attestation hierarchy combined with the gated quality filter completely absorbs all six v0.1 scenarios on the F-tier.*
 
 ## **3.9 Per-tier mechanism by redundancy reservoir size**
 
@@ -378,17 +351,9 @@ The F-tier scenario absorption is not the only per-tier finding from Batches 10C
 
 The per-tier mechanism is not noise; it is structurally embedded in the relationship between constituent count and the filter-and-absorb dynamics. F-tier's redundancy dominance puts it in the absorption regime; S/E-tier's smaller redundancy puts them in the filter-and-absorb regime with magnitude depending on gate-redundancy interaction. The implication is direct: **per-tier manipulation-resistance certification levels** should be specified as a v1.3+ documentation refinement, mapping the regime distinction to constituent count per index tier. F-tier (6 constituents) certifies as absorption-regime; S-tier (4) and E-tier (5–6) certify as filter-and-absorb-regime with documented gate-dependence shape. As Tier C coverage expands in v0.2+ and additional constituents enter each index tier, the regime classification will adjust accordingly per the smooth-activation property documented in [methodology spec §3.3.2.4](tprr_methodology.md).
 
-<!-- CHART_PLACEHOLDER: Chart 3.3 — Per-tier asymmetry across gate range
-  Caption: "Figure 3.3: Per-tier maximum scenario response across the gate-threshold range (5% to 30%), focused on the signature `correlated_blackout` scenario. TPRR-F (top) shows zero response at every gate: the absorption regime. TPRR-E (middle) shows monotonic decline as gate loosens: filter-and-absorb with monotonic gate-dependence. TPRR-S (bottom) shows non-monotonic swing: filter-and-absorb with non-monotonic gate-dependence driven by small-constituent-count suspension interactions."
-  Source: DL 2026-05-06 Phase 11 Batch 11A; data/indices/sweeps/multi_seed/gate_x_scenarios_seed42-61_gates_*.parquet; scripts/gate_x_scenarios_x_seeds_sweep.py
-  Data values:
-    Three panels stacked vertically; x-axis gate value (5% / 10% / 15% / 20% / 25% / 30%); y-axis max scenario delta in $/Mtok.
-    TPRR_F (correlated_blackout, top panel): 0 / 0 / 0 / 0 / 0 / 0 (flat zero line; all values ≤ 7.1×10⁻¹⁵ machine epsilon)
-    TPRR_E (correlated_blackout, middle panel): 0.245 / 0.241 / 0.122 / 0.122 / 0.022 / 0.0023 (monotonic decline)
-    TPRR_S (correlated_blackout, bottom panel): 0.016 / 0.386 / 0.0074 / [interpolate from gate_x_scenarios_absorption.md] / [interpolate] / [interpolate] (non-monotonic)
-  Recommended visualization: Three small panels stacked vertically OR one panel with three series in distinct colors. Y-axis log scale recommended (display floor at 1e-15) to make the F-tier zero line visible alongside the larger E/S deltas. Annotate the regime label on each panel/series ("Absorption", "Filter-and-absorb monotonic", "Filter-and-absorb non-monotonic"). Use `correlated_blackout` as the single signature scenario across all three tiers since it produces variation in both E and S; mention in the caption that the same regime distinction holds for the other variation-producing scenarios per tier.
-  File location (when produced): docs/charts/development/per_tier_asymmetry_across_gate_range.svg
--->
+![Figure 3.3: Per-tier worst-day |scenario − clean| index difference across the gate threshold range, for correlated_blackout signature scenario (canonical config except gate, mean across 20 seeds). TPRR-F shows complete absorption (zero delta) across the gate range. TPRR-S exhibits a filter-and-absorb non-monotonic response: delta values in the $0.001-$0.02/Mtok range across gates, with no clear monotonic relationship between gate threshold and scenario delta. TPRR-E exhibits a filter-and-absorb monotonic response: delta declines from ~$0.03/Mtok at gate=5% to ~$0.0006/Mtok at gate=30%. The three regimes (absorption / filter-and-absorb non-monotonic / filter-and-absorb monotonic) are visually distinct across the F/S/E semantic palette. TPRR-F clean baseline = $30.11/Mtok; scenario deltas shown are 14+ orders of magnitude smaller for F-tier.](charts/development/per_tier_asymmetry_across_gate_range.svg)
+
+*Figure 3.3: Per-tier worst-day |scenario − clean| index difference across the gate threshold range, for correlated_blackout signature scenario (canonical config except gate, mean across 20 seeds). TPRR-F shows complete absorption (zero delta) across the gate range. TPRR-S exhibits a filter-and-absorb non-monotonic response: delta values in the $0.001-$0.02/Mtok range across gates, with no clear monotonic relationship between gate threshold and scenario delta. TPRR-E exhibits a filter-and-absorb monotonic response: delta declines from ~$0.03/Mtok at gate=5% to ~$0.0006/Mtok at gate=30%. The three regimes (absorption / filter-and-absorb non-monotonic / filter-and-absorb monotonic) are visually distinct across the F/S/E semantic palette. TPRR-F clean baseline = $30.11/Mtok; scenario deltas shown are 14+ orders of magnitude smaller for F-tier.*
 
 ## **3.10 Cross-gate scenario sub-finding**
 
@@ -411,17 +376,9 @@ S-tier shows the contrasting non-monotonic shape across the same gate range. For
 
 The cross-gate sub-finding strengthens the F-tier absorption result documented in §3.8 by establishing that the absorption mechanism does not depend on gate value: F-tier sits at zero scenario delta at every gate from 5% to 30%, even though E-tier and S-tier show substantial gate-dependence within the same cross-product. The result is the strongest empirical evidence available within the v0.1 scope that F-tier's redundancy reservoir is structurally robust to upstream gate-threshold variation.
 
-<!-- CHART_PLACEHOLDER: Chart 3.4 — Gate × scenarios cross-product per-tier response (overlay)
-  Caption: "Figure 3.4: Per-tier scenario response across the gate-threshold range, overlaid in a single panel for direct comparison. TPRR-F (dashed black at zero) absorbs the scenario completely at every gate: zero delta across the 5%-30% range. TPRR-E (monotonically declining) damps two orders of magnitude as gate loosens. TPRR-S (non-monotonic) swings 24× between adjacent gate values, reflecting small-constituent-count instability under gate-induced suspension."
-  Source: DL 2026-05-06 Phase 11 Batch 11A; data/indices/sweeps/multi_seed/gate_x_scenarios_seed42-61_gates_*.parquet
-  Data values:
-    Single panel; three series; x-axis gate value (5% / 10% / 15% / 20% / 25% / 30%); y-axis max abs delta in $/Mtok for correlated_blackout scenario.
-    TPRR_F: ≤ 7.1×10⁻¹⁵ at every gate (effectively flat at zero)
-    TPRR_E (correlated_blackout): 0.245 / 0.241 / 0.122 / 0.122 / 0.022 / 0.0023 (monotonic decline)
-    TPRR_S (correlated_blackout): 0.016 / 0.386 / 0.0074 / [interpolate] / [interpolate] / [interpolate] (non-monotonic)
-  Recommended visualization: Single panel with three series. Linear y-axis from 0 to 0.5 $/Mtok or log-scale to accommodate F-tier's zero. Highlight F-tier's flat-zero signature visually (e.g., bold dashed black). Use distinct colors for E and S to make the monotonic vs non-monotonic distinction visually obvious. Optional: add second panel below showing the per-scenario × per-gate seed-count-with-variation heatmap for full cross-product visibility.
-  File location (when produced): docs/charts/development/gate_x_scenarios_per_tier_overlay.svg
--->
+![Figure 3.4: Gate × scenarios cross-product per-tier scenario response, median across the 6 v0.1 scenarios at each gate value (canonical config except gate). Y-axis shows median worst-day index difference between scenario and clean panels across the 6 scenarios. TPRR-F clean baseline = $30.11/Mtok; scenario deltas shown for TPRR-F are 14+ orders of magnitude smaller, indicating complete absorption across the gate × scenarios cross-product (720 cells per tier: 6 gates × 6 scenarios × 20 seeds). TPRR-S and TPRR-E exhibit filter-and-absorb behavior at sub-$0.01/Mtok magnitudes across the cross-product.](charts/development/gate_x_scenarios_per_tier_overlay.svg)
+
+*Figure 3.4: Gate × scenarios cross-product per-tier scenario response, median across the 6 v0.1 scenarios at each gate value (canonical config except gate). Y-axis shows median worst-day index difference between scenario and clean panels across the 6 scenarios. TPRR-F clean baseline = $30.11/Mtok; scenario deltas shown for TPRR-F are 14+ orders of magnitude smaller, indicating complete absorption across the gate × scenarios cross-product (720 cells per tier: 6 gates × 6 scenarios × 20 seeds). TPRR-S and TPRR-E exhibit filter-and-absorb behavior at sub-$0.01/Mtok magnitudes across the cross-product.*
 
 ## **3.11 Acknowledged scope gaps**
 
