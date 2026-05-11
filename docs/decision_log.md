@@ -1978,5 +1978,49 @@ Phase 12 sequence (planned):
 - Batch 12B: white paper review cycles + commit
 - Phase 12 close-out
 
+## 2026-05-11 — Phase 12 Batch 12A: TPRR Methodology White Paper draft
+
+The TPRR Methodology White Paper, an external-facing publication targeted at academic readers and external Index Committee audiences, was drafted as docs/tprr_white_paper.md across six sections plus an alphabetical references list:
+
+- §1 Introduction (906 words): AI inference benchmarking gap; definitional description of TPRR family; three principal contributions; paper structure roadmap
+- §2 Market context (1,479 words): AI inference cost structure; Brent and SOFR benchmark precedent; AI-inference-specific benchmark design challenge; tier-differentiated commoditization observation
+- §3 Methodology (2,889 words): index architecture, constituent eligibility and tier classification, output-token basis rationale, three-tier volume-attestation hierarchy, exponential median-distance weighting, TWAP daily fix convention, six-control manipulation-resistance framework structured around the trigger/target/nexus framework
+- §4 Empirical validation (1,936 words): validation approach across the sweep program; per-tier scenario response regimes (F-tier absorption, E-tier filter-and-absorb monotonic, S-tier filter-and-absorb non-monotonic); four parameter-space stability findings; scope and limitations; reference visualization with four inline figures
+- §5 Discussion (1,031 words): limitations and methodology evolution path; comparative positioning relative to commodity-benchmark and reference-rate precedent; future research directions
+- §6 References: 14-entry alphabetical reference list spanning benchmark-design academic literature, institutional governance documentation, commodity-benchmark methodology guides, and the contemporary manipulation literature
+
+Document final state: 8,241 words across §1-§5 body, 271 words in §6 References, ~8,600 words inclusive of headings, metadata, and italicized figure captions. Four inline figures (Figures 1-4) integrated in §4.5 cross-referencing the visualization artifacts published in the parallel internal development document.
+
+Key decisions logged across the six pause checkpoints during drafting:
+
+- Audience scoping at outline approval: academic-primary register with Index Committee defensibility secondary; contributor-onboarding documentation deferred to a separate document outside the white paper scope
+- Structural decision for the §3.7 manipulation-resistance framework spine: the six controls are organized around the trigger/target/nexus framework from Ledgerwood and Carpenter (2012), with each control mapped to the framework component it most directly disrupts; the framework spine makes the manipulation-resistance posture legible to academic readers familiar with the manipulation literature and provides a structured evaluation framework for institutional governance reviewers
+- Chart inclusion decision: four scenario-relevant charts (TPRR-F/-S/-E index level over time; F-tier scenario absorption; per-tier asymmetry across gate range; gate × scenarios cross-product) included inline as Figures 1-4 for self-contained academic distribution; Chart 2.1 (cliff-edge resolution arc) omitted as internal-build-history visualization without a contextual home in white paper structure
+- λ non-monotonicity narrative dropped: the white paper presents the λ realized-volatility finding as a monotonic increase with calibration-balance framing (24.8% / 27.7% / 32.0% at λ=2/3/5), rather than the non-monotonic peak-at-canonical-λ=3 framing carried by the dev doc §3 and the lambda_non_monotonicity_in_realized_vol finding doc; rationale documented under the data divergence flag below
+- IOSCO (2019) citation removed entirely after two failed placement attempts (originally §2.2, then §5.1 governance lifecycle discussion); the 2019 statement is a focused LIBOR pre-cessation communication, not a general framework on governance lifecycle management, and the repeated placement difficulty signaled the citation was not doing necessary work; IOSCO (2013) carries the institutional-governance reference adequately on its own
+- Bias-chain characterization in §3.4 verified against methodology spec §3.3.2.1: the white paper's bias-chain framing (Tier C as single-step bias from transaction-aggregator user-base composition; Tier B as multi-step bias through the revenue-allocation chain) is consistent with the canonical methodology specification
+- TPRR-F clean baseline value reconciled to current Phase 11A data ($30.11/Mtok); strict-gate baseline values similarly reconciled to current data ($28.10 at gate=5%, $29.52 at gate=10%, $30.11 at gate≥15%); the white paper uses current verified values for external reproducibility
+- Verified decline rates (TPRR-E ~73%, TPRR-S ~49%, TPRR-F ~42% from 2025-Q1 to base-date) appear in §1.3 contributions paragraph, §2.4 motivating observation, §4.2 standalone empirical finding paragraph, and Figure 1 caption; all four appearances use the consistent 73/49/42 sequence with TPRR-E/S/F ordering
+
+**λ non-monotonicity data divergence flag**: The dev doc §3 (docs/tprr_development.md, sealed at commit da1c4b9) and the underlying finding doc (docs/findings/lambda_non_monotonicity_in_realized_vol.md) continue to report a non-monotonic 33.4% peak at λ=3 from an earlier data state; current Phase 11A data parquets (data/indices/sweeps/multi_seed/multi_seed_*.parquet) show monotonic increase (24.8% at λ=2, 27.7% at λ=3, 32.0% at λ=5) when the day-over-day-log-returns × √252 annualized-vol calculation specified in the finding doc is re-run on the current data. The dev doc and finding doc are sealed internal artifacts preserving build-history and are not amended retroactively; the white paper uses current verified values for external reproducibility. Future investigation may surface the root cause of the divergence between the earlier-state 33.4% number and the current-state 27.7% number; possibilities include a quiet data regeneration between the finding doc authoring and the current state, a calculation-method difference between the original finding workflow and the current verification workflow, or a parquet-version mismatch unresolved at the current state.
+
+End-to-end consistency sweep at pre-commit: all 11 unique inline §X.Y section references resolve to real headings; all 4 Figure N references resolve to inline figures in §4.5; all 14 unique inline (Author, Year) citations match 14 entries in §6 References with no orphans in either direction; decline-rate sequence consistent across all 4 appearances; "version 1.3" appears once in §1.2 as specified.
+
+Final style sweep at pre-commit: zero em-dashes; zero British spellings (probed against the standard British/American spelling pairs); zero first-person plural pronouns (we/our/us); zero phase/batch references; zero internal jargon (DL entry, finding doc, manifest.csv, script paths).
+
+Phase 12 sequence:
+- Batch 12A ✓ (this commit, white paper draft v1.0)
+- Batch 12B (review cycles, future session, scope to be determined based on review feedback)
+- Phase 12 close-out
+
+Files in this commit:
+- docs/tprr_white_paper.md (new file, ~8,600 words inclusive)
+- docs/decision_log.md (this entry appended)
+
+Cross-references:
+- Methodology spec: docs/tprr_methodology.md (canonical companion, sealed at commit 7a691ee)
+- Development document: docs/tprr_development.md (internal engineering companion, sealed at commit da1c4b9)
+- Phase 11 close-out tagged at v0.1-phase-11-complete (commit 3c2ffd5)
+
 
 
