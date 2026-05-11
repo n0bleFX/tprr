@@ -565,6 +565,34 @@ Each should stand alone — Matt can screen-share any one during a VC call witho
 
 ---
 
+## Phase 11 — Methodology Specification, Development Document, and Empirical Validation — CLOSED 2026-05-08
+
+Phase 11 produced the foundational publication-bearing artifacts of the v0.1 TPRR methodology:
+
+- Batch 11A: gate × scenarios × seeds cross-product sweep (263,520 F-tier datapoints byte-identical; cumulative 395,280 across the Phase 11A scope)
+- Batch 11B: TPRR Methodology Specification v1.3 (~7,038 words, canonical institutional benchmark reviewer artifact, sealed at commit 7a691ee following Track A offline review amendments)
+- Batch 11C-i: TPRR Development and Validation document (~13,464 words, Noble's internal engineering and validation companion to the methodology specification, sealed at commit da1c4b9)
+- Batch 11C-ii: Chart production for the development document (five purpose-built matplotlib SVG charts integrated at §2.8, §3.1, §3.8, §3.9, §3.10; sealed at commit 38bfc60)
+
+Methodology version v1.3 is the canonical reference state for all subsequent work. The development document captures the build history (Phase 7H + Phase 10A methodology refinement, Phase 10 + Phase 11A empirical validation) as institutional-memory infrastructure for Noble engineers, future contributors, and Index Committee members.
+
+Phase 11 close-out tagged at v0.1-phase-11-complete.
+
+---
+
+## Phase 12 — External Publication Preparation — PLANNED
+
+Phase 12 prepares external-facing publications for academic readers and external Index Committee audiences. The internal development document (Phase 11 Batch 11C-i) serves as Noble's institutional-memory companion; Phase 12 produces purpose-built artifacts for external audiences.
+
+Planned batches:
+- Batch 12A: TPRR Methodology White Paper draft (academic + Index Committee audience; strips phase/batch references; recasts methodology design rationale; adds academic-style introduction; includes real references section citing Brent / SOFR / LIBOR reform / IOSCO Principles / relevant academic literature; ~6,000-9,000 words target)
+- Batch 12B: White paper review cycles + commit
+- Phase 12 close-out
+
+Differential decline rate finding from Phase 11C-ii (TPRR-E ~73%, TPRR-S ~49%, TPRR-F ~42% from 2025-Q1 to base_date) identified as anchor for white paper introduction section on tier-differentiated commoditization dynamics.
+
+---
+
 ## Open methodology questions (carry forward)
 
 - **Staleness rule** — 3 days proposed as default. Confirm via Index Committee.

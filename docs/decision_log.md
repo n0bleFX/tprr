@@ -1952,5 +1952,31 @@ Files in this commit:
 - uv.lock (modified — dependency lock update)
 - docs/decision_log.md (this entry appended)
 
+## 2026-05-08 — Phase 11 close-out
+
+Phase 11 (Methodology Specification, Development Document, and Empirical Validation) marked closed. project_plan.md updated with Phase 11 close-out summary and Phase 12 stub.
+
+Phase 11 artifacts:
+- TPRR Methodology Specification v1.3 (~7,038 words, canonical)
+- TPRR Development and Validation document (~13,464 words, internal)
+- Five purpose-built matplotlib SVG charts integrated into development document
+- 395,280-datapoint cross-product validation (gate × scenarios × seeds)
+- All artifacts pinned to methodology version v1.3 as canonical reference state
+
+Phase 11 sequence:
+- Batch 11A ✓ (gate × scenarios × seeds cross-product, commit e5969cc)
+- Batch 11B ✓ (methodology spec v1.3, commit e5969cc)
+- Batch 11B amendment ✓ (methodology spec offline review, commit 7a691ee)
+- Batch 11C-i ✓ (development document prose, commit da1c4b9)
+- Batch 11C-ii ✓ (chart production + integration, commit 38bfc60)
+- Phase 11 close-out (this commit + tag)
+
+Tag: v0.1-phase-11-complete
+
+Phase 12 sequence (planned):
+- Batch 12A: external TPRR Methodology White Paper draft
+- Batch 12B: white paper review cycles + commit
+- Phase 12 close-out
+
 
 
