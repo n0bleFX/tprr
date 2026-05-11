@@ -4,7 +4,7 @@
 
 Noble Markets
 
-**Effective date**: 2026-05-08
+**Draft, May 2026**
 
 ---
 
